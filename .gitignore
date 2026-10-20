@@ -9,3 +9,6 @@ venv/
 
 # macOS
 .DS_Store
+
+# локальные настройки Claude Code
+.claude/settings.local.json
