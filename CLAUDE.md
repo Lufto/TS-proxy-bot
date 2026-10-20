@@ -1,3 +1,7 @@
+## Coding standards
+
+Python code follows `docs/python-rules.md`. Code reviews check against it.
+
 ## Agent skills
 
 ### Issue tracker
