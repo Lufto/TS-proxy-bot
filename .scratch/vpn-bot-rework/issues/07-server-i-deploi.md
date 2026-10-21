@@ -1,8 +1,7 @@
 # Сервер и деплой
 
 Type: grilling
-Status: open
-Blocked by: 11
+Status: claimed
 
 ## Question
 
