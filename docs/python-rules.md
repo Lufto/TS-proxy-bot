@@ -173,4 +173,4 @@ logger.warning("Заказ %s: сумма не совпала с тарифом"
 - Код (функции, переменные, классы) — на английском. Комментарии и docstring — на русском.
 - `snake_case` для функций и переменных (`find_account`), `PascalCase` для классов (`PurchaseService`), `UPPER_CASE` для констант (`GRACE_DAYS = 3`).
 - Никаких «магических чисел» в коде: `timedelta(days=GRACE_DAYS)`, а не `timedelta(days=3)`.
-- Термины берём из `GLOSSARY.md`: клиент — `Client`, заказ — `Order`, счёт — `Bill`, льготный период — `grace`.
+- Термины берём из `GLOSSARY.md`: клиент — `Client`, прокси-аккаунт — `ProxyAccount`, заказ — `Order`, платёж — `Payment`, льготный период — `grace`. Слово `vpn` в коде не используем — везде `proxy`.
