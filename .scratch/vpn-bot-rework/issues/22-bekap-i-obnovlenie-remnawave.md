@@ -101,3 +101,11 @@ _(агент дописывает сюда по ходу: итоги разве�
 - База: 12 МБ, пользователей 28 (ACTIVE 22, EXPIRED 6).
 - Риски: теги `latest` у панели и ноды — при пересоздании контейнера подтянется 3.x и сломает панель; `.env` с правами 644.
 - На сервере также: amnezia-wg-easy, Minecraft, pybots, frp, rathole — не трогаем.
+
+### 2026-10-21 — шаг 2 (бэкап) выполнен
+
+- На сервере: `/root/backups/remnawave-2026-10-21.tar.gz` (и распакованная папка рядом), права только root.
+- На Mac: `~/Backups/remnawave/2026-10-21/remnawave-2026-10-21.tar.gz` (права 600), SHA-256 `eca69e35a71a00929d6a10597a9a71cc39b8a3ebdbe719665ce0ad599d1b46aa` — совпадает с серверной.
+- Состав: `db.sql.gz` (plain `pg_dump`, 0,9 МБ после распаковки, «dump complete» есть), `panel.env`, `panel-docker-compose.yml`, `node/` (compose + ssl).
+- Сверка дампа: users 28, nodes 1, inbounds 5 — совпадает с живой базой.
+- Не входит: тома Redis (кэш) и Docker-образы; образ 2.7.4 на сервере — `remnawave/backend` id `a0e9a3d52e89`.
