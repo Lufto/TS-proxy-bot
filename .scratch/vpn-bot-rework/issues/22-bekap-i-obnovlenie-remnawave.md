@@ -109,3 +109,89 @@ _(агент дописывает сюда по ходу: итоги разве�
 - Состав: `db.sql.gz` (plain `pg_dump`, 0,9 МБ после распаковки, «dump complete» есть), `panel.env`, `panel-docker-compose.yml`, `node/` (compose + ssl).
 - Сверка дампа: users 28, nodes 1, inbounds 5 — совпадает с живой базой.
 - Не входит: тома Redis (кэш) и Docker-образы; образ 2.7.4 на сервере — `remnawave/backend` id `a0e9a3d52e89`.
+
+### 2026-10-21 — шаг 3 (восстановление + репетиция обновления на Mac) выполнен
+
+- Среда: Docker Desktop 4.96 на Mac (arm64), папка `~/remnawave-test/` (compose-проект `rw-test`), панель на `127.0.0.1:3000`, без Cloudflare-туннеля, `CF_TUNNEL_TOKEN` удалён из тестового `.env`, нода в тестовой базе выключена до первого старта (`update nodes set is_disabled = true`) — к боевому серверу тестовая панель не обращалась (в логах 0 упоминаний IP).
+- Проверка — `~/remnawave-test/check.sh`: счётчики в базе + подписка первого активного пользователя против боевой (сравнение по хэшу, ссылки не печатаются).
+- **2.7.4** из бэкапа: старт без ошибок; users 28 (active 22), nodes 1, inbounds 5, hosts 5, admins 1, api tokens 1, squads `Default-Squad`, `test`; подписка (3 ссылки, ключи Reality) **совпадает с боевой**.
+- **→ 2.8.1** (`remnawave/backend:2.8.1`): миграции применились, 0 ошибок, все счётчики и подписка совпадают.
+- **→ 3.4.5** (`JWT_AUTH_SECRET` → `APP_SECRET`, `remnawave/backend:3.4.5`): миграции и 14 шагов инициализации прошли (в т.ч. «Migrate API Token Scopes»); одно безвредное WARN `oauth2Settings.pocketid is not valid` (PocketID не используем); все счётчики и подписка совпадают.
+- Не проверено на Mac: нода 3.x (нода отключена намеренно), вход админа в веб-интерфейс, работа API-токена бота (токена нет на Mac) — проверить на сервере в шаге 6.
+- Особенность: панель отвечает только при заголовках прокси (`X-Forwarded-For`, `X-Forwarded-Proto: https`), без них соединение сбрасывается.
+- **Нода 3.4.2** (Xray 26.7.28) в тестовой сети: подключилась к панели 3.4.5, подняла `vless_reality` (443), `vless_grpc_reality` (8443), `vless_ws` (8080) — по 22 пользователя; те же порты, что у боевой ноды (`test`/1338 и `tsp` на боевой тоже не слушаются). Реальное подключение Xray-клиентом по всем 3 ссылкам пользователя — HTTP 204 через каждую.
+- Веб-интерфейс 3.4.5 открывается через Caddy на `http://localhost:8089` (Chrome; в Safari пустая страница — особенность localhost без https). Вход владельца — не подтверждён.
+
+### 2026-10-21 — подготовка к ночи
+
+- На сервер заранее скачаны образы `remnawave/backend:2.8.1`, `remnawave/backend:3.4.5`, `remnawave/node:3.4.2` (~2,5 мин); работающие контейнеры не трогались. Локальный `latest` по-прежнему = старые образы (2.7.4 и старая нода) — ими же откатываемся.
+- Эталон подписки первого активного пользователя (до обновления): 3 ссылки, хэш `b474669814fd`.
+
+### 2026-10-21 ~22:00 МСК — обновление выполнено (без оповещения клиентов, по решению владельца)
+
+- **A.** Бэкап `/root/backups/remnawave-2026-10-21-1855-pre/`, копия на Mac `~/Backups/remnawave/2026-10-21-1855-pre/` (dump complete, users 28). Рядом с рабочими файлами: `/opt/remnawave/docker-compose.yml.bak-2.7.4`, `/opt/remnawave/.env.bak-2.7.4`, `/opt/remnanode/docker-compose.yml.bak-old`.
+- **B.** Панель → `remnawave/backend:2.8.1`: миграции ок, 0 ERROR, users 28, нода на связи, подписка = эталон. `docker-compose` v5 при этом пересоздал и `remnawave-db`/`remnawave-redis` (данные в томах, не пострадали).
+- **C.** `APP_SECRET` вместо `JWT_AUTH_SECRET`, панель → `remnawave/backend:3.4.5`: 14/14 шагов ✔, WARN pocketid (норма), users 28, api tokens 1, squads `Default-Squad`, `test`, подписка = эталон, `panel.ts-proxy.com` отвечает 200.
+- **D.** Нода → `remnawave/node:3.4.2`: Xray 26.7.28 поднялся за 11 с, 3 инбаунда × 22 пользователя, порты 443/8443/8080/2222; через 2 минуты онлайн 7 реальных клиентов. С Mac агента через боевой сервер прошёл только «Резерв» (Cloudflare), Reality/gRPC — нет (вероятно, сеть Mac/Docker); владелец проверил с телефона — работает.
+- Пароль админа сменён (Rescue CLI → Reset superadmin, затем регистрация в панели); после: admins 1, api tokens 1, users 28, нода на связи.
+- Тестовая среда на Mac удалена (контейнеры, том, образы, папка `~/remnawave-test`); бэкапы в `~/Backups/remnawave/` оставлены. Docker Desktop остаётся установленным.
+- Бэкап после обновления (3.4.5): `/root/backups/remnawave-2026-10-21-1915-post-3.4.5/`, копия на Mac `~/Backups/remnawave/2026-10-21-1915-post-3.4.5/` (SHA-256 дампа совпадает, users 28, nodes 1, admin 1, api_tokens 1). Все прежние бэкапы на месте.
+- Старые образы удалены с сервера (диск 19 → 16 ГБ занято). Для отката их можно скачать по отпечаткам:
+  - панель 2.7.4: `remnawave/backend@sha256:a0e9a3d52e898b894965baed38ee45245b2cdb59ba19e198ab6371319e2968fc` (или просто `remnawave/backend:2.7.4`);
+  - старая нода: `remnawave/node@sha256:9d57375a8168d00252f4debe7a6ac29debd8449af60467ab26b4ee212b047525`;
+  - панель 2.8.1: `remnawave/backend:2.8.1`.
+  - ⚠️ Файлы `.bak-2.7.4` / `.bak-old` ссылаются на тег `latest` — при откате сначала заменить в них тег на отпечаток выше, иначе скачается свежая 3.x.
+- **Автобэкапы** (2026-10-22, по решению владельца): каждый день в 04:00 МСК, шифрование `age` (секретный ключ — `~/Backups/remnawave/backup-key.txt` на Mac, на сервере только открытый); `daily/` — 7 дней, `monthly/` — последняя копия месяца, всегда; чистка ежедневных только после 7 дней без сбоев (проверка каждые 10 минут). Скрипты и описание — `ops/remnawave-backup/`. Первая копия расшифрована на Mac: users 28, «dump complete». Telegram подключится через `/etc/remnawave-backup/telegram.env`, когда появится бот и группа (тема «Бэкапы», ошибки — «Тревоги»).
+- ⚠️ Ключ расшифровки положить в общее хранилище паролей (задача 26).
+- Осталось: шаг 6 (настройки под бота, объявление `announce` в подписке) — отдельно.
+
+## Ночной сценарий (00:00, 2026-10-22)
+
+На сервере compose — команда `docker-compose` (не `docker compose`). Каждый пункт — после «ок» владельца.
+
+**A. Свежий бэкап**
+```
+B=/root/backups/remnawave-$(date +%F-%H%M)-pre && mkdir -p $B && cd $B
+docker exec remnawave-db sh -c 'pg_dump -U $POSTGRES_USER -d $POSTGRES_DB' | gzip > db.sql.gz
+cp /opt/remnawave/.env panel.env && cp /opt/remnawave/docker-compose.yml panel-docker-compose.yml && cp /opt/remnanode/docker-compose.yml node-docker-compose.yml
+chmod -R go-rwx /root/backups
+cp /opt/remnawave/docker-compose.yml /opt/remnawave/docker-compose.yml.bak-2.7.4
+cp /opt/remnawave/.env /opt/remnawave/.env.bak-2.7.4 && chmod 600 /opt/remnawave/.env.bak-2.7.4
+cp /opt/remnanode/docker-compose.yml /opt/remnanode/docker-compose.yml.bak-old
+```
+Скачать дамп на Mac (`scp`), проверить «dump complete» и users 28.
+
+**B. Панель 2.7.4 → 2.8.1** (панель недоступна ~30 с, VPN работает)
+```
+cd /opt/remnawave && sed -i 's#image: remnawave/backend:latest#image: remnawave/backend:2.8.1#' docker-compose.yml
+docker-compose up -d remnawave
+```
+Проверки: в логах `Remnawave Backend v2.8.1` и «Migrations deployed successfully», нет ERROR; users 28, nodes 1 и `is_connected`; подписка — хэш `b474669814fd`.
+
+**C. Панель 2.8.1 → 3.4.5** (панель недоступна ~30 с, VPN работает)
+```
+cd /opt/remnawave && sed -i 's/^JWT_AUTH_SECRET=/APP_SECRET=/' .env
+sed -i 's#image: remnawave/backend:2.8.1#image: remnawave/backend:3.4.5#' docker-compose.yml
+docker-compose up -d remnawave
+```
+Проверки: `v3.4.5`, 14 шагов инициализации ✔ (WARN про pocketid — норма), счётчики, хэш подписки, нода на связи; владелец входит в панель `panel.ts-proxy.com`.
+
+**D. Нода → 3.4.2** (VPN у клиентов прерывается на ~10–30 с)
+```
+cd /opt/remnanode && sed -i 's#image: remnawave/node:latest#image: remnawave/node:3.4.2#' docker-compose.yml
+docker-compose up -d
+```
+Проверки: в логах ноды `XRay Core v26.7.28 is up and running`; слушаются 443, 8443, 8080; в панели нода на связи; владелец подключается с телефона.
+
+**E. После**
+- [ ] Владелец меняет пароль админа панели (старый был виден в переписке).
+- [ ] Через пару дней: удалить старые образы (`docker image rm` старых `latest`), временный `/opt/*.bak-*` оставить до следующего обновления.
+- [ ] Удалить тестовую среду на Mac: `cd ~/remnawave-test && docker compose down -v`, затем папку.
+- [ ] Шаг 6 (настройки под бота) — отдельно, не этой ночью.
+
+**Откат**
+- Панель (после B или C): `cd /opt/remnawave && docker-compose stop remnawave`; вернуть `docker-compose.yml.bak-2.7.4` и `.env.bak-2.7.4`; восстановить базу из дампа A: `docker exec remnawave-db sh -c 'psql -U $POSTGRES_USER -d $POSTGRES_DB -c "drop schema public cascade; create schema public;"'`, затем `gunzip -c $B/db.sql.gz | docker exec -i remnawave-db sh -c 'psql -U $POSTGRES_USER -d $POSTGRES_DB'`; `docker-compose up -d remnawave` (поднимется старый образ 2.7.4 = локальный `latest`). Миграции необратимы — без восстановления базы старая версия не запустится.
+- Нода (после D): вернуть `docker-compose.yml.bak-old`, `docker-compose up -d` (старый образ = локальный `latest`).
+
+**Текст клиентам**
+> Сегодня с 00:00 до 00:40 (МСК) проводим плановые технические работы. Возможны короткие перерывы в работе VPN — до минуты. Если после 00:40 не подключается — обновите подписку в приложении или напишите нам.

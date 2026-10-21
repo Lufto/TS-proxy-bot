@@ -1,0 +1,6 @@
+# /etc/cron.d/remnawave-backup — время сервера UTC (04:00 МСК = 01:00 UTC).
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+*/10 * * * * root /usr/local/bin/remnawave-health.sh
+0 1 * * *    root /usr/local/bin/remnawave-backup.sh
