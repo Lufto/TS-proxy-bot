@@ -12,3 +12,7 @@ venv/
 
 # локальные настройки Claude Code
 .claude/settings.local.json
+
+# старый набросок с открытыми токенами — никогда не коммитить
+bot.py
+rem.py

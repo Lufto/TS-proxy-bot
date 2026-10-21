@@ -44,7 +44,7 @@
 Действия:
 - [ ] В `.env` панели переименовать **`JWT_AUTH_SECRET` → `APP_SECRET`**, значение оставить тем же. Без этого после обновления не войти в панель (ошибка 403).
 - [ ] (необязательно) Удалить из `.env`: `JWT_API_TOKENS_SECRET`, `SWAGGER_PATH`, `SCALAR_PATH`, `IS_DOCS_ENABLED`.
-- [ ] В `docker-compose.yml` сменить тег: `image: remnawave/backend:3`.
+- [ ] В `docker-compose.yml` сменить тег на **точную версию**, а не плавающий `:3` (например, `image: remnawave/backend:3.4.5` — актуальную на момент обновления), чтобы обновления не приезжали сами при следующем `pull`.
 - [ ] Обновить: `cd /opt/remnawave && docker compose pull remnawave && docker compose down && docker compose up -d && docker compose logs -f`
 - [ ] В логах нет ошибок, панель открывается, версия **3.x**.
 - [ ] **Сжатие на reverse proxy:** Caddy — добавить `encode` в каждый блок сайта; Nginx — `gzip on;` в каждый `server`. Если перед панелью Cloudflare — сжатие на прокси выключить, его делает Cloudflare.
