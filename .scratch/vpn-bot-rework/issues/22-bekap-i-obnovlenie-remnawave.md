@@ -89,3 +89,15 @@ Status: open
 ## Ход работы
 
 _(агент дописывает сюда по ходу: итоги разведки, где лежит бэкап, что сделано)_
+
+### 2026-10-21 — шаг 0 и разведка (шаг 1) выполнены
+
+- Вход: `ssh root@212.43.146.106`, порт 22, по ключу `~/.ssh/id_ed25519` с Mac.
+- Сервер: Ubuntu 22.04.5, 2 CPU, 4,8 ГБ RAM, диск 34 ГБ (свободно ~18 ГБ). Docker 29.1.3, compose — отдельная команда `docker-compose` (v5.5.1), плагина `docker compose` нет.
+- Панель: `/opt/remnawave` (`.env`, `docker-compose.yml`), установка вручную, не скриптом. Контейнеры `remnawave` (backend **2.7.4**, тег `latest`), `remnawave-db` (postgres:16-alpine, том `remnawave_pgdata`), `remnawave-redis` (redis:7-alpine), `cloudflare-tunnel` (наружу панель видна только через Cloudflare Tunnel, портов нет).
+- Домены: панель `panel.ts-proxy.com`, подписка `panel.ts-proxy.com/api/sub` — **через Cloudflare** (пункт шага 6).
+- Нода: одна, `tsp` на этом же сервере, `/opt/remnanode` (`docker-compose.yml`, `ssl/`), `remnawave/node:latest`, `network_mode: host`, NODE_PORT=2222.
+- Инбаунды: `test` (1338), `tsp` (443), `vless_reality` (443), `vless_grpc_reality` (8443), `vless_ws` (8080).
+- База: 12 МБ, пользователей 28 (ACTIVE 22, EXPIRED 6).
+- Риски: теги `latest` у панели и ноды — при пересоздании контейнера подтянется 3.x и сломает панель; `.env` с правами 644.
+- На сервере также: amnezia-wg-easy, Minecraft, pybots, frp, rathole — не трогаем.
