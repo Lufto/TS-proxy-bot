@@ -22,6 +22,21 @@ async def claim_trial(session: AsyncSession, client_id: int, now: datetime) -> b
     return affected_rows(result) == 1
 
 
+async def reclaim_trial(
+    session: AsyncSession, client_id: int, claimed_at: datetime, now: datetime
+) -> bool:
+    """Перехватить зависшую выдачу пробного (отметка есть, аккаунта нет).
+
+    `False` — отметку уже перехватил параллельный запрос.
+    """
+    result = await session.execute(
+        update(Client)
+        .where(Client.id == client_id, Client.trial_granted_at == claimed_at)
+        .values(trial_granted_at=now)
+    )
+    return affected_rows(result) == 1
+
+
 async def claim_outage_compensation(
     session: AsyncSession, outage_id: int, admin_id: int, now: datetime
 ) -> bool:

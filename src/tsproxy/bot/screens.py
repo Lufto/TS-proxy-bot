@@ -7,6 +7,7 @@ from aiogram.types import CopyTextButton, InlineKeyboardButton, InlineKeyboardMa
 
 from tsproxy.bot.callbacks import InstructionsCallback, MenuCallback, Platform, ScreenId
 from tsproxy.content.loader import Texts
+from tsproxy.domain.constants import TRIAL_DEVICE_LIMIT, TRIAL_TRAFFIC_GB
 from tsproxy.domain.dates import format_moscow
 from tsproxy.integrations.remnawave_types import AccountStatus, ProxyAccount
 
@@ -17,7 +18,6 @@ COPY_TEXT_MAX_LENGTH = 256
 
 # Экраны-заглушки: текст «скоро» до задачи, которая сделает экран целиком
 PLACEHOLDER_TEXTS: dict[ScreenId, str] = {
-    ScreenId.TRIAL: "trial.soon",  # задача 07
     ScreenId.TARIFFS: "tariffs.soon",  # задача 12
     ScreenId.PROFILE: "profile.soon",  # задача 08
     ScreenId.SUPPORT: "support.soon",  # задачи 16–17
@@ -110,8 +110,8 @@ class Screens:
         ]
         return Screen(self._texts.get(text_key), InlineKeyboardMarkup(inline_keyboard=rows))
 
-    def connect(self, account: ProxyAccount) -> Screen:
-        """«🚀 Подключиться»: страница подписки и копирование ссылки."""
+    def _link_rows(self, account: ProxyAccount) -> list[list[InlineKeyboardButton]]:
+        """Кнопки «Открыть страницу подключения» и «📋 Скопировать ссылку»."""
         url = account.subscription_url
         rows = [[InlineKeyboardButton(text=self._texts.get("buttons.open_subscription"), url=url)]]
         if len(url) <= COPY_TEXT_MAX_LENGTH:
@@ -125,6 +125,11 @@ class Screens:
             )
         else:
             logger.warning("Ссылка подписки длиннее %d символов: без копирования", len(url))
+        return rows
+
+    def connect(self, account: ProxyAccount) -> Screen:
+        """«🚀 Подключиться»: страница подписки и копирование ссылки."""
+        rows = self._link_rows(account)
         expire_at = format_moscow(account.expire_at)
         if account.status is AccountStatus.ACTIVE:
             text = self._texts.get("connect.active", expire_at=expire_at)
@@ -135,14 +140,57 @@ class Screens:
         rows.append(self._back())
         return Screen(text, InlineKeyboardMarkup(inline_keyboard=rows))
 
-    def no_account(self, *, trial_available: bool) -> Screen:
-        """«🚀 Подключиться», а подписки ещё нет: предложить пробный и тарифы."""
-        rows = []
-        if trial_available:
-            rows.append([self._button("buttons.trial", ScreenId.TRIAL)])
-        rows += [[self._button("buttons.tariffs", ScreenId.TARIFFS)], self._back()]
-        key = "connect.no_account_trial" if trial_available else "connect.no_account"
-        return Screen(self._texts.get(key), InlineKeyboardMarkup(inline_keyboard=rows))
+    def no_account(self) -> Screen:
+        """«🚀 Подключиться», а подписки ещё нет: предложить пробный и тарифы.
+
+        Пробный предлагаем всегда: без аккаунта доступа клиент ещё не получал, даже если
+        пробный отмечен (панель не ответила при выдаче) — повторное нажатие доделает выдачу.
+        """
+        rows = [
+            [self._button("buttons.trial", ScreenId.TRIAL)],
+            [self._button("buttons.tariffs", ScreenId.TARIFFS)],
+            self._back(),
+        ]
+        return Screen(
+            self._texts.get("connect.no_account"), InlineKeyboardMarkup(inline_keyboard=rows)
+        )
+
+    def trial_granted(self, account: ProxyAccount) -> Screen:
+        """Пробный период выдан: срок, лимиты и ссылка подписки."""
+        rows = self._link_rows(account)
+        rows += [[self._button("buttons.instructions", ScreenId.INSTRUCTIONS)], self._back()]
+        text = self._texts.get(
+            "trial.granted",
+            expire_at=format_moscow(account.expire_at),
+            traffic_gb=TRIAL_TRAFFIC_GB,
+            device_limit=TRIAL_DEVICE_LIMIT,
+        )
+        return Screen(text, InlineKeyboardMarkup(inline_keyboard=rows))
+
+    def trial_already_used(self) -> Screen:
+        """Пробный уже был — предложить тарифы."""
+        rows = [
+            [self._button("buttons.connect", ScreenId.CONNECT)],
+            [self._button("buttons.tariffs", ScreenId.TARIFFS)],
+            self._back(),
+        ]
+        return Screen(
+            self._texts.get("trial.already_used"), InlineKeyboardMarkup(inline_keyboard=rows)
+        )
+
+    def trial_in_progress(self) -> Screen:
+        """Пробный выдаёт параллельное нажатие (или выдача зависла) — подождать минуту."""
+        rows = [[self._button("buttons.connect", ScreenId.CONNECT)], self._back()]
+        return Screen(
+            self._texts.get("trial.in_progress"), InlineKeyboardMarkup(inline_keyboard=rows)
+        )
+
+    def trial_has_subscription(self) -> Screen:
+        """Подписка уже есть — пробный не нужен."""
+        rows = [[self._button("buttons.connect", ScreenId.CONNECT)], self._back()]
+        return Screen(
+            self._texts.get("trial.has_subscription"), InlineKeyboardMarkup(inline_keyboard=rows)
+        )
 
     def unavailable(self) -> Screen:
         """Панель Remnawave не ответила — попросить попробовать позже."""

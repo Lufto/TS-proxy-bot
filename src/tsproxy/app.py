@@ -49,6 +49,7 @@ from tsproxy.services.alerts import Alerter
 from tsproxy.services.clients import ClientService
 from tsproxy.services.clock import Clock, system_clock
 from tsproxy.services.events import EventLog
+from tsproxy.services.trial import TrialService
 from tsproxy.web.app import create_web_app
 from tsproxy.web.telegram import TelegramWebhook, webhook_url
 
@@ -156,6 +157,7 @@ def build_application(
         mask,
     )
     clients = ClientService(session_factory, clock)
+    events = EventLog(clock, mask)
     ctx = BotContext(
         texts=content.texts,
         admin_texts=content.admin_texts,
@@ -164,8 +166,9 @@ def build_application(
         remnawave=remnawave,
         delivery=ClientDelivery(bot, clients),
         alerter=alerter,
-        events=EventLog(clock, mask),
+        events=events,
         access=AdminAccess(settings.admin_ids, settings.admin_chat_id),
+        trials=TrialService(session_factory, remnawave, events, clock),
     )
     dispatcher = create_dispatcher(ctx, RateLimiter())
     return Application(

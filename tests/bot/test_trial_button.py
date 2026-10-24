@@ -1,0 +1,121 @@
+"""«🎁 Попробовать бесплатно»: ссылка подписки один раз, повтор — «уже использовали»."""
+
+from datetime import timedelta
+
+from aiogram import Bot, Dispatcher
+from aiogram.methods import EditMessageText
+from aiogram.types import InlineKeyboardButton
+from bot_updates import ADMIN_CHAT_ID, CLIENT_ID, callback, user
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from tsproxy.bot.callbacks import MenuCallback, ScreenId
+from tsproxy.bot.fakes import FakeTelegramSession
+from tsproxy.content.loader import Content
+from tsproxy.db.models import Client
+from tsproxy.domain.constants import TRIAL_DAYS, TRIAL_DEVICE_LIMIT, TRIAL_TRAFFIC_GB
+from tsproxy.domain.dates import format_moscow
+from tsproxy.integrations.fakes import FakeRemnawave
+from tsproxy.integrations.remnawave_types import RemnawaveUnavailable
+from tsproxy.services.fakes import FakeAlertSender, FakeClock
+
+TRIAL = MenuCallback(screen=ScreenId.TRIAL).pack()
+
+
+def buttons(edited: EditMessageText) -> list[InlineKeyboardButton]:
+    assert edited.reply_markup is not None
+    return [b for row in edited.reply_markup.inline_keyboard for b in row]  # type: ignore[union-attr]
+
+
+async def test_trial_button_gives_subscription_link(
+    dispatcher: Dispatcher,
+    bot: Bot,
+    telegram: FakeTelegramSession,
+    remnawave: FakeRemnawave,
+    content: Content,
+    clock: FakeClock,
+) -> None:
+    await dispatcher.feed_update(bot, callback(user(CLIENT_ID), TRIAL))
+
+    account = await remnawave.get_account(CLIENT_ID)
+    [edited] = telegram.sent(EditMessageText)
+    assert edited.text == content.texts.get(
+        "trial.granted",
+        expire_at=format_moscow(clock.now + timedelta(days=TRIAL_DAYS)),
+        traffic_gb=TRIAL_TRAFFIC_GB,
+        device_limit=TRIAL_DEVICE_LIMIT,
+    )
+    assert [b.url for b in buttons(edited) if b.url] == [account.subscription_url]
+
+
+async def test_second_press_says_trial_already_used(
+    dispatcher: Dispatcher,
+    bot: Bot,
+    telegram: FakeTelegramSession,
+    remnawave: FakeRemnawave,
+    content: Content,
+) -> None:
+    await dispatcher.feed_update(bot, callback(user(CLIENT_ID), TRIAL))
+    telegram.requests.clear()
+
+    await dispatcher.feed_update(bot, callback(user(CLIENT_ID), TRIAL))
+
+    [edited] = telegram.sent(EditMessageText)
+    assert edited.text == content.texts.get("trial.already_used")
+    assert remnawave.writes == [("create", f"tg_{CLIENT_ID}")]
+
+
+async def test_menu_hides_trial_after_it_was_granted(
+    dispatcher: Dispatcher,
+    bot: Bot,
+    telegram: FakeTelegramSession,
+    session_factory: async_sessionmaker[AsyncSession],
+    content: Content,
+) -> None:
+    await dispatcher.feed_update(bot, callback(user(CLIENT_ID), TRIAL))
+    telegram.requests.clear()
+
+    await dispatcher.feed_update(
+        bot, callback(user(CLIENT_ID), MenuCallback(screen=ScreenId.MAIN).pack())
+    )
+
+    [edited] = telegram.sent(EditMessageText)
+    assert content.texts.get("buttons.trial") not in [b.text for b in buttons(edited)]
+    async with session_factory() as session:
+        client = await session.scalar(select(Client).where(Client.telegram_id == CLIENT_ID))
+    assert client is not None and client.trial_granted_at is not None
+
+
+async def test_paying_client_gets_no_trial(
+    dispatcher: Dispatcher,
+    bot: Bot,
+    telegram: FakeTelegramSession,
+    remnawave: FakeRemnawave,
+    content: Content,
+    clock: FakeClock,
+) -> None:
+    await remnawave.get_or_create_account(
+        CLIENT_ID, expire_at=clock.now + timedelta(days=30), device_limit=3, traffic_limit_bytes=0
+    )
+
+    await dispatcher.feed_update(bot, callback(user(CLIENT_ID), TRIAL))
+
+    [edited] = telegram.sent(EditMessageText)
+    assert edited.text == content.texts.get("trial.has_subscription")
+
+
+async def test_panel_down_apologizes_and_alerts(
+    dispatcher: Dispatcher,
+    bot: Bot,
+    telegram: FakeTelegramSession,
+    remnawave: FakeRemnawave,
+    alert_sender: FakeAlertSender,
+    content: Content,
+) -> None:
+    remnawave.fail_next(RemnawaveUnavailable("timeout"))
+
+    await dispatcher.feed_update(bot, callback(user(CLIENT_ID), TRIAL))
+
+    [edited] = telegram.sent(EditMessageText)
+    assert edited.text == content.texts.get("connect.unavailable")
+    assert [m.chat_id for m in alert_sender.sent] == [ADMIN_CHAT_ID]

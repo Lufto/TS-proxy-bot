@@ -94,7 +94,6 @@ async def test_menu_hides_trial_button_after_trial(
     [
         (ScreenId.ABOUT, "about.text"),
         (ScreenId.INSTRUCTIONS, "instructions.choose"),
-        (ScreenId.TRIAL, "trial.soon"),
         (ScreenId.TARIFFS, "tariffs.soon"),
         (ScreenId.PROFILE, "profile.soon"),
         (ScreenId.SUPPORT, "support.soon"),

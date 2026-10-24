@@ -25,6 +25,7 @@ from tsproxy.services.alerts import Alerter
 from tsproxy.services.clients import ClientService
 from tsproxy.services.events import EventLog
 from tsproxy.services.fakes import FakeAlertSender, FakeClock
+from tsproxy.services.trial import TrialService
 
 REPO_CONTENT = Path(__file__).parent.parent.parent / "content"
 
@@ -92,12 +93,14 @@ def clients(session_factory: async_sessionmaker[AsyncSession], clock: FakeClock)
 def ctx(
     bot: Bot,
     content: Content,
+    session_factory: async_sessionmaker[AsyncSession],
     clients: ClientService,
     remnawave: FakeRemnawave,
     alert_sender: FakeAlertSender,
     clock: FakeClock,
 ) -> BotContext:
     mask = MaskingFilter([BOT_TOKEN]).mask
+    events = EventLog(clock, mask)
     return BotContext(
         texts=content.texts,
         admin_texts=content.admin_texts,
@@ -108,8 +111,9 @@ def ctx(
         alerter=Alerter(
             alert_sender, content.admin_texts, ADMIN_CHAT_ID, ALERTS_THREAD_ID, clock, mask
         ),
-        events=EventLog(clock, mask),
+        events=events,
         access=AdminAccess(frozenset({ADMIN_ID}), ADMIN_CHAT_ID),
+        trials=TrialService(session_factory, remnawave, events, clock),
     )
 
 

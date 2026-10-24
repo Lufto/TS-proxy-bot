@@ -70,19 +70,21 @@ async def test_connect_without_account_offers_trial(
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), CONNECT))
 
     [edited] = telegram.sent(EditMessageText)
-    assert edited.text == content.texts.get("connect.no_account_trial")
+    assert edited.text == content.texts.get("connect.no_account")
     texts = [b.text for b in buttons(edited)]
     assert content.texts.get("buttons.trial") in texts
     assert all(b.url is None and b.copy_text is None for b in buttons(edited))
 
 
-async def test_connect_without_account_after_trial_offers_tariffs_only(
+async def test_trial_marked_but_never_delivered_is_offered_again(
     dispatcher: Dispatcher,
     bot: Bot,
     telegram: FakeTelegramSession,
     session_factory: async_sessionmaker[AsyncSession],
     content: Content,
 ) -> None:
+    """Пробный отмечен, а аккаунта нет — панель не ответила при выдаче. Доступа клиент
+    не получал, поэтому кнопка пробного остаётся: повторное нажатие доделает выдачу."""
     async with session_factory() as session:
         session.add(Client(telegram_id=CLIENT_ID, first_seen_at=NOW, trial_granted_at=NOW))
         await session.commit()
@@ -91,7 +93,7 @@ async def test_connect_without_account_after_trial_offers_tariffs_only(
 
     [edited] = telegram.sent(EditMessageText)
     assert edited.text == content.texts.get("connect.no_account")
-    assert content.texts.get("buttons.trial") not in [b.text for b in buttons(edited)]
+    assert content.texts.get("buttons.trial") in [b.text for b in buttons(edited)]
 
 
 async def test_button_of_another_client_shows_only_own_data(

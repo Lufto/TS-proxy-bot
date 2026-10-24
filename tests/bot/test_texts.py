@@ -31,10 +31,10 @@ def test_missing_required_text_stops_startup(tmp_path: Path) -> None:
     shutil.copytree(REPO_CONTENT, tmp_path, dirs_exist_ok=True)
     texts_path = tmp_path / TEXTS_FILE
     data = yaml.safe_load(texts_path.read_text(encoding="utf-8"))
-    del data["connect"]["no_account_trial"]
+    del data["connect"]["no_account"]
     texts_path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
 
-    with pytest.raises(ContentError, match=r"connect\.no_account_trial"):
+    with pytest.raises(ContentError, match=r"connect\.no_account"):
         load_content(tmp_path)
 
 
@@ -61,17 +61,24 @@ async def test_all_screens_use_only_required_texts(content: Content) -> None:
     for screen in PLACEHOLDER_TEXTS:
         screens.placeholder(screen)
     screens.connect(account)
-    screens.no_account(trial_available=True)
-    screens.no_account(trial_available=False)
+    screens.no_account()
+    screens.trial_granted(account)
+    screens.trial_already_used()
+    screens.trial_in_progress()
+    screens.trial_has_subscription()
     screens.unavailable()
     screens.error()
     screens.unknown_message()
 
 
 def test_texts_placeholders_are_expected(content: Content) -> None:
+    with_placeholders = {
+        "connect.active": {"expire_at"},
+        "connect.inactive": {"expire_at"},
+        "trial.granted": {"expire_at", "traffic_gb", "device_limit"},
+    }
     for key in REQUIRED_TEXTS:
-        expected = {"expire_at"} if key in {"connect.active", "connect.inactive"} else set()
-        assert content.texts.placeholders(key) == expected, key
+        assert content.texts.placeholders(key) == with_placeholders.get(key, set()), key
 
 
 @pytest.mark.parametrize("key", ["throttle.callback", "errors.stale_button"])
