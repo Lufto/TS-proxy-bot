@@ -25,6 +25,7 @@ from tsproxy.services.alerts import Alerter
 from tsproxy.services.clients import ClientService
 from tsproxy.services.events import EventLog
 from tsproxy.services.fakes import FakeAlertSender, FakeClock
+from tsproxy.services.profile import ProfileService
 
 REPO_CONTENT = Path(__file__).parent.parent.parent / "content"
 
@@ -110,6 +111,7 @@ def ctx(
         ),
         events=EventLog(clock, mask),
         access=AdminAccess(frozenset({ADMIN_ID}), ADMIN_CHAT_ID),
+        profiles=ProfileService(remnawave, clock),
     )
 
 

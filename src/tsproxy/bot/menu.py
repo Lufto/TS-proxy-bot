@@ -19,6 +19,10 @@ COMMAND_SCREENS: dict[str, ScreenId] = {
     "buy": ScreenId.TARIFFS,
     "support": ScreenId.SUPPORT,
 }
+# Команды, чьи экраны ещё заглушки; готовые экраны регистрируют команду в своём роутере
+PLACEHOLDER_COMMANDS = [
+    name for name, screen in COMMAND_SCREENS.items() if screen in PLACEHOLDER_TEXTS
+]
 
 
 def create_menu_router() -> Router:
@@ -27,7 +31,8 @@ def create_menu_router() -> Router:
     router.message.filter(F.chat.type == ChatType.PRIVATE)
     router.callback_query.filter(F.message.chat.type == ChatType.PRIVATE)
     router.message.register(on_start, CommandStart())
-    router.message.register(on_screen_command, Command(*COMMAND_SCREENS))
+    if PLACEHOLDER_COMMANDS:  # `Command()` без команд aiogram не принимает
+        router.message.register(on_screen_command, Command(*PLACEHOLDER_COMMANDS))
     router.callback_query.register(on_main_menu, MenuCallback.filter(F.screen == ScreenId.MAIN))
     router.callback_query.register(
         on_placeholder, MenuCallback.filter(F.screen.in_(PLACEHOLDER_TEXTS.keys()))
@@ -54,7 +59,7 @@ async def on_start(message: Message, ctx: BotContext) -> None:
 
 
 async def on_screen_command(message: Message, command: CommandObject, ctx: BotContext) -> None:
-    """`/profile`, `/buy`, `/support` — те же экраны, что и кнопки меню, новым сообщением."""
+    """`/buy`, `/support` — те же экраны, что и кнопки меню, новым сообщением."""
     if message.from_user is None:
         return
     await ctx.clients.resolve(profile_of(message.from_user))
@@ -72,7 +77,7 @@ async def on_main_menu(callback: CallbackQuery, ctx: BotContext) -> None:
 async def on_placeholder(
     callback: CallbackQuery, callback_data: MenuCallback, ctx: BotContext
 ) -> None:
-    """Экраны следующих задач: пробный (07), тарифы (12), профиль (08), поддержка (16–17)."""
+    """Экраны следующих задач: пробный (07), тарифы (12), поддержка (16–17)."""
     await callback.answer()
     await _show(callback, ctx, ctx.screens.placeholder(callback_data.screen))
 

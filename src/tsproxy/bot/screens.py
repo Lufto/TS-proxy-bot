@@ -19,7 +19,6 @@ COPY_TEXT_MAX_LENGTH = 256
 PLACEHOLDER_TEXTS: dict[ScreenId, str] = {
     ScreenId.TRIAL: "trial.soon",  # задача 07
     ScreenId.TARIFFS: "tariffs.soon",  # задача 12
-    ScreenId.PROFILE: "profile.soon",  # задача 08
     ScreenId.SUPPORT: "support.soon",  # задачи 16–17
 }
 

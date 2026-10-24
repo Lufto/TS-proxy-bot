@@ -7,8 +7,12 @@
 """
 
 from enum import StrEnum
+from typing import Annotated
 
 from aiogram.filters.callback_data import CallbackData
+from pydantic import Field
+
+from tsproxy.services.profile import DEVICE_REF_LENGTH
 
 
 class ScreenId(StrEnum):
@@ -19,6 +23,7 @@ class ScreenId(StrEnum):
     TRIAL = "trial"  # «🎁 Попробовать бесплатно» — задача 07
     TARIFFS = "tariffs"  # «💳 Тарифы» — задача 12
     PROFILE = "profile"  # «👤 Мой профиль» — задача 08
+    DEVICES = "devices"  # «📱 Мои устройства» — задача 08
     INSTRUCTIONS = "instructions"
     SUPPORT = "support"  # «💬 Поддержка» — задачи 16–17
     ABOUT = "about"
@@ -39,3 +44,12 @@ class MenuCallback(CallbackData, prefix="menu"):
 
 class InstructionsCallback(CallbackData, prefix="howto"):
     platform: Platform
+
+
+class DeviceCallback(CallbackData, prefix="device"):
+    """«🗑 Удалить» устройство. `ref` — короткий хеш HWID (`services.profile.device_ref`).
+
+    Устройство ищется только среди устройств нажавшего, поэтому чужой `ref` ничего не удалит.
+    """
+
+    ref: Annotated[str, Field(pattern=rf"^[0-9a-f]{{{DEVICE_REF_LENGTH}}}$")]

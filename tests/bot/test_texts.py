@@ -25,6 +25,30 @@ from tsproxy.integrations.fakes import FakeRemnawave
 CALLBACK_ANSWER_MAX = 200
 CALLBACK_DATA_MAX_BYTES = 64
 FORBIDDEN_WORDS = re.compile(r"vpn|впн", re.IGNORECASE)
+# Тексты с подстановками; у остальных обязательных текстов подстановок нет
+TEXT_PLACEHOLDERS: dict[str, set[str]] = {
+    "connect.active": {"expire_at"},
+    "connect.inactive": {"expire_at"},
+    # задача 08: профиль и устройства
+    "buttons.delete_device": {"number"},
+    "profile.status_trial": {"expire_at", "left"},
+    "profile.status_trial_traffic_used_up": set(),
+    "profile.status_active": {"expire_at", "left"},
+    "profile.status_grace": {"expire_at", "left"},
+    "profile.status_expired": {"expire_at"},
+    "profile.devices": {"used", "limit"},
+    "profile.devices_no_limit": {"used"},
+    "profile.traffic": {"used", "limit"},
+    "devices.title": {"used", "limit"},
+    "devices.title_no_limit": {"used"},
+    "devices.item": {"number", "name", "system", "connected_at"},
+    "devices.item_no_system": {"number", "name", "connected_at"},
+    **{
+        f"units.{unit}_{form}": {"n"}
+        for unit in ("days", "hours")
+        for form in ("one", "few", "many")
+    },
+}
 
 
 def test_missing_required_text_stops_startup(tmp_path: Path) -> None:
@@ -70,7 +94,7 @@ async def test_all_screens_use_only_required_texts(content: Content) -> None:
 
 def test_texts_placeholders_are_expected(content: Content) -> None:
     for key in REQUIRED_TEXTS:
-        expected = {"expire_at"} if key in {"connect.active", "connect.inactive"} else set()
+        expected = TEXT_PLACEHOLDERS.get(key, set())
         assert content.texts.placeholders(key) == expected, key
 
 
