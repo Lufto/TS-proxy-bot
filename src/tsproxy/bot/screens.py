@@ -170,11 +170,10 @@ class Screens:
             self._texts.get("trial.already_used"), InlineKeyboardMarkup(inline_keyboard=rows)
         )
 
-    def trial_in_progress(self) -> Screen:
-        """Пробный выдаёт параллельное нажатие (или выдача зависла) — подождать минуту."""
-        rows = [[self._button("buttons.connect", ScreenId.CONNECT)], self._back()]
+    def trial_pending(self) -> Screen:
+        """Панель не ответила: пробный за клиентом, ссылку бот пришлёт сам."""
         return Screen(
-            self._texts.get("trial.in_progress"), InlineKeyboardMarkup(inline_keyboard=rows)
+            self._texts.get("trial.pending"), InlineKeyboardMarkup(inline_keyboard=[self._back()])
         )
 
     def trial_has_subscription(self) -> Screen:

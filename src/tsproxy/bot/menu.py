@@ -38,14 +38,14 @@ async def on_start(message: Message, ctx: BotContext) -> None:
     if message.from_user is None:
         return
     client = await ctx.clients.register(profile_of(message.from_user))
-    screen = ctx.screens.main_menu(trial_available=client.trial_granted_at is None)
+    screen = ctx.screens.main_menu(trial_available=await ctx.clients.trial_offered(client))
     await ctx.delivery.send(message.from_user.id, screen)
 
 
 async def on_main_menu(callback: CallbackQuery, ctx: BotContext) -> None:
     await callback.answer()
     client = await ctx.clients.resolve(profile_of(callback.from_user))
-    screen = ctx.screens.main_menu(trial_available=client.trial_granted_at is None)
+    screen = ctx.screens.main_menu(trial_available=await ctx.clients.trial_offered(client))
     await _show(callback, ctx, screen)
 
 

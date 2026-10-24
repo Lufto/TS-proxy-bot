@@ -41,6 +41,7 @@ from tsproxy.bot.dispatcher import bot_commands, create_dispatcher
 from tsproxy.bot.screens import Screens
 from tsproxy.bot.support_guard import SupportGuard, support_rate_limiter
 from tsproxy.bot.throttling import RateLimiter
+from tsproxy.bot.trial import deliver_pending_trials
 from tsproxy.config import PaymentsMode, RunMode, Settings
 from tsproxy.content.loader import Content
 from tsproxy.db.engine import create_engine, create_session_factory
@@ -70,6 +71,8 @@ logger = logging.getLogger(__name__)
 
 # Сводки повторов тревог (`Alerter.flush_repeats`) — раз в минуту (задача 04)
 ALERT_FLUSH_INTERVAL = timedelta(minutes=1)
+# Пробные, которые не выдались из-за панели, — доделываются сами (задача 07)
+PENDING_TRIALS_INTERVAL = timedelta(minutes=1)
 # Сверка с Remnawave — страховка от потерянных вебхуков (задача 09: «каждые 5–10 минут»)
 RECONCILE_INTERVAL = timedelta(minutes=5)
 STOP_SIGNALS = (signal.SIGINT, signal.SIGTERM)
@@ -230,6 +233,12 @@ def build_application(
         jobs=PeriodicJobs(
             [
                 PeriodicJob("alerts_flush", ALERT_FLUSH_INTERVAL, alerter.flush_repeats),
+                PeriodicJob(
+                    "pending_trials",
+                    PENDING_TRIALS_INTERVAL,
+                    lambda: deliver_pending_trials(ctx),
+                    run_at_start=True,
+                ),
                 PeriodicJob(
                     "remnawave_reconcile",
                     RECONCILE_INTERVAL,

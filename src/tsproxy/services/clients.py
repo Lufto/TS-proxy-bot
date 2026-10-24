@@ -6,11 +6,11 @@
 import logging
 from dataclasses import dataclass
 
-from sqlalchemy import select, update
+from sqlalchemy import exists, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from tsproxy.db.models import NAME_LENGTH, USERNAME_LENGTH, Client
+from tsproxy.db.models import NAME_LENGTH, USERNAME_LENGTH, Client, Order
 from tsproxy.db.repository import affected_rows
 from tsproxy.services.clock import Clock, utc_now
 
@@ -59,6 +59,20 @@ class ClientService:
     async def find(self, telegram_id: int) -> Client | None:
         async with self._session_factory() as session:
             return await self._find(session, telegram_id)
+
+    async def trial_offered(self, client: Client) -> bool:
+        """Показывать ли «🎁 Попробовать бесплатно»: пробный не брал и ни разу не платил.
+
+        Платящему кнопка не нужна (решение владельца 2026-10-25); если нажмёт старую
+        кнопку — `TrialService` ответит «у вас уже есть подписка».
+        """
+        if client.trial_granted_at is not None:
+            return False
+        async with self._session_factory() as session:
+            paid = await session.scalar(
+                select(exists().where(Order.client_id == client.id, Order.paid_at.is_not(None)))
+            )
+        return not paid
 
     async def mark_blocked(self, telegram_id: int) -> bool:
         """Отметить «клиент заблокировал бота». `False` — клиента нет или отметка уже стоит."""

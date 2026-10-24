@@ -174,7 +174,7 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         "connect.unavailable",
         "trial.granted",
         "trial.already_used",
-        "trial.in_progress",
+        "trial.pending",
         "trial.has_subscription",
         "about.text",
         "instructions.choose",

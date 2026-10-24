@@ -96,7 +96,7 @@ async def test_all_screens_use_only_required_texts(content: Content) -> None:
     screens.no_account()
     screens.trial_granted(account)
     screens.trial_already_used()
-    screens.trial_in_progress()
+    screens.trial_pending()
     screens.trial_has_subscription()
     screens.unavailable()
     screens.error()

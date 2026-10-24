@@ -105,8 +105,6 @@ class Client(Base):
     telegram_id: Mapped[int] = mapped_column(BigInteger, unique=True)
     name: Mapped[str | None] = mapped_column(String(NAME_LENGTH))
     username: Mapped[str | None] = mapped_column(String(USERNAME_LENGTH))
-    # uuid прокси-аккаунта в Remnawave; у одного клиента ровно один прокси-аккаунт
-    proxy_account_uuid: Mapped[str | None] = mapped_column(String(UUID_LENGTH), unique=True)
     first_seen_at: Mapped[datetime] = mapped_column(default=utc_now)
     trial_granted_at: Mapped[datetime | None]
     trial_extensions: Mapped[int] = mapped_column(default=0)
