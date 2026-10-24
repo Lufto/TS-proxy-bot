@@ -15,10 +15,20 @@
    uv sync
    uv run pre-commit install
    ```
-4. Запустить:
+4. Создать или обновить базу:
+   ```
+   uv run alembic upgrade head
+   ```
+5. Запустить (`RUN_MODE=dev` — бот сам снимает webhook и получает сообщения через polling):
    ```
    uv run tsproxy
    ```
+   Остановить — `Ctrl+C`: бот доработает текущие сообщения и закроет соединения.
+
+На сервере (`RUN_MODE=prod`) бот при запуске ставит webhook на `PUBLIC_BASE_URL/telegram/webhook`
+с секретом `TELEGRAM_WEBHOOK_SECRET`; веб-сервер бота слушает `WEB_HOST:WEB_PORT`.
+Внимание: один и тот же бот нельзя одновременно запускать на Mac (polling) и на сервере (webhook) —
+запуск на Mac снимет webhook сервера.
 
 ## Проверки
 

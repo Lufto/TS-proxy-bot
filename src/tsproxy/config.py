@@ -1,10 +1,11 @@
 """Настройки бота из `.env`. Секреты хранятся как SecretStr, чтобы не попасть в логи."""
 
+import re
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Self
 
-from pydantic import SecretStr, field_validator
+from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -13,6 +14,12 @@ class RunMode(StrEnum):
 
     DEV = "dev"  # Mac разработчика: только squad `test` и аккаунты `dev_`
     PROD = "prod"  # сервер: только аккаунты `tg_`
+
+
+# Секрет вебхука Telegram: Telegram принимает 1–256 символов `A-Za-z0-9_-`,
+# аудит (R01) требует не меньше 32 — тогда его не подобрать перебором.
+WEBHOOK_SECRET_RE = re.compile(r"^[A-Za-z0-9_-]{32,256}$")
+DEFAULT_WEB_PORT = 8080
 
 
 class PaymentsMode(StrEnum):
@@ -29,6 +36,16 @@ class Settings(BaseSettings):
     bot_token: SecretStr
     remnawave_url: str = "https://panel.ts-proxy.com"
     remnawave_token: SecretStr
+    # Squad, в который бот кладёт новые прокси-аккаунты в боевом режиме (в разработке — `test`)
+    remnawave_squad: str = "Default-Squad"
+
+    # Боевой режим: Telegram шлёт апдейты на PUBLIC_BASE_URL + путь вебхука (без токена бота)
+    # и подписывает их секретом TELEGRAM_WEBHOOK_SECRET. В разработке не нужны (polling).
+    public_base_url: str | None = None
+    telegram_webhook_secret: SecretStr | None = None
+    # Где слушает веб-сервер (вебхуки). Снаружи к нему ходит только веб-сервер-посредник.
+    web_host: str = "127.0.0.1"
+    web_port: int = DEFAULT_WEB_PORT
 
     admin_ids: Annotated[frozenset[int], NoDecode]
     admin_chat_id: int
@@ -52,9 +69,33 @@ class Settings(BaseSettings):
             return frozenset(int(part) for part in value.split(",") if part.strip())
         return value
 
+    @field_validator("public_base_url", "telegram_webhook_secret", mode="before")
+    @classmethod
+    def _empty_is_none(cls, value: object) -> object:
+        """Пустая строка в `.env` (`PUBLIC_BASE_URL=`) значит «не задано»."""
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+    @model_validator(mode="after")
+    def _check_webhook(self) -> Self:
+        """В боевом режиме без адреса и секрета вебхука бот не стартует (аудит R01)."""
+        secret = self.telegram_webhook_secret
+        if secret is not None and not WEBHOOK_SECRET_RE.fullmatch(secret.get_secret_value()):
+            raise ValueError("TELEGRAM_WEBHOOK_SECRET: от 32 до 256 символов A-Z, a-z, 0-9, _ и -")
+        if self.run_mode is RunMode.PROD:
+            if self.public_base_url is None or not self.public_base_url.startswith("https://"):
+                raise ValueError("PUBLIC_BASE_URL: в режиме prod нужен адрес https://…")
+            if secret is None:
+                raise ValueError("TELEGRAM_WEBHOOK_SECRET: в режиме prod обязателен")
+        return self
+
     def secret_values(self) -> list[str]:
         """Все секреты — для маскировки в логах."""
-        return [self.bot_token.get_secret_value(), self.remnawave_token.get_secret_value()]
+        values = [self.bot_token.get_secret_value(), self.remnawave_token.get_secret_value()]
+        if self.telegram_webhook_secret is not None:
+            values.append(self.telegram_webhook_secret.get_secret_value())
+        return values
 
 
 def load_settings() -> Settings:

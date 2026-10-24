@@ -1,0 +1,105 @@
+"""Подделка Telegram для тестов: бот без сети, который запоминает все запросы.
+
+`Bot(token, session=FakeTelegramSession())` ведёт себя как настоящий, но ничего не шлёт:
+запросы копятся в `session.requests`, ответы собираются из самого запроса. Ошибку Telegram
+на следующий запрос нужного вида задаёт `fail_next(SendMessage, TelegramForbiddenError, "…")`.
+"""
+
+import asyncio
+from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
+from typing import Any, cast
+
+from aiogram import Bot
+from aiogram.client.session.base import BaseSession
+from aiogram.enums import ChatType
+from aiogram.exceptions import TelegramAPIError
+from aiogram.methods import EditMessageText, GetMe, GetUpdates, SendMessage, TelegramMethod
+from aiogram.methods.base import TelegramType
+from aiogram.types import Chat, Message, User
+
+FAKE_BOT_USERNAME = "ts_proxy_test_bot"
+FIRST_MESSAGE_ID = 1000
+# Пауза «долгого опроса»: без неё polling на подделке крутится, не отпуская остальных
+FAKE_POLL_DELAY_SECONDS = 0.05
+
+
+class FakeTelegramSession(BaseSession):
+    def __init__(self) -> None:
+        super().__init__()
+        self.requests: list[TelegramMethod[Any]] = []
+        self.closed = False
+        self._failures: dict[type[TelegramMethod[Any]], tuple[type[TelegramAPIError], str]] = {}
+        self._next_message_id = FIRST_MESSAGE_ID
+
+    # --- Помощники для тестов ---
+
+    def fail_next(
+        self,
+        method_type: type[TelegramMethod[Any]],
+        error_type: type[TelegramAPIError],
+        message: str,
+    ) -> None:
+        """Следующий запрос вида `method_type` закончится ошибкой Telegram."""
+        self._failures[method_type] = (error_type, message)
+
+    def sent[M: TelegramMethod[Any]](self, method_type: type[M]) -> list[M]:
+        """Запросы одного вида, по порядку."""
+        return [r for r in self.requests if isinstance(r, method_type)]
+
+    # --- BaseSession ---
+
+    async def make_request(
+        self,
+        bot: Bot,
+        method: TelegramMethod[TelegramType],
+        timeout: int | None = None,  # noqa: ASYNC109  # так у BaseSession
+    ) -> TelegramType:
+        self.requests.append(method)
+        if isinstance(method, GetUpdates):
+            await asyncio.sleep(FAKE_POLL_DELAY_SECONDS)
+        failure = self._failures.pop(type(method), None)
+        if failure is not None:
+            error_type, message = failure
+            raise error_type(method=method, message=message)
+        return cast(TelegramType, self._result(bot, method))
+
+    async def close(self) -> None:
+        self.closed = True
+
+    async def stream_content(
+        self,
+        url: str,
+        headers: dict[str, Any] | None = None,
+        timeout: int = 30,  # noqa: ASYNC109  # так у BaseSession
+        chunk_size: int = 65536,
+        raise_for_status: bool = True,
+    ) -> AsyncGenerator[bytes]:
+        raise NotImplementedError("Подделка Telegram не скачивает файлы")
+        yield b""  # pragma: no cover  # делает функцию генератором, как у настоящей сессии
+
+    # --- Ответы ---
+
+    def _message(self, chat_id: int | str, message_id: int, text: str) -> Message:
+        chat_type = ChatType.PRIVATE if int(chat_id) > 0 else ChatType.SUPERGROUP
+        return Message(
+            message_id=message_id,
+            date=datetime.now(UTC),
+            chat=Chat(id=int(chat_id), type=chat_type),
+            text=text,
+        )
+
+    def _result(self, bot: Bot, method: TelegramMethod[Any]) -> object:
+        if isinstance(method, SendMessage):
+            self._next_message_id += 1
+            return self._message(method.chat_id, self._next_message_id, method.text)
+        if isinstance(method, EditMessageText):
+            if method.chat_id is None or method.message_id is None:
+                return True
+            return self._message(method.chat_id, method.message_id, method.text)
+        if isinstance(method, GetUpdates):
+            return []  # новых апдейтов нет (для polling)
+        if isinstance(method, GetMe):
+            return User(id=bot.id, is_bot=True, first_name="TS Proxy", username=FAKE_BOT_USERNAME)
+        # answerCallbackQuery, leaveChat, setWebhook, deleteWebhook, setMyCommands, …
+        return True
