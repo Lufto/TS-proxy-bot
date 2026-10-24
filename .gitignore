@@ -25,3 +25,6 @@ data/
 # инструменты
 .pytest_cache/
 .ruff_cache/
+
+# копии проекта для параллельной работы помощников
+.claude/worktrees/
