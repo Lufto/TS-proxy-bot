@@ -38,6 +38,7 @@ from tsproxy.bot.context import BotContext
 from tsproxy.bot.delivery import ClientDelivery
 from tsproxy.bot.dispatcher import bot_commands, create_dispatcher
 from tsproxy.bot.screens import Screens
+from tsproxy.bot.support_guard import SupportGuard, support_rate_limiter
 from tsproxy.bot.throttling import RateLimiter
 from tsproxy.config import RunMode, Settings
 from tsproxy.content.loader import Content
@@ -49,6 +50,7 @@ from tsproxy.services.alerts import Alerter
 from tsproxy.services.clients import ClientService
 from tsproxy.services.clock import Clock, system_clock
 from tsproxy.services.events import EventLog
+from tsproxy.services.support import SupportService
 from tsproxy.web.app import create_web_app
 from tsproxy.web.telegram import TelegramWebhook, webhook_url
 
@@ -166,6 +168,8 @@ def build_application(
         alerter=alerter,
         events=EventLog(clock, mask),
         access=AdminAccess(settings.admin_ids, settings.admin_chat_id),
+        support=SupportService(session_factory, clock, mask),
+        support_guard=SupportGuard(support_rate_limiter()),
     )
     dispatcher = create_dispatcher(ctx, RateLimiter())
     return Application(

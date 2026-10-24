@@ -5,6 +5,7 @@
 лишние действия не обрабатываются. После перезапуска бота счётчики обнуляются — это нормально.
 """
 
+import re
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -25,6 +26,8 @@ SECONDS_PER_MINUTE = 60
 MAX_TRACKED_CLIENTS = 10_000
 
 type MonotonicClock = Callable[[], float]
+# Команда бота: `/` и латинские буквы, цифры, `_`; после — `@имя_бота`, пробел или конец
+COMMAND_RE = re.compile(r"/[A-Za-z0-9_]+(?:@\w+)?(?:\s|$)")
 
 
 class RateDecision(StrEnum):
@@ -89,11 +92,21 @@ class RateLimiter:
             del self._buckets[key]
 
 
+def is_command(message: Message) -> bool:
+    """Команда бота (`/start`, `/support@bot …`), а не обычное сообщение.
+
+    `// заметка` и `/путь` — не команды: команда Telegram — латиница, цифры и `_`.
+    """
+    return message.text is not None and COMMAND_RE.match(message.text) is not None
+
+
 class ThrottlingMiddleware(BaseMiddleware):
     """Не пускает к обработчикам слишком частые нажатия и сообщения одного клиента.
 
-    Считаются нажатия кнопок и сообщения в личном чате с ботом. Сообщения в группах не
-    считаются: из чужих групп бот выходит, а в группе администраторов «подождите» не нужно.
+    Считаются нажатия кнопок и команды в личном чате с ботом. Обычные сообщения клиента —
+    обращения в поддержку, у них свой предел (10 в минуту, `bot.support_guard`): альбом из
+    нескольких фото не должен упираться в общий предел. Сообщения в группах не считаются:
+    из чужих групп бот выходит, а в группе администраторов «подождите» не нужно.
     Администраторы (`exempt_ids`) не ограничены: им отвечать клиентам в поддержке.
     """
 
@@ -118,6 +131,7 @@ class ThrottlingMiddleware(BaseMiddleware):
             isinstance(event, Message)
             and event.chat.type == ChatType.PRIVATE
             and event.from_user is not None
+            and is_command(event)
         ):
             decision = self._decide(event.from_user.id)
             if decision is RateDecision.DENY_FIRST:

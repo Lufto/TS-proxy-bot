@@ -10,6 +10,9 @@ SUBSCRIPTION_URL_RE = re.compile(
     r"https?://(?:sub\.[\w.-]+|[\w.-]+/api/sub)/([A-Za-z0-9_-]+)",
 )
 MASK = "****"
+# httpx пишет полные адреса запросов, а в них бывают токены; aiosqlite на DEBUG пишет
+# параметры SQL-запросов, то есть тексты переписки поддержки (их в логи не пишем)
+QUIET_LOGGERS = ("httpx", "aiosqlite")
 VISIBLE_TAIL = 4
 
 
@@ -44,5 +47,10 @@ def setup_logging(level: str, secrets: Iterable[str]) -> None:
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
     handler.addFilter(MaskingFilter(secrets))
     logging.basicConfig(level=level, handlers=[handler], force=True)
-    # httpx пишет полные адреса запросов, а в них бывают токены — только предупреждения и выше
-    logging.getLogger("httpx").setLevel(logging.WARNING)
+    quiet_library_loggers()
+
+
+def quiet_library_loggers() -> None:
+    """Библиотеки, которые на уровне DEBUG/INFO пишут лишнее, — только предупреждения и выше."""
+    for name in QUIET_LOGGERS:
+        logging.getLogger(name).setLevel(logging.WARNING)

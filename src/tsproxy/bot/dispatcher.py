@@ -12,6 +12,7 @@ from tsproxy.bot.context import CONTEXT_KEY, BotContext
 from tsproxy.bot.errors import on_error
 from tsproxy.bot.fallback import create_fallback_router
 from tsproxy.bot.menu import COMMAND_SCREENS, create_menu_router
+from tsproxy.bot.support import SUPPORT_COMMAND, create_support_router
 from tsproxy.bot.throttling import RateLimiter, ThrottlingMiddleware
 from tsproxy.content.loader import Texts
 
@@ -23,8 +24,8 @@ def create_dispatcher(
 ) -> Dispatcher:
     """Диспетчер со всеми обработчиками.
 
-    `extra_routers` (админка, поддержка — следующие задачи) подключаются перед
-    «запасным» роутером, который отвечает на всё, что не подошло остальным.
+    `extra_routers` (админка и другие следующие задачи) подключаются перед поддержкой:
+    поддержка берёт все обычные сообщения клиента, а «запасной» роутер — остальное.
     """
     dispatcher = Dispatcher()
     dispatcher[CONTEXT_KEY] = ctx
@@ -36,6 +37,7 @@ def create_dispatcher(
         create_menu_router(),
         create_connect_router(),
         *extra_routers,
+        create_support_router(ctx.access),
         create_fallback_router(),
     )
     dispatcher.errors.register(on_error)
@@ -44,5 +46,5 @@ def create_dispatcher(
 
 def bot_commands(texts: Texts) -> list[BotCommand]:
     """Команды в меню Telegram (кнопка «/» рядом с полем ввода)."""
-    names = ["start", *COMMAND_SCREENS]
+    names = ["start", *COMMAND_SCREENS, SUPPORT_COMMAND]
     return [BotCommand(command=name, description=texts.get(f"commands.{name}")) for name in names]

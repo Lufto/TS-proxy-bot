@@ -176,7 +176,6 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         "trial.soon",
         "tariffs.soon",
         "profile.soon",
-        "support.soon",
         "about.text",
         "instructions.choose",
         "instructions.ios",
@@ -187,7 +186,14 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         "throttle.message",
         "errors.generic",
         "errors.stale_button",
-        "fallback.unknown_message",
+        # задача 16: обращения в поддержку
+        "support.intro",
+        "support.ticket_created",
+        "support.flood",
+        "support.unsupported",
+        "support.not_delivered",
+        "support.reply_prefix",
+        "fallback.unknown_command",
     }
 )
 REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
@@ -197,6 +203,14 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
         "alerts.remnawave_unavailable",
         "alerts.remnawave_at_start",
         "alerts.bot_error",
+        # задача 16: обращения в поддержку
+        "alerts.support_topic_failed",
+        "support.topic_name",
+        "support.topic_header",
+        "support.no_username",
+        "support.reply_unsupported",
+        "support.reply_failed",
+        "support.client_blocked",
     }
 )
 

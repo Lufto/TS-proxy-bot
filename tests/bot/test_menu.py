@@ -97,7 +97,7 @@ async def test_menu_hides_trial_button_after_trial(
         (ScreenId.TRIAL, "trial.soon"),
         (ScreenId.TARIFFS, "tariffs.soon"),
         (ScreenId.PROFILE, "profile.soon"),
-        (ScreenId.SUPPORT, "support.soon"),
+        (ScreenId.SUPPORT, "support.intro"),
         (ScreenId.MAIN, "menu.title"),
     ],
 )
@@ -136,7 +136,7 @@ async def test_instructions_for_each_platform(
 
 @pytest.mark.parametrize(
     ("command", "text_key"),
-    [("/profile", "profile.soon"), ("/buy", "tariffs.soon"), ("/support", "support.soon")],
+    [("/profile", "profile.soon"), ("/buy", "tariffs.soon"), ("/support", "support.intro")],
 )
 async def test_commands_open_the_same_screens(
     dispatcher: Dispatcher,
@@ -185,10 +185,10 @@ async def test_unknown_button_data_is_rejected(
     assert telegram.sent(EditMessageText) == []
 
 
-async def test_plain_text_gets_a_hint(
+async def test_unknown_command_gets_a_hint(
     dispatcher: Dispatcher, bot: Bot, telegram: FakeTelegramSession, content: Content
 ) -> None:
-    await dispatcher.feed_update(bot, message(user(CLIENT_ID), "Здравствуйте, вопрос"))
+    await dispatcher.feed_update(bot, message(user(CLIENT_ID), "/help"))
 
     [sent] = telegram.sent(SendMessage)
-    assert sent.text == content.texts.get("fallback.unknown_message")
+    assert sent.text == content.texts.get("fallback.unknown_command")

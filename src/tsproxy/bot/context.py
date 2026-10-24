@@ -10,11 +10,13 @@ from aiogram.types import User
 from tsproxy.bot.admin import AdminAccess
 from tsproxy.bot.delivery import ClientDelivery
 from tsproxy.bot.screens import Screens
+from tsproxy.bot.support_guard import SupportGuard
 from tsproxy.content.loader import Texts
 from tsproxy.integrations.remnawave_types import RemnawaveClient
 from tsproxy.services.alerts import Alerter
 from tsproxy.services.clients import ClientProfile, ClientService
 from tsproxy.services.events import EventLog
+from tsproxy.services.support import SupportService
 
 # Имя, под которым контекст лежит в данных диспетчера
 CONTEXT_KEY = "ctx"
@@ -31,6 +33,8 @@ class BotContext:
     alerter: Alerter
     events: EventLog
     access: AdminAccess
+    support: SupportService
+    support_guard: SupportGuard
 
 
 def profile_of(user: User) -> ClientProfile:
