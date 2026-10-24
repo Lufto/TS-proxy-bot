@@ -244,6 +244,13 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
         "support.reply_unsupported",
         "support.reply_failed",
         "support.client_blocked",
+        # задача 09: вебхуки Remnawave, сверка, связь с нодами
+        "alerts.remnawave_webhook_forged",
+        "alerts.reconcile_unavailable",
+        "alerts.reconcile_error",
+        "alerts.reconcile_failed",
+        "alerts.node_down",
+        "alerts.node_restored",
     }
 )
 

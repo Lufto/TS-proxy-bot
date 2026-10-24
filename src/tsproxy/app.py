@@ -7,9 +7,10 @@ Telegram, журнал событий, тревоги, тексты. Остал�
 Один процесс, три части (задача 09):
 - бот aiogram: на Mac (`RUN_MODE=dev`) — polling, перед ним бот снимает webhook;
   на сервере (`RUN_MODE=prod`) — webhook с секретом, бот ставит его при старте;
-- веб-сервер FastAPI (uvicorn): вебхук Telegram в боевом режиме, позже — Remnawave,
-  платёжка и `/health`;
-- фоновые задачи: пока только сводки повторов тревог раз в минуту.
+- веб-сервер FastAPI (uvicorn): вебхук Telegram в боевом режиме, вебхуки Remnawave
+  (если задан `REMNAWAVE_WEBHOOK_SECRET`), позже — платёжка и `/health`;
+- фоновые задачи: сводки повторов тревог раз в минуту; сверка с Remnawave раз в 5 минут
+  и сразу при запуске (задача 09).
 
 Ctrl+C или `systemctl stop` (SIGINT/SIGTERM) — мягкая остановка: бот дорабатывает
 текущие апдейты, затем закрываются HTTP-клиенты и база.
@@ -46,20 +47,27 @@ from tsproxy.db.engine import create_engine, create_session_factory
 from tsproxy.integrations.remnawave import RemnawaveApiClient, create_http_client
 from tsproxy.integrations.remnawave_types import RemnawaveUnavailable
 from tsproxy.logging_setup import MaskingFilter
+from tsproxy.services.account_checks import AccountCheckHandler, AccountChecks
 from tsproxy.services.alerts import Alerter
 from tsproxy.services.clients import ClientService
 from tsproxy.services.clock import Clock, system_clock
 from tsproxy.services.events import EventLog
+from tsproxy.services.nodes import NodeMonitor
 from tsproxy.services.profile import ProfileService
+from tsproxy.services.reconciliation import Reconciliation
+from tsproxy.services.remnawave_signals import RemnawaveSignals
 from tsproxy.services.support import SupportService
 from tsproxy.services.trial import TrialService
 from tsproxy.web.app import create_web_app
+from tsproxy.web.remnawave import RemnawaveWebhook
 from tsproxy.web.telegram import TelegramWebhook, webhook_url
 
 logger = logging.getLogger(__name__)
 
 # Сводки повторов тревог (`Alerter.flush_repeats`) — раз в минуту (задача 04)
 ALERT_FLUSH_INTERVAL = timedelta(minutes=1)
+# Сверка с Remnawave — страховка от потерянных вебхуков (задача 09: «каждые 5–10 минут»)
+RECONCILE_INTERVAL = timedelta(minutes=5)
 STOP_SIGNALS = (signal.SIGINT, signal.SIGTERM)
 
 
@@ -73,6 +81,7 @@ class PeriodicJob:
     name: str
     interval: timedelta
     run: Callable[[], Awaitable[None]]
+    run_at_start: bool = False  # выполнить сразу при запуске, не дожидаясь интервала
 
 
 class PeriodicJobs:
@@ -99,14 +108,19 @@ class PeriodicJobs:
         self._tasks = []
 
     async def _loop(self, job: PeriodicJob) -> None:
+        if job.run_at_start:
+            await self._run_once(job)
         while True:
             await asyncio.sleep(job.interval.total_seconds())
-            try:
-                await job.run()
-            # Одна неудача не должна останавливать задачу навсегда: пишем в лог с трассировкой
-            # и пробуем в следующий раз. Сторож зависших задач — задача 22.
-            except Exception:
-                logger.exception("Фоновая задача %s завершилась ошибкой", job.name)
+            await self._run_once(job)
+
+    async def _run_once(self, job: PeriodicJob) -> None:
+        try:
+            await job.run()
+        # Одна неудача не должна останавливать задачу навсегда: пишем в лог с трассировкой
+        # и пробуем в следующий раз. Сторож зависших задач — задача 22.
+        except Exception:
+            logger.exception("Фоновая задача %s завершилась ошибкой", job.name)
 
 
 # --- Сборка ---
@@ -177,6 +191,16 @@ def build_application(
         support_guard=SupportGuard(support_rate_limiter()),
     )
     dispatcher = create_dispatcher(ctx, RateLimiter())
+    # Обработчики проверок прокси-аккаунтов: их вызывают и вебхуки Remnawave, и сверка.
+    # Задача 10 — напоминания и продления пробного, задача 11 — льготный период:
+    # добавлять в этот список (AccountChecks копирует его при создании).
+    account_handlers: list[AccountCheckHandler] = []
+    account_checks = AccountChecks(remnawave, settings.run_mode, clock, account_handlers)
+    nodes = NodeMonitor(remnawave, session_factory, alerter, content.admin_texts, clock)
+    reconciliation = Reconciliation(account_checks, nodes, alerter, content.admin_texts)
+    remnawave_webhook = _remnawave_webhook(
+        settings, RemnawaveSignals(account_checks, nodes), alerter, content, clock
+    )
     return Application(
         settings=settings,
         content=content,
@@ -184,10 +208,18 @@ def build_application(
         remnawave=remnawave,
         bot=bot,
         dispatcher=dispatcher,
-        web=create_web_app(_telegram_webhook(settings, bot, dispatcher)),
+        web=create_web_app(_telegram_webhook(settings, bot, dispatcher), remnawave_webhook),
         alerter=alerter,
         jobs=PeriodicJobs(
-            [PeriodicJob("alerts_flush", ALERT_FLUSH_INTERVAL, alerter.flush_repeats)]
+            [
+                PeriodicJob("alerts_flush", ALERT_FLUSH_INTERVAL, alerter.flush_repeats),
+                PeriodicJob(
+                    "remnawave_reconcile",
+                    RECONCILE_INTERVAL,
+                    reconciliation.run,
+                    run_at_start=True,  # бот лежал — сразу догнать пропущенное (задача 09)
+                ),
+            ]
         ),
     )
 
@@ -201,6 +233,26 @@ def _telegram_webhook(
     if settings.telegram_webhook_secret is None:
         raise ValueError("TELEGRAM_WEBHOOK_SECRET обязателен в режиме prod")
     return TelegramWebhook(bot, dispatcher, settings.telegram_webhook_secret.get_secret_value())
+
+
+def _remnawave_webhook(
+    settings: Settings,
+    signals: RemnawaveSignals,
+    alerter: Alerter,
+    content: Content,
+    clock: Clock,
+) -> RemnawaveWebhook | None:
+    """Приёмник вебхуков Remnawave — только если задан секрет подписи."""
+    if settings.remnawave_webhook_secret is None:
+        logger.warning("REMNAWAVE_WEBHOOK_SECRET не задан: вебхуки Remnawave выключены")
+        return None
+    return RemnawaveWebhook(
+        signals,
+        settings.remnawave_webhook_secret.get_secret_value(),
+        alerter,
+        content.admin_texts,
+        clock,
+    )
 
 
 # --- Запуск ---
