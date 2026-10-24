@@ -27,7 +27,9 @@ def create_menu_router() -> Router:
     router.message.filter(F.chat.type == ChatType.PRIVATE)
     router.callback_query.filter(F.message.chat.type == ChatType.PRIVATE)
     router.message.register(on_start, CommandStart())
-    router.message.register(on_screen_command, Command(*COMMAND_SCREENS))
+    # `/buy` — в роутере тарифов (задача 12); здесь только экраны-заглушки
+    placeholder_commands = [c for c, s in COMMAND_SCREENS.items() if s in PLACEHOLDER_TEXTS]
+    router.message.register(on_screen_command, Command(*placeholder_commands))
     router.callback_query.register(on_main_menu, MenuCallback.filter(F.screen == ScreenId.MAIN))
     router.callback_query.register(
         on_placeholder, MenuCallback.filter(F.screen.in_(PLACEHOLDER_TEXTS.keys()))

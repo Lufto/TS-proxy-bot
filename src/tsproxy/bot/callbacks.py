@@ -39,3 +39,9 @@ class MenuCallback(CallbackData, prefix="menu"):
 
 class InstructionsCallback(CallbackData, prefix="howto"):
     platform: Platform
+
+
+class TariffCallback(CallbackData, prefix="buy"):
+    """«Купить тариф». Только id тарифа: цену и доступность проверяет сервис заказов."""
+
+    tariff_id: str

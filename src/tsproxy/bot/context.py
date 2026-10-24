@@ -15,6 +15,7 @@ from tsproxy.integrations.remnawave_types import RemnawaveClient
 from tsproxy.services.alerts import Alerter
 from tsproxy.services.clients import ClientProfile, ClientService
 from tsproxy.services.events import EventLog
+from tsproxy.services.orders import OrderService
 
 # Имя, под которым контекст лежит в данных диспетчера
 CONTEXT_KEY = "ctx"
@@ -31,6 +32,7 @@ class BotContext:
     alerter: Alerter
     events: EventLog
     access: AdminAccess
+    orders: OrderService  # тарифы и заказы (задача 12)
 
 
 def profile_of(user: User) -> ClientProfile:

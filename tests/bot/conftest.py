@@ -19,12 +19,15 @@ from tsproxy.config import RunMode
 from tsproxy.content.loader import Content, load_content
 from tsproxy.db.engine import create_engine, create_session_factory
 from tsproxy.db.models import Base
+from tsproxy.integrations.fake_payments import FakePaymentProvider
 from tsproxy.integrations.fakes import FakeRemnawave
 from tsproxy.logging_setup import MaskingFilter
 from tsproxy.services.alerts import Alerter
 from tsproxy.services.clients import ClientService
 from tsproxy.services.events import EventLog
 from tsproxy.services.fakes import FakeAlertSender, FakeClock
+from tsproxy.services.locks import KeyedLocks
+from tsproxy.services.orders import OrderService
 
 REPO_CONTENT = Path(__file__).parent.parent.parent / "content"
 
@@ -89,6 +92,11 @@ def clients(session_factory: async_sessionmaker[AsyncSession], clock: FakeClock)
 
 
 @pytest.fixture
+def payments(clock: FakeClock) -> FakePaymentProvider:
+    return FakePaymentProvider(clock)
+
+
+@pytest.fixture
 def ctx(
     bot: Bot,
     content: Content,
@@ -96,8 +104,11 @@ def ctx(
     remnawave: FakeRemnawave,
     alert_sender: FakeAlertSender,
     clock: FakeClock,
+    session_factory: async_sessionmaker[AsyncSession],
+    payments: FakePaymentProvider,
 ) -> BotContext:
     mask = MaskingFilter([BOT_TOKEN]).mask
+    events = EventLog(clock, mask)
     return BotContext(
         texts=content.texts,
         admin_texts=content.admin_texts,
@@ -108,8 +119,18 @@ def ctx(
         alerter=Alerter(
             alert_sender, content.admin_texts, ADMIN_CHAT_ID, ALERTS_THREAD_ID, clock, mask
         ),
-        events=EventLog(clock, mask),
+        events=events,
         access=AdminAccess(frozenset({ADMIN_ID}), ADMIN_CHAT_ID),
+        orders=OrderService(
+            session_factory,
+            payments,
+            events,
+            content.texts,
+            content.tariffs,
+            frozenset({ADMIN_ID}),
+            clock,
+            KeyedLocks(),
+        ),
     )
 
 

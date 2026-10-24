@@ -2,7 +2,7 @@
 
 import asyncio
 from collections.abc import Iterator
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import httpx
@@ -20,8 +20,9 @@ from tsproxy.app import (
     connect_telegram,
 )
 from tsproxy.bot.fakes import FakeTelegramSession
-from tsproxy.config import RunMode, Settings
+from tsproxy.config import PaymentsMode, RunMode, Settings
 from tsproxy.content.loader import Content
+from tsproxy.integrations.fake_payments import FakePaymentProvider
 from tsproxy.web.telegram import TELEGRAM_WEBHOOK_PATH
 
 WEBHOOK_SECRET = "A" * 40
@@ -46,6 +47,7 @@ def prod_settings(tmp_path: Path) -> Settings:
     return make_settings(
         tmp_path,
         run_mode=RunMode.PROD,
+        payments_mode=PaymentsMode.REAL,
         public_base_url=PUBLIC_BASE_URL,
         telegram_webhook_secret=WEBHOOK_SECRET,
     )
@@ -84,7 +86,12 @@ async def test_dev_removes_webhook_for_polling(
 async def test_prod_sets_webhook_with_secret(
     tmp_path: Path, content: Content, telegram_session: FakeTelegramSession
 ) -> None:
-    app = build_application(prod_settings(tmp_path), content, telegram_session=telegram_session)
+    app = build_application(
+        prod_settings(tmp_path),
+        content,
+        telegram_session=telegram_session,
+        payments=FakePaymentProvider(lambda: datetime.now(UTC)),
+    )
     try:
         await connect_telegram(app)
     finally:
@@ -115,6 +122,7 @@ def test_prod_requires_https_url_and_strong_secret(
 ) -> None:
     values: dict[str, object] = {
         "run_mode": RunMode.PROD,
+        "payments_mode": PaymentsMode.REAL,
         "public_base_url": PUBLIC_BASE_URL,
         "telegram_webhook_secret": WEBHOOK_SECRET,
     }
@@ -153,3 +161,9 @@ async def test_periodic_job_survives_errors() -> None:
         await asyncio.sleep(0.005)
     await jobs.stop()
     assert calls >= 3
+
+
+def test_real_payments_without_provider_refuse_to_start(tmp_path: Path, content: Content) -> None:
+    """Настоящей платёжки ещё нет (задача 15): лучше не стартовать, чем принять заказ в никуда."""
+    with pytest.raises(ValueError, match="задача 15"):
+        build_application(prod_settings(tmp_path), content, telegram_session=FakeTelegramSession())

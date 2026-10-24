@@ -174,7 +174,6 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         "connect.no_account",
         "connect.unavailable",
         "trial.soon",
-        "tariffs.soon",
         "profile.soon",
         "support.soon",
         "about.text",
@@ -188,6 +187,18 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         "errors.generic",
         "errors.stale_button",
         "fallback.unknown_message",
+        # задача 12: тарифы и оплата
+        "buttons.pay",
+        "buttons.tariffs_back",
+        "tariffs.title",
+        "tariffs.button",
+        "tariffs.button_discount",
+        "tariffs.button_hidden",
+        "tariffs.not_available",
+        "payment.description",
+        "payment.screen",
+        "payment.too_many",
+        "payment.unavailable",
     }
 )
 REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
@@ -197,6 +208,7 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
         "alerts.remnawave_unavailable",
         "alerts.remnawave_at_start",
         "alerts.bot_error",
+        "alerts.payments_unavailable",  # задача 12
     }
 )
 

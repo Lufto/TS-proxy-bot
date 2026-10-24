@@ -68,9 +68,22 @@ async def test_all_screens_use_only_required_texts(content: Content) -> None:
     screens.unknown_message()
 
 
+EXPECTED_PLACEHOLDERS: dict[str, set[str]] = {
+    "connect.active": {"expire_at"},
+    "connect.inactive": {"expire_at"},
+    # задача 12
+    "buttons.pay": {"price"},
+    "tariffs.button": {"title", "price"},
+    "tariffs.button_discount": {"title", "price", "discount"},
+    "tariffs.button_hidden": {"title", "price"},
+    "payment.description": {"title"},
+    "payment.screen": {"title", "price", "expires_at"},
+}
+
+
 def test_texts_placeholders_are_expected(content: Content) -> None:
     for key in REQUIRED_TEXTS:
-        expected = {"expire_at"} if key in {"connect.active", "connect.inactive"} else set()
+        expected = EXPECTED_PLACEHOLDERS.get(key, set())
         assert content.texts.placeholders(key) == expected, key
 
 
