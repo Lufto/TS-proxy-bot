@@ -16,3 +16,5 @@ Blocked by: 15, 22, 23
 Решения: задачи 07, 21, 26; docs/server-setup.md (в `../vpn-bot-rework/issues/`). Спецификация — `../spec.md`.
 
 ## Comments
+
+- Сервер (задача 26): бот работает от `tsproxy`, а `/etc/remnawave-backup/` доступна только root. Положить копию открытого ключа age, читаемую `tsproxy`, в `BACKUP_AGE_RECIPIENTS`; поставить `age`; создать `/var/backups/tsproxy` (владелец `tsproxy`) и добавить в `ReadWritePaths` службы (из задачи 23).
