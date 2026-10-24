@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     refunds_thread_id: int | None = None
 
     database_url: str = "sqlite+aiosqlite:///data/tsproxy.db"
+    # Бэкапы базы бота (задача 23): куда класть и чем шифровать (открытый ключ age, как у панели)
+    backup_dir: Path = Path("/var/backups/tsproxy")
+    backup_age_recipients: Path = Path("/etc/remnawave-backup/recipients.txt")
     content_dir: Path = Path("content")
     log_level: str = "INFO"
 
