@@ -15,6 +15,7 @@ from tsproxy.integrations.remnawave_types import RemnawaveClient
 from tsproxy.services.alerts import Alerter
 from tsproxy.services.clients import ClientProfile, ClientService
 from tsproxy.services.events import EventLog
+from tsproxy.services.profile import ProfileService
 from tsproxy.services.trial import TrialService
 
 # Имя, под которым контекст лежит в данных диспетчера
@@ -33,6 +34,7 @@ class BotContext:
     events: EventLog
     access: AdminAccess
     trials: TrialService
+    profiles: ProfileService
 
 
 def profile_of(user: User) -> ClientProfile:

@@ -12,6 +12,7 @@ from tsproxy.bot.context import CONTEXT_KEY, BotContext
 from tsproxy.bot.errors import on_error
 from tsproxy.bot.fallback import create_fallback_router
 from tsproxy.bot.menu import COMMAND_SCREENS, create_menu_router
+from tsproxy.bot.profile import create_profile_router
 from tsproxy.bot.throttling import RateLimiter, ThrottlingMiddleware
 from tsproxy.bot.trial import create_trial_router
 from tsproxy.content.loader import Texts
@@ -37,6 +38,7 @@ def create_dispatcher(
         create_menu_router(),
         create_connect_router(),
         create_trial_router(),
+        create_profile_router(),
         *extra_routers,
         create_fallback_router(),
     )
