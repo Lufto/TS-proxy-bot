@@ -65,6 +65,9 @@ class Settings(BaseSettings):
     backup_dir: Path = Path("/var/backups/tsproxy")
     backup_age_recipients: Path = Path("/etc/remnawave-backup/recipients.txt")
     content_dir: Path = Path("content")
+    # Поддельная платёжка (PAYMENTS_MODE=fake): файл с платежами, общий со скриптом
+    # `scripts/simulate_payment.py`
+    fake_payments_file: Path = Path("data/fake_payments.json")
     log_level: str = "INFO"
 
     @field_validator("admin_ids", mode="before")
@@ -106,6 +109,13 @@ class Settings(BaseSettings):
             secret.get_secret_value()
         ):
             raise ValueError("REMNAWAVE_WEBHOOK_SECRET: от 32 символов, только A-Z, a-z и 0-9")
+        return self
+
+    @model_validator(mode="after")
+    def _check_payments(self) -> Self:
+        """Поддельная платёжка в боевом режиме засчитала бы оплату, которой не было (аудит R23)."""
+        if self.run_mode is RunMode.PROD and self.payments_mode is PaymentsMode.FAKE:
+            raise ValueError("PAYMENTS_MODE=fake нельзя в режиме prod")
         return self
 
     def secret_values(self) -> list[str]:

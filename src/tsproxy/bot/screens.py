@@ -17,9 +17,7 @@ logger = logging.getLogger(__name__)
 COPY_TEXT_MAX_LENGTH = 256
 
 # Экраны-заглушки: текст «скоро» до задачи, которая сделает экран целиком
-PLACEHOLDER_TEXTS: dict[ScreenId, str] = {
-    ScreenId.TARIFFS: "tariffs.soon",  # задача 12
-}
+PLACEHOLDER_TEXTS: dict[ScreenId, str] = {}
 
 PLATFORM_TEXTS: dict[Platform, tuple[str, str]] = {
     # платформа → (текст кнопки, текст инструкции)

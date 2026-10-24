@@ -3,7 +3,7 @@
 from datetime import timedelta
 from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 
-from tsproxy.domain.constants import HOURS_PER_DAY, MONTH_DAYS, PRORATION_BONUS_HOURS
+from tsproxy.domain.constants import HOURS_PER_DAY, KOPECK, MONTH_DAYS, PRORATION_BONUS_HOURS
 
 PERCENT = Decimal(100)
 
@@ -47,3 +47,18 @@ def discount_percent(tariff_days: int, tariff_price: Decimal, monthly_price: Dec
     full_price = monthly_price * months
     percent = (1 - tariff_price / full_price) * PERCENT
     return max(0, int(percent.to_integral_value(rounding=ROUND_FLOOR)))
+
+
+# Разделитель тысяч в цене — неразрывный пробел, чтобы «1 440» не переносилось на две строки
+THOUSANDS_SEPARATOR = " "
+
+
+def format_rubles(amount: Decimal) -> str:
+    """Сумма для клиента: «150», «1 440», «149,90». Без копеек, если их нет."""
+    if amount != amount.quantize(KOPECK):
+        raise ValueError(f"сумма {amount} с долями копейки")
+    whole = f"{int(amount):,}".replace(",", THOUSANDS_SEPARATOR)
+    if amount == amount.to_integral_value():
+        return whole
+    kopecks = int((amount - int(amount)) / KOPECK)
+    return f"{whole},{kopecks:02d}"

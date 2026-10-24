@@ -31,6 +31,13 @@ TEXT_PLACEHOLDERS: dict[str, set[str]] = {
     "connect.inactive": {"expire_at"},
     "trial.granted": {"expire_at", "traffic_gb", "device_limit"},
     "support.ticket_created": {"ticket_id"},
+    # задача 12: тарифы и оплата
+    "buttons.pay": {"price"},
+    "tariffs.button": {"title", "price"},
+    "tariffs.button_discount": {"title", "price", "discount"},
+    "tariffs.button_hidden": {"title", "price"},
+    "payment.description": {"title"},
+    "payment.screen": {"title", "price", "expires_at"},
     # задача 08: профиль и устройства
     "buttons.delete_device": {"number"},
     "profile.status_trial": {"expire_at", "left"},

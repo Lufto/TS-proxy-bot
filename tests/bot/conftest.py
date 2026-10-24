@@ -20,12 +20,15 @@ from tsproxy.config import RunMode
 from tsproxy.content.loader import Content, load_content
 from tsproxy.db.engine import create_engine, create_session_factory
 from tsproxy.db.models import Base
+from tsproxy.integrations.fake_payments import FakePaymentProvider
 from tsproxy.integrations.fakes import FakeRemnawave
 from tsproxy.logging_setup import MaskingFilter
 from tsproxy.services.alerts import Alerter
 from tsproxy.services.clients import ClientService
 from tsproxy.services.events import EventLog
 from tsproxy.services.fakes import FakeAlertSender, FakeClock
+from tsproxy.services.locks import KeyedLocks
+from tsproxy.services.orders import OrderService
 from tsproxy.services.profile import ProfileService
 from tsproxy.services.support import SupportService
 from tsproxy.services.trial import TrialService
@@ -93,6 +96,11 @@ def clients(session_factory: async_sessionmaker[AsyncSession], clock: FakeClock)
 
 
 @pytest.fixture
+def payments(clock: FakeClock) -> FakePaymentProvider:
+    return FakePaymentProvider(clock)
+
+
+@pytest.fixture
 def ctx(
     bot: Bot,
     content: Content,
@@ -102,6 +110,7 @@ def ctx(
     alert_sender: FakeAlertSender,
     clock: FakeClock,
     monotonic: ManualMonotonic,
+    payments: FakePaymentProvider,
 ) -> BotContext:
     mask = MaskingFilter([BOT_TOKEN]).mask
     events = EventLog(clock, mask)
@@ -121,6 +130,16 @@ def ctx(
         profiles=ProfileService(remnawave, clock),
         support=SupportService(session_factory, clock, mask),
         support_guard=SupportGuard(support_rate_limiter(monotonic)),
+        orders=OrderService(
+            session_factory,
+            payments,
+            events,
+            content.texts,
+            content.tariffs,
+            frozenset({ADMIN_ID}),
+            clock,
+            KeyedLocks(),
+        ),
     )
 
 

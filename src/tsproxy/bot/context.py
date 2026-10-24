@@ -16,6 +16,7 @@ from tsproxy.integrations.remnawave_types import RemnawaveClient
 from tsproxy.services.alerts import Alerter
 from tsproxy.services.clients import ClientProfile, ClientService
 from tsproxy.services.events import EventLog
+from tsproxy.services.orders import OrderService
 from tsproxy.services.profile import ProfileService
 from tsproxy.services.support import SupportService
 from tsproxy.services.trial import TrialService
@@ -39,6 +40,7 @@ class BotContext:
     profiles: ProfileService
     support: SupportService
     support_guard: SupportGuard
+    orders: OrderService  # тарифы и заказы (задача 12)
 
 
 def profile_of(user: User) -> ClientProfile:

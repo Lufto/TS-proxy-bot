@@ -3,7 +3,7 @@ from decimal import Decimal
 
 import pytest
 
-from tsproxy.domain.money import discount_percent, paid_duration
+from tsproxy.domain.money import discount_percent, format_rubles, paid_duration
 
 # --- Оплата не на сумму тарифа (задача 04, правило 8) ---
 
@@ -79,3 +79,26 @@ def test_discount_rejects_bad_input() -> None:
         discount_percent(0, Decimal("15"), Decimal("150"))
     with pytest.raises(ValueError):
         discount_percent(30, Decimal("15"), Decimal("0"))
+
+
+# --- Цена для клиента ---
+
+
+@pytest.mark.parametrize(
+    ("amount", "shown"),
+    [
+        (Decimal("150"), "150"),
+        (Decimal("15"), "15"),
+        (Decimal("405.00"), "405"),
+        (Decimal("149.90"), "149,90"),
+        (Decimal("1440"), "1 440"),
+        (Decimal("1234567.5"), "1 234 567,50"),
+    ],
+)
+def test_format_rubles(amount: Decimal, shown: str) -> None:
+    assert format_rubles(amount) == shown
+
+
+def test_format_rubles_rejects_fractions_of_kopeck() -> None:
+    with pytest.raises(ValueError, match="копейк"):
+        format_rubles(Decimal("1.005"))

@@ -94,7 +94,7 @@ async def test_menu_hides_trial_button_after_trial(
     [
         (ScreenId.ABOUT, "about.text"),
         (ScreenId.INSTRUCTIONS, "instructions.choose"),
-        (ScreenId.TARIFFS, "tariffs.soon"),
+        (ScreenId.TARIFFS, "tariffs.title"),
         (ScreenId.SUPPORT, "support.intro"),
         (ScreenId.MAIN, "menu.title"),
     ],
@@ -134,7 +134,7 @@ async def test_instructions_for_each_platform(
 
 @pytest.mark.parametrize(
     ("command", "text_key"),
-    [("/buy", "tariffs.soon"), ("/support", "support.intro")],
+    [("/buy", "tariffs.title"), ("/support", "support.intro")],
 )
 async def test_commands_open_the_same_screens(
     dispatcher: Dispatcher,

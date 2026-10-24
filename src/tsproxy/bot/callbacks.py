@@ -53,3 +53,9 @@ class DeviceCallback(CallbackData, prefix="device"):
     """
 
     ref: Annotated[str, Field(pattern=rf"^[0-9a-f]{{{DEVICE_REF_LENGTH}}}$")]
+
+
+class TariffCallback(CallbackData, prefix="buy"):
+    """«Купить тариф». Только id тарифа: цену и доступность проверяет сервис заказов."""
+
+    tariff_id: str

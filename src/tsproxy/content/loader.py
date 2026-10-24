@@ -176,7 +176,6 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         "trial.already_used",
         "trial.in_progress",
         "trial.has_subscription",
-        "tariffs.soon",
         "about.text",
         "instructions.choose",
         "instructions.ios",
@@ -227,6 +226,18 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         "support.not_delivered",
         "support.reply_prefix",
         "fallback.unknown_command",
+        # задача 12: тарифы и оплата
+        "buttons.pay",
+        "buttons.tariffs_back",
+        "tariffs.title",
+        "tariffs.button",
+        "tariffs.button_discount",
+        "tariffs.button_hidden",
+        "tariffs.not_available",
+        "payment.description",
+        "payment.screen",
+        "payment.too_many",
+        "payment.unavailable",
     }
 )
 REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
@@ -251,6 +262,7 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
         "alerts.reconcile_failed",
         "alerts.node_down",
         "alerts.node_restored",
+        "alerts.payments_unavailable",  # задача 12
     }
 )
 

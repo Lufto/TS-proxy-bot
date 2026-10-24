@@ -41,9 +41,11 @@ from tsproxy.bot.dispatcher import bot_commands, create_dispatcher
 from tsproxy.bot.screens import Screens
 from tsproxy.bot.support_guard import SupportGuard, support_rate_limiter
 from tsproxy.bot.throttling import RateLimiter
-from tsproxy.config import RunMode, Settings
+from tsproxy.config import PaymentsMode, RunMode, Settings
 from tsproxy.content.loader import Content
 from tsproxy.db.engine import create_engine, create_session_factory
+from tsproxy.integrations.fake_payments import FakePaymentLedger, FakePaymentProvider
+from tsproxy.integrations.payments_types import PaymentProvider
 from tsproxy.integrations.remnawave import RemnawaveApiClient, create_http_client
 from tsproxy.integrations.remnawave_types import RemnawaveUnavailable
 from tsproxy.logging_setup import MaskingFilter
@@ -52,7 +54,9 @@ from tsproxy.services.alerts import Alerter
 from tsproxy.services.clients import ClientService
 from tsproxy.services.clock import Clock, system_clock
 from tsproxy.services.events import EventLog
+from tsproxy.services.locks import KeyedLocks
 from tsproxy.services.nodes import NodeMonitor
+from tsproxy.services.orders import OrderService
 from tsproxy.services.profile import ProfileService
 from tsproxy.services.reconciliation import Reconciliation
 from tsproxy.services.remnawave_signals import RemnawaveSignals
@@ -147,10 +151,12 @@ def build_application(
     *,
     clock: Clock = system_clock,
     telegram_session: BaseSession | None = None,
+    payments: PaymentProvider | None = None,
 ) -> Application:
     """Создать все зависимости. Сеть здесь не трогается — только при `run_application`.
 
     `telegram_session` — подделка Telegram в тестах; по умолчанию настоящая (aiohttp).
+    `payments` — платёжка в тестах; по умолчанию — по `PAYMENTS_MODE`.
     """
     mask = MaskingFilter(settings.secret_values()).mask
     engine = create_engine(settings.database_url)
@@ -175,6 +181,16 @@ def build_application(
     )
     clients = ClientService(session_factory, clock)
     events = EventLog(clock, mask)
+    orders = OrderService(
+        session_factory,
+        payments if payments is not None else _payment_provider(settings, clock),
+        events,
+        content.texts,
+        content.tariffs,
+        settings.admin_ids,
+        clock,
+        KeyedLocks(),
+    )
     ctx = BotContext(
         texts=content.texts,
         admin_texts=content.admin_texts,
@@ -189,6 +205,7 @@ def build_application(
         profiles=ProfileService(remnawave, clock),
         support=SupportService(session_factory, clock, mask),
         support_guard=SupportGuard(support_rate_limiter()),
+        orders=orders,
     )
     dispatcher = create_dispatcher(ctx, RateLimiter())
     # Обработчики проверок прокси-аккаунтов: их вызывают и вебхуки Remnawave, и сверка.
@@ -222,6 +239,13 @@ def build_application(
             ]
         ),
     )
+
+
+def _payment_provider(settings: Settings, clock: Clock) -> PaymentProvider:
+    """Платёжка по `PAYMENTS_MODE`. Поддельная в боевом режиме не стартует (проверяют настройки)."""
+    if settings.payments_mode is PaymentsMode.FAKE:
+        return FakePaymentProvider(clock, FakePaymentLedger(settings.fake_payments_file))
+    raise ValueError("PAYMENTS_MODE=real: настоящая платёжка ещё не подключена (задача 15)")
 
 
 def _telegram_webhook(
