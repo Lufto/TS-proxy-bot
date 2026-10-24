@@ -61,8 +61,8 @@ def test_discount_six_months() -> None:
 
 
 def test_discount_year_rounds_down() -> None:
-    # 1476 против 150 × 365 / 30 = 1825 → 19,12% → 19% (не обещаем больше, чем есть)
-    assert discount_percent(365, Decimal("1476"), Decimal("150")) == 19
+    # скидка считается по целым месяцам, как в оффере: 1440 против 12 × 150 = 1800 → 20%
+    assert discount_percent(365, Decimal("1440"), Decimal("150")) == 20
 
 
 def test_discount_month_itself_is_zero() -> None:

@@ -1,4 +1,6 @@
-"""Льготный период: 3 дня после конца платной подписки, по событию (задача 21 п. 11).
+"""Льготный период: 3 дня + «последний день» после конца платной подписки, по событию.
+
+Задача 21 п. 11; «последний день» с большим предупреждением добавил владелец 2026-10-24.
 
 Бот по событию `user.expired` (или по сверке, если событие потерялось) решает,
 что делать, функцией `decide_on_expiry`. Отметку «льготный начался» сервис ставит
@@ -10,10 +12,11 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 
 from tsproxy.domain.client_state import ClientSnapshot
-from tsproxy.domain.constants import GRACE_DAYS
+from tsproxy.domain.constants import GRACE_DAYS, LAST_CHANCE_DAYS
 from tsproxy.domain.dates import require_aware
 
-GRACE_PERIOD = timedelta(days=GRACE_DAYS)
+LAST_CHANCE_STARTS_AFTER = timedelta(days=GRACE_DAYS)
+GRACE_PERIOD = timedelta(days=GRACE_DAYS + LAST_CHANCE_DAYS)
 
 
 class GraceAction(StrEnum):
@@ -69,3 +72,10 @@ def decide_on_expiry(client: ClientSnapshot, now: datetime) -> GraceDecision:
         return GraceDecision(GraceAction.NOT_PAID_PERIOD)
     started_at = max(client.expire_at, now)
     return GraceDecision(GraceAction.START_GRACE, started_at, grace_ends_at(started_at))
+
+
+def is_last_chance(grace_started_at: datetime, now: datetime) -> bool:
+    """Идёт ли «последний день» льготного периода — время для большого предупреждения."""
+    require_aware(grace_started_at)
+    require_aware(now)
+    return grace_started_at + LAST_CHANCE_STARTS_AFTER <= now < grace_ends_at(grace_started_at)

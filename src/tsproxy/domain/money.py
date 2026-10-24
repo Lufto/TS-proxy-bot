@@ -33,13 +33,17 @@ def paid_duration(tariff_days: int, tariff_price: Decimal, paid_amount: Decimal)
 
 
 def discount_percent(tariff_days: int, tariff_price: Decimal, monthly_price: Decimal) -> int:
-    """Скидка тарифа в процентах от цены месяца (30 дней), для показа клиенту.
+    """Скидка тарифа в процентах от цены месяца, для показа клиенту.
 
-    405 ₽ за 90 дней против 150 ₽ за 30 дней → 10. Округляем вниз, чтобы не обещать
-    больше, чем есть. Тариф дороже месячного в пересчёте — скидка 0, не отрицательная.
+    Считаем по целым месяцам, как в оффере: 365 дней — это 12 месяцев, 1440 ₽ против
+    12 × 150 = 1800 ₽ → 20. Округляем вниз, чтобы не обещать больше, чем есть.
+    Тариф короче месяца или дороже месячного в пересчёте — скидка 0, не отрицательная.
     """
     _check_tariff(tariff_days, tariff_price)
     _check_tariff(MONTH_DAYS, monthly_price)
-    full_price = monthly_price * tariff_days / MONTH_DAYS
+    months = tariff_days // MONTH_DAYS
+    if months == 0:
+        return 0
+    full_price = monthly_price * months
     percent = (1 - tariff_price / full_price) * PERCENT
     return max(0, int(percent.to_integral_value(rounding=ROUND_FLOOR)))

@@ -1,11 +1,11 @@
 from datetime import UTC, datetime, timedelta
 
 from tsproxy.domain.client_state import ClientSnapshot
-from tsproxy.domain.constants import GRACE_DAYS
-from tsproxy.domain.grace import GraceAction, decide_on_expiry, grace_ends_at
+from tsproxy.domain.constants import GRACE_DAYS, LAST_CHANCE_DAYS
+from tsproxy.domain.grace import GraceAction, decide_on_expiry, grace_ends_at, is_last_chance
 
 NOW = datetime(2026, 11, 10, 12, 0, tzinfo=UTC)
-GRACE = timedelta(days=GRACE_DAYS)
+GRACE = timedelta(days=GRACE_DAYS + LAST_CHANCE_DAYS)
 
 
 def paid(
@@ -23,8 +23,20 @@ def paid(
     )
 
 
-def test_grace_is_three_days() -> None:
-    assert grace_ends_at(NOW) == NOW + timedelta(days=3)
+def test_grace_is_three_days_plus_last_chance_day() -> None:
+    # владелец 2026-10-24: 3 дня с напоминаниями и ещё один «последний» день
+    assert grace_ends_at(NOW) == NOW + timedelta(days=4)
+
+
+def test_last_chance_starts_after_three_days() -> None:
+    started = NOW - timedelta(days=3)
+    assert is_last_chance(started, NOW)
+    assert not is_last_chance(started, NOW - timedelta(seconds=1))
+
+
+def test_last_chance_ends_with_grace() -> None:
+    started = NOW - timedelta(days=4)
+    assert not is_last_chance(started, NOW)
 
 
 def test_paid_subscription_ended_starts_grace_from_expiry() -> None:

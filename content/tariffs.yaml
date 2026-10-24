@@ -16,7 +16,7 @@ tariffs:
   - id: m12
     title: 12 месяцев
     days: 365
-    price: 1476
+    price: 1440
   - id: test15
     title: Тест — 1 день
     days: 1

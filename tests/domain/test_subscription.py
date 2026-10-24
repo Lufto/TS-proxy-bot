@@ -62,7 +62,7 @@ def test_phase_grace_even_though_panel_shows_future_expiry() -> None:
 
 
 def test_phase_grace_over_is_expired() -> None:
-    started = NOW - timedelta(days=3)
+    started = NOW - timedelta(days=4)  # 3 дня + «последний день»
     state = snapshot(NOW, grace_started_at=started)
     assert subscription_phase(state, NOW) is SubscriptionPhase.EXPIRED
 
