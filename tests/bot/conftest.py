@@ -14,6 +14,7 @@ from tsproxy.bot.delivery import ClientDelivery
 from tsproxy.bot.dispatcher import create_dispatcher
 from tsproxy.bot.fakes import FakeTelegramSession
 from tsproxy.bot.screens import Screens
+from tsproxy.bot.support_guard import SupportGuard, support_rate_limiter
 from tsproxy.bot.throttling import RateLimiter
 from tsproxy.config import RunMode
 from tsproxy.content.loader import Content, load_content
@@ -26,6 +27,7 @@ from tsproxy.services.clients import ClientService
 from tsproxy.services.events import EventLog
 from tsproxy.services.fakes import FakeAlertSender, FakeClock
 from tsproxy.services.profile import ProfileService
+from tsproxy.services.support import SupportService
 from tsproxy.services.trial import TrialService
 
 REPO_CONTENT = Path(__file__).parent.parent.parent / "content"
@@ -99,6 +101,7 @@ def ctx(
     remnawave: FakeRemnawave,
     alert_sender: FakeAlertSender,
     clock: FakeClock,
+    monotonic: ManualMonotonic,
 ) -> BotContext:
     mask = MaskingFilter([BOT_TOKEN]).mask
     events = EventLog(clock, mask)
@@ -116,6 +119,8 @@ def ctx(
         access=AdminAccess(frozenset({ADMIN_ID}), ADMIN_CHAT_ID),
         trials=TrialService(session_factory, remnawave, events, clock),
         profiles=ProfileService(remnawave, clock),
+        support=SupportService(session_factory, clock, mask),
+        support_guard=SupportGuard(support_rate_limiter(monotonic)),
     )
 
 

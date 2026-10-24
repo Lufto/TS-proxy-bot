@@ -19,7 +19,6 @@ COPY_TEXT_MAX_LENGTH = 256
 # Экраны-заглушки: текст «скоро» до задачи, которая сделает экран целиком
 PLACEHOLDER_TEXTS: dict[ScreenId, str] = {
     ScreenId.TARIFFS: "tariffs.soon",  # задача 12
-    ScreenId.SUPPORT: "support.soon",  # задачи 16–17
 }
 
 PLATFORM_TEXTS: dict[Platform, tuple[str, str]] = {
@@ -81,6 +80,12 @@ class Screens:
     def about(self) -> Screen:
         return Screen(
             self._texts.get("about.text"), InlineKeyboardMarkup(inline_keyboard=[self._back()])
+        )
+
+    def support(self) -> Screen:
+        """«💬 Поддержка»: просто напишите вопрос в чат (частые вопросы — задача 17)."""
+        return Screen(
+            self._texts.get("support.intro"), InlineKeyboardMarkup(inline_keyboard=[self._back()])
         )
 
     def instructions_menu(self) -> Screen:
@@ -205,9 +210,9 @@ class Screens:
             InlineKeyboardMarkup(inline_keyboard=[self._back()]),
         )
 
-    def unknown_message(self) -> Screen:
-        """Обычное сообщение клиента. До задачи 16 (поддержка) — подсказка и кнопка меню."""
+    def unknown_command(self) -> Screen:
+        """Неизвестная команда. Обычные сообщения — обращения в поддержку (`bot.support`)."""
         return Screen(
-            self._texts.get("fallback.unknown_message"),
+            self._texts.get("fallback.unknown_command"),
             InlineKeyboardMarkup(inline_keyboard=[self._back()]),
         )

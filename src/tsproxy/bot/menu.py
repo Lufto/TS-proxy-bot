@@ -13,11 +13,11 @@ from tsproxy.bot.callbacks import InstructionsCallback, MenuCallback, ScreenId
 from tsproxy.bot.context import BotContext, profile_of
 from tsproxy.bot.screens import PLACEHOLDER_TEXTS, Screen
 
-# Команды бота → экраны (описания команд — `commands.*` в texts.yaml)
+# Команды бота → экраны (описания команд — `commands.*` в texts.yaml).
+# `/support` — в `bot.support` (SUPPORT_COMMAND).
 COMMAND_SCREENS: dict[str, ScreenId] = {
     "profile": ScreenId.PROFILE,
     "buy": ScreenId.TARIFFS,
-    "support": ScreenId.SUPPORT,
 }
 # Команды, чьи экраны ещё заглушки; готовые экраны регистрируют команду в своём роутере
 PLACEHOLDER_COMMANDS = [
@@ -59,7 +59,7 @@ async def on_start(message: Message, ctx: BotContext) -> None:
 
 
 async def on_screen_command(message: Message, command: CommandObject, ctx: BotContext) -> None:
-    """`/buy`, `/support` — те же экраны, что и кнопки меню, новым сообщением."""
+    """`/buy` — тот же экран, что и кнопка меню, новым сообщением."""
     if message.from_user is None:
         return
     await ctx.clients.resolve(profile_of(message.from_user))
@@ -77,7 +77,7 @@ async def on_main_menu(callback: CallbackQuery, ctx: BotContext) -> None:
 async def on_placeholder(
     callback: CallbackQuery, callback_data: MenuCallback, ctx: BotContext
 ) -> None:
-    """Экраны следующих задач: пробный (07), тарифы (12), поддержка (16–17)."""
+    """Экраны следующих задач: тарифы (12)."""
     await callback.answer()
     await _show(callback, ctx, ctx.screens.placeholder(callback_data.screen))
 

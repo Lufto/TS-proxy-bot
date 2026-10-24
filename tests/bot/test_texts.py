@@ -30,6 +30,7 @@ TEXT_PLACEHOLDERS: dict[str, set[str]] = {
     "connect.active": {"expire_at"},
     "connect.inactive": {"expire_at"},
     "trial.granted": {"expire_at", "traffic_gb", "device_limit"},
+    "support.ticket_created": {"ticket_id"},
     # задача 08: профиль и устройства
     "buttons.delete_device": {"number"},
     "profile.status_trial": {"expire_at", "left"},
@@ -80,6 +81,7 @@ async def test_all_screens_use_only_required_texts(content: Content) -> None:
     )
     screens.main_menu(trial_available=True)
     screens.about()
+    screens.support()
     screens.instructions_menu()
     for platform in Platform:
         screens.instructions(platform)
@@ -93,7 +95,7 @@ async def test_all_screens_use_only_required_texts(content: Content) -> None:
     screens.trial_has_subscription()
     screens.unavailable()
     screens.error()
-    screens.unknown_message()
+    screens.unknown_command()
 
 
 def test_texts_placeholders_are_expected(content: Content) -> None:

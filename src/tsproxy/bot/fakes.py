@@ -14,12 +14,21 @@ from aiogram import Bot
 from aiogram.client.session.base import BaseSession
 from aiogram.enums import ChatType
 from aiogram.exceptions import TelegramAPIError
-from aiogram.methods import EditMessageText, GetMe, GetUpdates, SendMessage, TelegramMethod
+from aiogram.methods import (
+    CopyMessage,
+    CreateForumTopic,
+    EditMessageText,
+    GetMe,
+    GetUpdates,
+    SendMessage,
+    TelegramMethod,
+)
 from aiogram.methods.base import TelegramType
-from aiogram.types import Chat, Message, User
+from aiogram.types import Chat, ForumTopic, Message, MessageId, User
 
 FAKE_BOT_USERNAME = "ts_proxy_test_bot"
 FIRST_MESSAGE_ID = 1000
+FAKE_TOPIC_ICON_COLOR = 0x6FB9F0  # один из цветов тем, которые разрешает Telegram
 # Пауза «долгого опроса»: без неё polling на подделке крутится, не отпуская остальных
 FAKE_POLL_DELAY_SECONDS = 0.05
 
@@ -93,6 +102,17 @@ class FakeTelegramSession(BaseSession):
         if isinstance(method, SendMessage):
             self._next_message_id += 1
             return self._message(method.chat_id, self._next_message_id, method.text)
+        if isinstance(method, CopyMessage):
+            self._next_message_id += 1
+            return MessageId(message_id=self._next_message_id)
+        if isinstance(method, CreateForumTopic):
+            # номер темы в Telegram — номер служебного сообщения «тема создана»
+            self._next_message_id += 1
+            return ForumTopic(
+                message_thread_id=self._next_message_id,
+                name=method.name,
+                icon_color=FAKE_TOPIC_ICON_COLOR,
+            )
         if isinstance(method, EditMessageText):
             if method.chat_id is None or method.message_id is None:
                 return True

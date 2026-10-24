@@ -68,14 +68,15 @@ async def test_button_flood_is_not_processed(
     assert len(throttled) == flood - RATE_LIMIT_BURST  # каждой лишней кнопке — ответ
 
 
-async def test_message_flood_gets_one_warning(
+async def test_command_flood_gets_one_warning(
     dispatcher: Dispatcher, bot: Bot, telegram: FakeTelegramSession, content: Content
 ) -> None:
+    # обычные сообщения — обращения в поддержку, их предел проверяет tests/bot/test_support_bot.py
     for _ in range(RATE_LIMIT_BURST + 5):
-        await dispatcher.feed_update(bot, message(user(CLIENT_ID), "привет"))
+        await dispatcher.feed_update(bot, message(user(CLIENT_ID), "/start"))
 
     texts = [m.text for m in telegram.sent(SendMessage)]
-    assert texts.count(content.texts.get("fallback.unknown_message")) == RATE_LIMIT_BURST
+    assert texts.count(content.texts.get("menu.title")) == RATE_LIMIT_BURST
     assert texts.count(content.texts.get("throttle.message")) == 1
 
 
