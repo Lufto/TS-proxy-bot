@@ -1,7 +1,7 @@
 # Каркас проекта
 
 Type: task
-Status: claimed
+Status: resolved
 
 ## Что сделать
 
