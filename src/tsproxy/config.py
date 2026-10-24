@@ -19,6 +19,9 @@ class RunMode(StrEnum):
 # Секрет вебхука Telegram: Telegram принимает 1–256 символов `A-Za-z0-9_-`,
 # аудит (R01) требует не меньше 32 — тогда его не подобрать перебором.
 WEBHOOK_SECRET_RE = re.compile(r"^[A-Za-z0-9_-]{32,256}$")
+# Секрет подписи вебхуков Remnawave = WEBHOOK_SECRET_HEADER панели. Панель 3.4.5 требует
+# не меньше 32 символов, только латинские буквы и цифры (app-config/config.schema.ts).
+REMNAWAVE_WEBHOOK_SECRET_RE = re.compile(r"^[A-Za-z0-9]{32,}$")
 DEFAULT_WEB_PORT = 8080
 
 
@@ -38,6 +41,9 @@ class Settings(BaseSettings):
     remnawave_token: SecretStr
     # Squad, в который бот кладёт новые прокси-аккаунты в боевом режиме (в разработке — `test`)
     remnawave_squad: str = "Default-Squad"
+    # Вебхуки Remnawave (задача 09): тот же секрет, что WEBHOOK_SECRET_HEADER в `.env` панели.
+    # Не задан — вебхуки не принимаются, события догоняет только сверка раз в 5 минут.
+    remnawave_webhook_secret: SecretStr | None = None
 
     # Боевой режим: Telegram шлёт апдейты на PUBLIC_BASE_URL + путь вебхука (без токена бота)
     # и подписывает их секретом TELEGRAM_WEBHOOK_SECRET. В разработке не нужны (polling).
@@ -69,7 +75,9 @@ class Settings(BaseSettings):
             return frozenset(int(part) for part in value.split(",") if part.strip())
         return value
 
-    @field_validator("public_base_url", "telegram_webhook_secret", mode="before")
+    @field_validator(
+        "public_base_url", "telegram_webhook_secret", "remnawave_webhook_secret", mode="before"
+    )
     @classmethod
     def _empty_is_none(cls, value: object) -> object:
         """Пустая строка в `.env` (`PUBLIC_BASE_URL=`) значит «не задано»."""
@@ -90,11 +98,23 @@ class Settings(BaseSettings):
                 raise ValueError("TELEGRAM_WEBHOOK_SECRET: в режиме prod обязателен")
         return self
 
+    @model_validator(mode="after")
+    def _check_remnawave_webhook(self) -> Self:
+        """Секрет вебхуков Remnawave — по правилам панели, иначе подписи не совпадут."""
+        secret = self.remnawave_webhook_secret
+        if secret is not None and not REMNAWAVE_WEBHOOK_SECRET_RE.fullmatch(
+            secret.get_secret_value()
+        ):
+            raise ValueError("REMNAWAVE_WEBHOOK_SECRET: от 32 символов, только A-Z, a-z и 0-9")
+        return self
+
     def secret_values(self) -> list[str]:
         """Все секреты — для маскировки в логах."""
         values = [self.bot_token.get_secret_value(), self.remnawave_token.get_secret_value()]
         if self.telegram_webhook_secret is not None:
             values.append(self.telegram_webhook_secret.get_secret_value())
+        if self.remnawave_webhook_secret is not None:
+            values.append(self.remnawave_webhook_secret.get_secret_value())
         return values
 
 
