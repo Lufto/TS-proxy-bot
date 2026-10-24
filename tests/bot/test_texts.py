@@ -9,7 +9,7 @@ import yaml
 from conftest import REPO_CONTENT
 
 from tsproxy.bot.callbacks import InstructionsCallback, MenuCallback, Platform, ScreenId
-from tsproxy.bot.screens import PLACEHOLDER_TEXTS, Screens
+from tsproxy.bot.screens import Screens
 from tsproxy.content.loader import (
     ADMIN_TEXTS_FILE,
     REQUIRED_TEXTS,
@@ -92,8 +92,6 @@ async def test_all_screens_use_only_required_texts(content: Content) -> None:
     screens.instructions_menu()
     for platform in Platform:
         screens.instructions(platform)
-    for screen in PLACEHOLDER_TEXTS:
-        screens.placeholder(screen)
     screens.connect(account)
     screens.no_account()
     screens.trial_granted(account)

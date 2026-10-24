@@ -16,9 +16,6 @@ logger = logging.getLogger(__name__)
 # Telegram копирует кнопкой «📋 Скопировать ссылку» не больше 256 символов
 COPY_TEXT_MAX_LENGTH = 256
 
-# Экраны-заглушки: текст «скоро» до задачи, которая сделает экран целиком
-PLACEHOLDER_TEXTS: dict[ScreenId, str] = {}
-
 PLATFORM_TEXTS: dict[Platform, tuple[str, str]] = {
     # платформа → (текст кнопки, текст инструкции)
     Platform.IOS: ("buttons.platform_ios", "instructions.ios"),
@@ -67,13 +64,6 @@ class Screens:
             [self._button("buttons.about", ScreenId.ABOUT)],
         ]
         return Screen(self._texts.get("menu.title"), InlineKeyboardMarkup(inline_keyboard=rows))
-
-    def placeholder(self, screen: ScreenId) -> Screen:
-        """Экран, который появится в следующих задачах: пока текст «скоро» и «назад»."""
-        return Screen(
-            self._texts.get(PLACEHOLDER_TEXTS[screen]),
-            InlineKeyboardMarkup(inline_keyboard=[self._back()]),
-        )
 
     def about(self) -> Screen:
         return Screen(

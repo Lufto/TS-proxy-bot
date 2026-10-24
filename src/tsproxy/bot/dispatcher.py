@@ -11,10 +11,10 @@ from tsproxy.bot.connect import create_connect_router
 from tsproxy.bot.context import CONTEXT_KEY, BotContext
 from tsproxy.bot.errors import on_error
 from tsproxy.bot.fallback import create_fallback_router
-from tsproxy.bot.menu import COMMAND_SCREENS, create_menu_router
-from tsproxy.bot.profile import create_profile_router
+from tsproxy.bot.menu import create_menu_router
+from tsproxy.bot.profile import PROFILE_COMMAND, create_profile_router
 from tsproxy.bot.support import SUPPORT_COMMAND, create_support_router
-from tsproxy.bot.tariffs import create_tariffs_router
+from tsproxy.bot.tariffs import BUY_COMMAND, create_tariffs_router
 from tsproxy.bot.throttling import RateLimiter, ThrottlingMiddleware
 from tsproxy.bot.trial import create_trial_router
 from tsproxy.content.loader import Texts
@@ -52,5 +52,5 @@ def create_dispatcher(
 
 def bot_commands(texts: Texts) -> list[BotCommand]:
     """Команды в меню Telegram (кнопка «/» рядом с полем ввода)."""
-    names = ["start", *COMMAND_SCREENS, SUPPORT_COMMAND]
+    names = ["start", PROFILE_COMMAND, BUY_COMMAND, SUPPORT_COMMAND]
     return [BotCommand(command=name, description=texts.get(f"commands.{name}")) for name in names]
