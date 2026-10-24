@@ -146,7 +146,7 @@ class Content:
 
 # Ключи, без которых бот не стартует. Каждая задача дописывает сюда тексты своих экранов.
 REQUIRED_TEXTS: frozenset[str] = frozenset({"menu.title"})
-REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset({"alerts.prefix"})
+REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset({"alerts.prefix", "alerts.repeated"})
 
 
 def load_content(directory: Path) -> Content:
