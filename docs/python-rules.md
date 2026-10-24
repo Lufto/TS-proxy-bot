@@ -12,6 +12,7 @@
 # ❌ токен виден всем, кто видит код
 TOKEN = "8889627995:AAF..."
 
+
 # ✅ config.py читает .env
 class Settings(BaseSettings):
     bot_token: str
@@ -35,10 +36,10 @@ except Exception:
 try:
     account = await remnawave.find_account(client_id)
 except AccountNotFound:
-    account = None                      # нормальная ситуация: аккаунта ещё нет
+    account = None  # нормальная ситуация: аккаунта ещё нет
 except RemnawaveUnavailable:
     await alert_admins("Remnawave недоступна")
-    raise                               # пусть вызывающий код решит, что дальше
+    raise  # пусть вызывающий код решит, что дальше
 ```
 
 **Зачем:** проглоченная ошибка — это баг, который невозможно найти.
@@ -53,8 +54,10 @@ except RemnawaveUnavailable:
 # ❌ функция сама лезет в глобальный объект
 remnawave = RemnawaveSDK(...)
 
+
 async def extend(client_id, days):
     await remnawave.users.update_user(...)
+
 
 # ✅ сервис получает Remnawave «на вход»
 class SubscriptionService:
@@ -73,7 +76,9 @@ class SubscriptionService:
 
 ```python
 # ✅ domain/subscription.py
-def renewal_start(now: datetime, expires_at: datetime | None, grace_started_at: datetime | None) -> datetime:
+def renewal_start(
+    now: datetime, expires_at: datetime | None, grace_started_at: datetime | None
+) -> datetime:
     """От какой даты считать новый срок при покупке."""
     ...
 ```
@@ -107,6 +112,7 @@ class Tariff:
 price = 405.0
 # ✅
 from decimal import Decimal
+
 price = Decimal("405.00")
 ```
 
@@ -146,7 +152,7 @@ requests.get(url)
 
 # ✅ «ждём, но отпускаем остальных»
 await asyncio.sleep(5)
-await http.get(url)          # httpx.AsyncClient
+await http.get(url)  # httpx.AsyncClient
 ```
 
 Во фронтенде то же самое: синхронный цикл на 5 секунд замораживает страницу, а `await fetch()` — нет.
