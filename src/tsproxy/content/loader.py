@@ -145,8 +145,60 @@ class Content:
 
 
 # Ключи, без которых бот не стартует. Каждая задача дописывает сюда тексты своих экранов.
-REQUIRED_TEXTS: frozenset[str] = frozenset({"menu.title"})
-REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset({"alerts.prefix", "alerts.repeated"})
+REQUIRED_TEXTS: frozenset[str] = frozenset(
+    {
+        # задача 06: меню, «Подключиться», инструкции, «О сервисе», заглушки
+        "commands.start",
+        "commands.profile",
+        "commands.buy",
+        "commands.support",
+        "buttons.connect",
+        "buttons.trial",
+        "buttons.tariffs",
+        "buttons.profile",
+        "buttons.instructions",
+        "buttons.support",
+        "buttons.about",
+        "buttons.back",
+        "buttons.instructions_back",
+        "buttons.open_subscription",
+        "buttons.copy_link",
+        "buttons.platform_ios",
+        "buttons.platform_android",
+        "buttons.platform_windows",
+        "buttons.platform_macos",
+        "menu.title",
+        "connect.active",
+        "connect.inactive",
+        "connect.no_account_trial",
+        "connect.no_account",
+        "connect.unavailable",
+        "trial.soon",
+        "tariffs.soon",
+        "profile.soon",
+        "support.soon",
+        "about.text",
+        "instructions.choose",
+        "instructions.ios",
+        "instructions.android",
+        "instructions.windows",
+        "instructions.macos",
+        "throttle.callback",
+        "throttle.message",
+        "errors.generic",
+        "errors.stale_button",
+        "fallback.unknown_message",
+    }
+)
+REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
+    {
+        "alerts.prefix",
+        "alerts.repeated",
+        "alerts.remnawave_unavailable",
+        "alerts.remnawave_at_start",
+        "alerts.bot_error",
+    }
+)
 
 
 def load_content(directory: Path) -> Content:

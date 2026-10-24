@@ -1,0 +1,166 @@
+"""Экраны клиента: текст и кнопки. Только сборка из `content/texts.yaml`, без Telegram-вызовов."""
+
+import logging
+from dataclasses import dataclass
+
+from aiogram.types import CopyTextButton, InlineKeyboardButton, InlineKeyboardMarkup
+
+from tsproxy.bot.callbacks import InstructionsCallback, MenuCallback, Platform, ScreenId
+from tsproxy.content.loader import Texts
+from tsproxy.domain.dates import format_moscow
+from tsproxy.integrations.remnawave_types import AccountStatus, ProxyAccount
+
+logger = logging.getLogger(__name__)
+
+# Telegram копирует кнопкой «📋 Скопировать ссылку» не больше 256 символов
+COPY_TEXT_MAX_LENGTH = 256
+
+# Экраны-заглушки: текст «скоро» до задачи, которая сделает экран целиком
+PLACEHOLDER_TEXTS: dict[ScreenId, str] = {
+    ScreenId.TRIAL: "trial.soon",  # задача 07
+    ScreenId.TARIFFS: "tariffs.soon",  # задача 12
+    ScreenId.PROFILE: "profile.soon",  # задача 08
+    ScreenId.SUPPORT: "support.soon",  # задачи 16–17
+}
+
+PLATFORM_TEXTS: dict[Platform, tuple[str, str]] = {
+    # платформа → (текст кнопки, текст инструкции)
+    Platform.IOS: ("buttons.platform_ios", "instructions.ios"),
+    Platform.ANDROID: ("buttons.platform_android", "instructions.android"),
+    Platform.WINDOWS: ("buttons.platform_windows", "instructions.windows"),
+    Platform.MACOS: ("buttons.platform_macos", "instructions.macos"),
+}
+
+
+@dataclass(frozen=True)
+class Screen:
+    """Что показать клиенту: текст (HTML) и кнопки под ним."""
+
+    text: str
+    markup: InlineKeyboardMarkup
+
+
+class Screens:
+    """Собирает экраны меню из текстов."""
+
+    def __init__(self, texts: Texts) -> None:
+        self._texts = texts
+
+    def _button(self, key: str, screen: ScreenId) -> InlineKeyboardButton:
+        return InlineKeyboardButton(
+            text=self._texts.get(key), callback_data=MenuCallback(screen=screen).pack()
+        )
+
+    def _back(self) -> list[InlineKeyboardButton]:
+        return [self._button("buttons.back", ScreenId.MAIN)]
+
+    def main_menu(self, *, trial_available: bool) -> Screen:
+        """Главное меню. «Попробовать бесплатно» — только если пробный ещё не брал."""
+        rows = [[self._button("buttons.connect", ScreenId.CONNECT)]]
+        if trial_available:
+            rows.append([self._button("buttons.trial", ScreenId.TRIAL)])
+        rows += [
+            [
+                self._button("buttons.tariffs", ScreenId.TARIFFS),
+                self._button("buttons.profile", ScreenId.PROFILE),
+            ],
+            [
+                self._button("buttons.instructions", ScreenId.INSTRUCTIONS),
+                self._button("buttons.support", ScreenId.SUPPORT),
+            ],
+            [self._button("buttons.about", ScreenId.ABOUT)],
+        ]
+        return Screen(self._texts.get("menu.title"), InlineKeyboardMarkup(inline_keyboard=rows))
+
+    def placeholder(self, screen: ScreenId) -> Screen:
+        """Экран, который появится в следующих задачах: пока текст «скоро» и «назад»."""
+        return Screen(
+            self._texts.get(PLACEHOLDER_TEXTS[screen]),
+            InlineKeyboardMarkup(inline_keyboard=[self._back()]),
+        )
+
+    def about(self) -> Screen:
+        return Screen(
+            self._texts.get("about.text"), InlineKeyboardMarkup(inline_keyboard=[self._back()])
+        )
+
+    def instructions_menu(self) -> Screen:
+        """Выбор платформы."""
+        rows = [
+            [
+                InlineKeyboardButton(
+                    text=self._texts.get(button_key),
+                    callback_data=InstructionsCallback(platform=platform).pack(),
+                )
+            ]
+            for platform, (button_key, _) in PLATFORM_TEXTS.items()
+        ]
+        rows.append(self._back())
+        return Screen(
+            self._texts.get("instructions.choose"), InlineKeyboardMarkup(inline_keyboard=rows)
+        )
+
+    def instructions(self, platform: Platform) -> Screen:
+        """Три шага для одной платформы."""
+        _, text_key = PLATFORM_TEXTS[platform]
+        rows = [
+            [self._button("buttons.connect", ScreenId.CONNECT)],
+            [self._button("buttons.instructions_back", ScreenId.INSTRUCTIONS)],
+            self._back(),
+        ]
+        return Screen(self._texts.get(text_key), InlineKeyboardMarkup(inline_keyboard=rows))
+
+    def connect(self, account: ProxyAccount) -> Screen:
+        """«🚀 Подключиться»: страница подписки и копирование ссылки."""
+        url = account.subscription_url
+        rows = [[InlineKeyboardButton(text=self._texts.get("buttons.open_subscription"), url=url)]]
+        if len(url) <= COPY_TEXT_MAX_LENGTH:
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        text=self._texts.get("buttons.copy_link"),
+                        copy_text=CopyTextButton(text=url),
+                    )
+                ]
+            )
+        else:
+            logger.warning("Ссылка подписки длиннее %d символов: без копирования", len(url))
+        expire_at = format_moscow(account.expire_at)
+        if account.status is AccountStatus.ACTIVE:
+            text = self._texts.get("connect.active", expire_at=expire_at)
+        else:
+            text = self._texts.get("connect.inactive", expire_at=expire_at)
+            rows.append([self._button("buttons.tariffs", ScreenId.TARIFFS)])
+        rows.append([self._button("buttons.instructions", ScreenId.INSTRUCTIONS)])
+        rows.append(self._back())
+        return Screen(text, InlineKeyboardMarkup(inline_keyboard=rows))
+
+    def no_account(self, *, trial_available: bool) -> Screen:
+        """«🚀 Подключиться», а подписки ещё нет: предложить пробный и тарифы."""
+        rows = []
+        if trial_available:
+            rows.append([self._button("buttons.trial", ScreenId.TRIAL)])
+        rows += [[self._button("buttons.tariffs", ScreenId.TARIFFS)], self._back()]
+        key = "connect.no_account_trial" if trial_available else "connect.no_account"
+        return Screen(self._texts.get(key), InlineKeyboardMarkup(inline_keyboard=rows))
+
+    def unavailable(self) -> Screen:
+        """Панель Remnawave не ответила — попросить попробовать позже."""
+        return Screen(
+            self._texts.get("connect.unavailable"),
+            InlineKeyboardMarkup(inline_keyboard=[self._back()]),
+        )
+
+    def error(self) -> Screen:
+        """Что-то сломалось в обработчике — извиниться и вернуть в меню."""
+        return Screen(
+            self._texts.get("errors.generic"),
+            InlineKeyboardMarkup(inline_keyboard=[self._back()]),
+        )
+
+    def unknown_message(self) -> Screen:
+        """Обычное сообщение клиента. До задачи 16 (поддержка) — подсказка и кнопка меню."""
+        return Screen(
+            self._texts.get("fallback.unknown_message"),
+            InlineKeyboardMarkup(inline_keyboard=[self._back()]),
+        )
