@@ -38,6 +38,9 @@ TEXT_PLACEHOLDERS: dict[str, set[str]] = {
     "tariffs.button_hidden": {"title", "price"},
     "payment.description": {"title"},
     "payment.screen": {"title", "price", "expires_at"},
+    # задача 13: оплата засчитана
+    "payment.paid": {"expire_at", "device_limit"},
+    "payment.paid_prorated": {"expire_at", "device_limit", "amount", "price"},
     # задача 08: профиль и устройства
     "buttons.delete_device": {"number"},
     "profile.status_trial": {"expire_at", "left"},

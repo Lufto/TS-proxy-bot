@@ -10,7 +10,7 @@ Telegram, журнал событий, тревоги, тексты. Остал�
 - веб-сервер FastAPI (uvicorn): вебхук Telegram в боевом режиме, вебхуки Remnawave
   (если задан `REMNAWAVE_WEBHOOK_SECRET`), позже — платёжка и `/health`;
 - фоновые задачи: сводки повторов тревог раз в минуту; сверка с Remnawave раз в 5 минут
-  и сразу при запуске (задача 09).
+  и сразу при запуске (задача 09); повторы выдачи доступа после оплаты раз в минуту (задача 13).
 
 Ctrl+C или `systemctl stop` (SIGINT/SIGTERM) — мягкая остановка: бот дорабатывает
 текущие апдейты, затем закрываются HTTP-клиенты и база.
@@ -40,6 +40,7 @@ from tsproxy.bot.delivery import ClientDelivery
 from tsproxy.bot.dispatcher import bot_commands, create_dispatcher
 from tsproxy.bot.grace import TelegramGraceMessenger
 from tsproxy.bot.notices import NoticeScreens, TelegramNotifier
+from tsproxy.bot.payments import PaymentScreens, TelegramPaymentMessages
 from tsproxy.bot.screens import Screens
 from tsproxy.bot.support_guard import SupportGuard, support_rate_limiter
 from tsproxy.bot.throttling import RateLimiter
@@ -53,9 +54,11 @@ from tsproxy.integrations.remnawave import RemnawaveApiClient, create_http_clien
 from tsproxy.integrations.remnawave_types import RemnawaveUnavailable
 from tsproxy.logging_setup import MaskingFilter
 from tsproxy.services.account_checks import AccountCheckHandler, AccountChecks
+from tsproxy.services.admin_topics import AdminTopic
 from tsproxy.services.alerts import Alerter
 from tsproxy.services.clients import ClientService
 from tsproxy.services.clock import Clock, system_clock
+from tsproxy.services.crediting import CreditingService
 from tsproxy.services.events import EventLog
 from tsproxy.services.grace import GraceHandler
 from tsproxy.services.locks import KeyedLocks
@@ -77,6 +80,8 @@ logger = logging.getLogger(__name__)
 ALERT_FLUSH_INTERVAL = timedelta(minutes=1)
 # Пробные, которые не выдались из-за панели, — доделываются сами (задача 07)
 PENDING_TRIALS_INTERVAL = timedelta(minutes=1)
+# Повторы выдачи доступа после оплаты — расписание каждого заказа в базе (задача 13)
+PAYMENT_GRANTS_INTERVAL = timedelta(minutes=1)
 # Сверка с Remnawave — страховка от потерянных вебхуков (задача 09: «каждые 5–10 минут»)
 RECONCILE_INTERVAL = timedelta(minutes=5)
 STOP_SIGNALS = (signal.SIGINT, signal.SIGTERM)
@@ -198,13 +203,32 @@ def build_application(
         clock,
         KeyedLocks(),
     )
+    screens = Screens(content.texts)
+    delivery = ClientDelivery(bot, clients)
+    # Одна блокировка на клиента для всего, что меняет срок подписки: зачёт оплаты,
+    # ручное продление (задача 18), компенсация (задача 20). Иначе два изменения сразу
+    # посчитают новый срок от одной и той же старой даты, и дни потеряются.
+    term_locks = KeyedLocks()
+    # Зачёт оплаты и выдача доступа (задача 13). Его вызывают уведомления платёжки,
+    # «Проверить оплату» и фоновая проверка (задача 14)
+    crediting = CreditingService(
+        session_factory,
+        remnawave,
+        events,
+        alerter,
+        AdminTopic(TelegramAlertSender(bot), settings.admin_chat_id, settings.payments_thread_id),
+        content.admin_texts,
+        TelegramPaymentMessages(delivery, PaymentScreens(content.texts, screens)),
+        clock,
+        term_locks,
+    )
     ctx = BotContext(
         texts=content.texts,
         admin_texts=content.admin_texts,
-        screens=Screens(content.texts),
+        screens=screens,
         clients=clients,
         remnawave=remnawave,
-        delivery=ClientDelivery(bot, clients),
+        delivery=delivery,
         alerter=alerter,
         events=events,
         access=AdminAccess(settings.admin_ids, settings.admin_chat_id),
@@ -257,6 +281,12 @@ def build_application(
                     PENDING_TRIALS_INTERVAL,
                     lambda: deliver_pending_trials(ctx),
                     run_at_start=True,
+                ),
+                PeriodicJob(
+                    "payment_grants",
+                    PAYMENT_GRANTS_INTERVAL,
+                    crediting.retry_grants,
+                    run_at_start=True,  # бот лежал — сразу доделать выдачу оплаченного
                 ),
                 PeriodicJob(
                     "remnawave_reconcile",
