@@ -238,6 +238,11 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         "payment.screen",
         "payment.too_many",
         "payment.unavailable",
+        # задача 11: льготный период
+        "grace.started",
+        "grace.reminder",
+        "grace.last_day",
+        "grace.ended",
     }
 )
 REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(

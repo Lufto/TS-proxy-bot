@@ -5,6 +5,10 @@
 Бот по событию `user.expired` (или по сверке, если событие потерялось) решает,
 что делать, функцией `decide_on_expiry`. Отметку «льготный начался» сервис ставит
 атомарно, поэтому повторное событие видит её и не даёт ещё 3 дня.
+
+Пока идёт льготный период, раз в сутки клиенту положено одно сообщение
+(`grace_notice`): в первый день — «подписка кончилась», затем напоминания,
+в «последний день» — большое предупреждение, после — одно финальное.
 """
 
 from dataclasses import dataclass
@@ -12,7 +16,7 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 
 from tsproxy.domain.client_state import ClientSnapshot
-from tsproxy.domain.constants import GRACE_DAYS, LAST_CHANCE_DAYS
+from tsproxy.domain.constants import GRACE_DAYS, LAST_CHANCE_DAYS, ONE_DAY
 from tsproxy.domain.dates import require_aware
 
 LAST_CHANCE_STARTS_AFTER = timedelta(days=GRACE_DAYS)
@@ -79,3 +83,40 @@ def is_last_chance(grace_started_at: datetime, now: datetime) -> bool:
     require_aware(grace_started_at)
     require_aware(now)
     return grace_started_at + LAST_CHANCE_STARTS_AFTER <= now < grace_ends_at(grace_started_at)
+
+
+class GraceStage(StrEnum):
+    """Какое сообщение о льготном периоде сейчас положено клиенту."""
+
+    STARTED = "started"  # первый день: подписка кончилась, доступ сохранён
+    REMINDER = "reminder"  # следующие льготные дни: ежедневное напоминание
+    LAST_DAY = "last_day"  # «последний день»: большое предупреждение
+    ENDED = "ended"  # доступ выключен — одно финальное сообщение
+
+
+@dataclass(frozen=True)
+class GraceNotice:
+    """Сообщение о льготном периоде. `due_at` — с какого момента его пора слать;
+    у каждого дня свой `due_at`, по нему сервис не даёт прислать одно и то же дважды."""
+
+    stage: GraceStage
+    due_at: datetime
+
+
+def grace_notice(grace_started_at: datetime, now: datetime) -> GraceNotice:
+    """Сообщение, положенное клиенту сейчас: одно на каждые льготные сутки.
+
+    Если бот лежал и пропустил дни — только сегодняшнее, без пачки пропущенных.
+    """
+    require_aware(grace_started_at)
+    require_aware(now)
+    ends_at = grace_ends_at(grace_started_at)
+    if now >= ends_at:
+        return GraceNotice(GraceStage.ENDED, ends_at)
+    day = max((now - grace_started_at) // ONE_DAY, 0)
+    due_at = grace_started_at + day * ONE_DAY
+    if day == 0:
+        return GraceNotice(GraceStage.STARTED, due_at)
+    if day < GRACE_DAYS:
+        return GraceNotice(GraceStage.REMINDER, due_at)
+    return GraceNotice(GraceStage.LAST_DAY, due_at)
