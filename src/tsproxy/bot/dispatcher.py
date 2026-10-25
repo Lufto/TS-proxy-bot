@@ -6,7 +6,7 @@ from aiogram import Dispatcher, Router
 from aiogram.types import BotCommand
 
 from tsproxy.bot.admin import ForeignChatFilter
-from tsproxy.bot.admin_clients import create_admin_router
+from tsproxy.bot.admin_clients import AdminCardClientActions, create_admin_router
 from tsproxy.bot.chats import create_chats_router
 from tsproxy.bot.connect import create_connect_router
 from tsproxy.bot.context import CONTEXT_KEY, BotContext
@@ -45,7 +45,7 @@ def create_dispatcher(
         create_tariffs_router(),
         create_admin_router(ctx.access),  # задача 18
         *extra_routers,
-        create_support_router(ctx.access),
+        create_support_router(ctx.access, client_actions=AdminCardClientActions()),
         create_fallback_router(),
     )
     dispatcher.errors.register(on_error)

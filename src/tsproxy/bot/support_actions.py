@@ -6,7 +6,7 @@
 «Беру» и «Закрыть» пишутся в журнал событий (`SupportService`), обычные ответы — нет.
 
 «➕ Продлить» и «📱 Устройства» — действия админки (задача 18). Здесь только кнопки и точка
-подключения `CardClientActions`; до задачи 18 стоит заглушка `PendingCardClientActions`.
+подключения `CardClientActions`; реализация — `bot.admin_clients.AdminCardClientActions`.
 """
 
 import logging
@@ -42,21 +42,6 @@ class CardClientActions(Protocol):
     async def devices(
         self, callback: CallbackQuery, ticket: TicketRef, ctx: BotContext
     ) -> None: ...
-
-
-class PendingCardClientActions:
-    """Заглушка до задачи 18: кнопки есть, по нажатию — «появится вместе с админкой»."""
-
-    async def extend(self, callback: CallbackQuery, ticket: TicketRef, ctx: BotContext) -> None:
-        await self._pending(callback, ctx)
-
-    async def devices(self, callback: CallbackQuery, ticket: TicketRef, ctx: BotContext) -> None:
-        await self._pending(callback, ctx)
-
-    @staticmethod
-    async def _pending(callback: CallbackQuery, ctx: BotContext) -> None:
-        text = ctx.admin_texts.get("support.client_actions_pending")
-        await callback.answer(text, show_alert=True)
 
 
 def register_ticket_actions(

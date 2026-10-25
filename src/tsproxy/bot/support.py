@@ -31,7 +31,6 @@ from tsproxy.bot.callbacks import FaqCallback, MenuCallback, ScreenId
 from tsproxy.bot.context import BotContext, profile_of
 from tsproxy.bot.support_actions import (
     CardClientActions,
-    PendingCardClientActions,
     register_ticket_actions,
 )
 from tsproxy.bot.support_card import SupportTopicTexts
@@ -89,13 +88,10 @@ def _file_id(message: Message) -> str | None:
     return None if media is None else media.file_id
 
 
-def create_support_router(
-    access: AdminAccess, client_actions: CardClientActions | None = None
-) -> Router:
+def create_support_router(access: AdminAccess, client_actions: CardClientActions) -> Router:
     """Роутер поддержки. Подключается после остальных: берёт все обычные сообщения клиента.
 
-    `client_actions` — «➕ Продлить» и «📱 Устройства» из карточки (задача 18); по умолчанию
-    заглушка.
+    `client_actions` — «➕ Продлить» и «📱 Устройства» из карточки (действия админки, задача 18).
     """
     router = Router(name="support")
     private = F.chat.type == ChatType.PRIVATE
@@ -105,7 +101,7 @@ def create_support_router(
         on_support_screen, private_button, MenuCallback.filter(F.screen == ScreenId.SUPPORT)
     )
     router.callback_query.register(on_faq, private_button, FaqCallback.filter())
-    register_ticket_actions(router, access, client_actions or PendingCardClientActions())
+    register_ticket_actions(router, access, client_actions)
     router.message.register(on_client_message, private, lambda m: not is_command(m))
     router.message.register(
         on_topic_message,

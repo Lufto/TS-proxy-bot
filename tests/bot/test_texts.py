@@ -164,7 +164,6 @@ def test_callback_data_fits_telegram_limit(content: Content) -> None:
         "support.take_closed",
         "support.ticket_not_found",
         "support.quick_reply_not_found",
-        "support.client_actions_pending",
     ],
 )
 def test_admin_callback_answers_fit_telegram_limit(content: Content, key: str) -> None:

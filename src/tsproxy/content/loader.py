@@ -332,7 +332,6 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
         "support.take_closed",
         "support.ticket_not_found",
         "support.quick_reply_not_found",
-        "support.client_actions_pending",
         "support.reminder",
         "support.reminder_assignee",
         "support.quick_replies_title",

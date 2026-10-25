@@ -12,6 +12,7 @@
 """
 
 import logging
+from collections.abc import Awaitable, Callable
 
 from aiogram import Bot, Router
 from aiogram.filters import Command, CommandObject, or_f
@@ -30,6 +31,7 @@ from tsproxy.bot.context import BotContext
 from tsproxy.domain.admin import GrantDaysOutOfRange, parse_client_query
 from tsproxy.integrations.remnawave_types import RemnawaveUnavailable
 from tsproxy.services.admin import ExtensionOutcome, RevokeOutcome, TrialResetOutcome
+from tsproxy.services.support import TicketRef
 
 logger = logging.getLogger(__name__)
 
@@ -258,3 +260,40 @@ async def on_foreign_press(callback: CallbackQuery, ctx: BotContext) -> None:
         "Кнопка админки от %s в чате %s отклонена: нет прав", callback.from_user.id, chat_id
     )
     await callback.answer(_screens(ctx).not_admin(), show_alert=True)
+
+
+# --- Кнопки в карточке обращения (задача 17) ---
+
+
+class AdminCardClientActions:
+    """«➕ Продлить» и «📱 Устройства» в карточке обращения — те же экраны, что у `/client`.
+
+    Права администратора уже проверил роутер поддержки; клиент — из обращения в базе.
+    «Продлить» присылает карточку админки с кнопками «➕ 1 / 7 / 30 дн.»: выдача идёт
+    через предпросмотр и подтверждение, как в `/give`.
+    """
+
+    async def extend(self, callback: CallbackQuery, ticket: TicketRef, ctx: BotContext) -> None:
+        await self._show(callback, ctx, ticket.client_telegram_id, _card_screen)
+
+    async def devices(self, callback: CallbackQuery, ticket: TicketRef, ctx: BotContext) -> None:
+        await self._show(callback, ctx, ticket.client_telegram_id, _devices_screen)
+
+    @staticmethod
+    async def _show(
+        callback: CallbackQuery,
+        ctx: BotContext,
+        telegram_id: int,
+        screen: Callable[[BotContext, int], Awaitable[AdminScreen]],
+    ) -> None:
+        await callback.answer()
+        bot = callback.bot
+        if bot is None:
+            raise RuntimeError("aiogram не передал бота в нажатие")
+        try:
+            await _send_from(callback, bot, ctx, await screen(ctx, telegram_id))
+        except RemnawaveUnavailable as error:
+            logger.warning(
+                "Карточка обращения, клиент %s: панель не ответила: %s", telegram_id, error
+            )
+            await _send_from(callback, bot, ctx, _screens(ctx).panel_unavailable())

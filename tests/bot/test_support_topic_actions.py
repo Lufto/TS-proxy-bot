@@ -20,6 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from test_support_bot import client_text, open_ticket, tickets, topic_text, transcript
 
+from tsproxy.bot.admin_callbacks import AdminExtendCallback
 from tsproxy.bot.callbacks import (
     FaqCallback,
     FaqQuestion,
@@ -300,23 +301,30 @@ async def test_message_25_hours_after_closing_opens_new_ticket_and_topic(
     assert client_texts[-1] == content.texts.get("support.ticket_created", ticket_id=second.id)
 
 
-async def test_client_actions_wait_for_admin_panel(
+async def test_card_buttons_open_admin_actions_for_ticket_client(
     dispatcher: Dispatcher,
     bot: Bot,
     telegram: FakeTelegramSession,
     session_factory: async_sessionmaker[AsyncSession],
     content: Content,
 ) -> None:
+    """«➕ Продлить» присылает карточку админки с «➕ 1 / 7 / 30 дн.» (дальше — предпросмотр
+    и подтверждение), «📱 Устройства» — устройства клиента этого обращения."""
     await open_ticket(dispatcher, bot, session_factory)
     ticket_id = await ticket_id_of(session_factory)
+    telegram.requests.clear()
 
     await dispatcher.feed_update(bot, press(TicketAction.EXTEND, ticket_id))
     await dispatcher.feed_update(bot, press(TicketAction.DEVICES, ticket_id))
     await dispatcher.feed_update(bot, press(TicketAction.EXTEND, ticket_id + 100))
 
-    pending = content.admin_texts.get("support.client_actions_pending")
-    stale = content.admin_texts.get("support.ticket_not_found")
-    assert alerts(telegram) == [pending, pending, stale]
+    card, devices = [m for m in telegram.sent(SendMessage) if m.chat_id == ADMIN_CHAT_ID]
+    card_data = [data for _, data in buttons(card.reply_markup)]  # type: ignore[arg-type]
+    assert AdminExtendCallback(telegram_id=CLIENT_ID, days=30).pack() in card_data
+    assert devices.text == content.admin_texts.get(
+        "admin.devices.no_account", telegram_id=CLIENT_ID
+    )
+    assert alerts(telegram) == [content.admin_texts.get("support.ticket_not_found")]
 
 
 # --- Быстрые ответы ---
