@@ -6,7 +6,9 @@
 1. **Зачёт.** Один `UPDATE … WHERE статус «создан» или «отменён»` ставит «оплачено, доступ
    не выдан» и пишет событие «оплата получена» в той же транзакции. Изменилась 0 строк —
    заказ уже засчитан, выходим: двойного зачёта не бывает. Запись не прошла (ошибка базы) —
-   повторяем; тревога, только если не вышло ни с одного раза.
+   повторяем; тревога, только если не вышло ни с одного раза. В той же транзакции снимается
+   отметка льготного периода: оплативший не получает «продлите» и не теряет доступ, пока
+   доступ выдаётся (задача 11).
 2. **Срок «до X».** Под блокировкой клиента бот читает прокси-аккаунт и считает
    `grant_target_expire_at` (`domain.subscription`), записывает его в заказ и только потом
    идёт в Remnawave. Повтор берёт уже записанную дату: «поставь срок до X», а не «добавь
@@ -26,7 +28,7 @@
 
 import asyncio
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from decimal import Decimal
 from enum import StrEnum
@@ -38,10 +40,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from tsproxy.content.loader import Texts
 from tsproxy.db.enums import OrderStatus
-from tsproxy.db.models import Client, Order
+from tsproxy.db.models import Client, Event, Order
 from tsproxy.db.repository import claim_order_payment
 from tsproxy.domain.client_state import ClientSnapshot
-from tsproxy.domain.constants import UNLIMITED_TRAFFIC_BYTES
+from tsproxy.domain.dates import require_aware
 from tsproxy.domain.grant import plan_grant_retry
 from tsproxy.domain.money import format_rubles, paid_duration
 from tsproxy.domain.subscription import grant_target_expire_at
@@ -60,6 +62,7 @@ from tsproxy.services.admin_topics import AdminTopic
 from tsproxy.services.alerts import Alerter
 from tsproxy.services.clock import Clock, utc_now
 from tsproxy.services.events import EventKind, EventLog
+from tsproxy.services.grace import client_snapshot
 from tsproxy.services.locks import KeyedLocks
 
 logger = logging.getLogger(__name__)
@@ -67,6 +70,8 @@ logger = logging.getLogger(__name__)
 # Запись оплаты в базу: столько попыток, пока не тревога (значения выбраны агентом)
 CREDIT_WRITE_ATTEMPTS = 3
 CREDIT_WRITE_RETRY_DELAY = timedelta(seconds=1)
+# Поле события «оплата получена»: отметка льготного периода на момент оплаты
+GRACE_DETAIL = "grace_started_at"
 # Сколько клиентов фоновая задача повторов берёт за один проход
 GRANT_BATCH_SIZE = 50
 
@@ -242,6 +247,12 @@ class CreditingService:
             )
             if not claimed:
                 return None
+            client = await session.get_one(Client, order.client_id)
+            grace_started_at = client.grace_started_at
+            # Оплатил — льготный период кончился сразу: без напоминаний «продлите» и без
+            # выключения доступа, пока выдаётся доступ. Отметку храним в событии: по ней
+            # новый срок считается от момента оплаты, а не от конца льготного (задача 04 п. 2)
+            client.grace_started_at = None
             await self._events.record(
                 session,
                 EventKind.PAYMENT_RECEIVED,
@@ -256,9 +267,11 @@ class CreditingService:
                         None if payment.paid_at is None else payment.paid_at.isoformat()
                     ),
                     "test": payment.test,
+                    GRACE_DETAIL: (
+                        None if grace_started_at is None else grace_started_at.isoformat()
+                    ),
                 },
             )
-            client = await session.get_one(Client, order.client_id)
             credited = _CreditedPayment(
                 order_id=order.id,
                 client_id=client.id,
@@ -392,13 +405,12 @@ class CreditingService:
             raise ValueError(f"заказ {order.id} оплачен без суммы")
         async with self._session_factory() as session:
             client = await session.get_one(Client, order.client_id)
+            grace_started_at = client.grace_started_at or await _grace_at_payment(session, order.id)
         account = await self._find_account(telegram_id)
-        snapshot = ClientSnapshot(
-            expire_at=None if account is None else account.expire_at,
-            on_trial=_on_trial(client, account),
-            grace_started_at=client.grace_started_at,
-            access_disabled=account is not None and account.status is AccountStatus.DISABLED,
-        )
+        if account is None:
+            snapshot = ClientSnapshot(None, False, grace_started_at, access_disabled=False)
+        else:
+            snapshot = replace(client_snapshot(client, account), grace_started_at=grace_started_at)
         # Компенсация, перенесённая из льготного периода (задача 20), пока не хранится в базе
         target = grant_target_expire_at(
             snapshot, now, paid_duration(order.days, order.price, order.paid_amount)
@@ -458,7 +470,8 @@ class CreditingService:
                 .where(Order.id == order.id, Order.status == OrderStatus.PAID)
                 .values(status=OrderStatus.ACCESS_GRANTED, next_grant_attempt_at=None)
             )
-            # оплаченный срок пошёл заново — отметка льготного периода больше не нужна
+            # Отметку сняли при зачёте; если льготный успел начаться снова, пока доступ
+            # выдавался (срок истёк во время повторов), — новый срок уже пошёл, снять ещё раз
             await session.execute(
                 update(Client).where(Client.id == order.client_id).values(grace_started_at=None)
             )
@@ -568,8 +581,12 @@ def _check_payment(order: Order, payment: PaymentState) -> None:
         raise PaymentMismatch(f"заказ {order.id}: " + ", ".join(problems))
 
 
-def _on_trial(client: Client, account: ProxyAccount | None) -> bool:
-    """Идёт пробный: пробный выдавался, а лимит трафика ещё стоит (оплата его снимает)."""
-    if account is None or client.trial_granted_at is None:
-        return False
-    return account.traffic_limit_bytes != UNLIMITED_TRAFFIC_BYTES
+async def _grace_at_payment(session: AsyncSession, order_id: int) -> datetime | None:
+    """Отметка «льготный начался», снятая при зачёте этого заказа (из события оплаты)."""
+    details = await session.scalar(
+        select(Event.details).where(
+            Event.order_id == order_id, Event.kind == EventKind.PAYMENT_RECEIVED.value
+        )
+    )
+    raw = None if details is None else details.get(GRACE_DETAIL)
+    return None if raw is None else require_aware(datetime.fromisoformat(raw))

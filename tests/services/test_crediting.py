@@ -26,6 +26,7 @@ from tsproxy.domain.constants import (
     TRIAL_DEVICE_LIMIT,
     UNLIMITED_TRAFFIC_BYTES,
 )
+from tsproxy.domain.grace import GraceStage
 from tsproxy.integrations.fake_payments import FakePaymentProvider
 from tsproxy.integrations.fakes import FakeRemnawave
 from tsproxy.integrations.payments_types import PaymentRequest, PaymentState, PaymentStatus
@@ -35,6 +36,7 @@ from tsproxy.integrations.remnawave_types import (
     RemnawaveRejected,
     RemnawaveUnavailable,
 )
+from tsproxy.services.account_checks import AccountCheck, CheckSource
 from tsproxy.services.admin_topics import AdminTopic
 from tsproxy.services.alerts import Alerter
 from tsproxy.services.clients import ClientService
@@ -47,6 +49,7 @@ from tsproxy.services.crediting import (
 )
 from tsproxy.services.events import EventKind, EventLog
 from tsproxy.services.fakes import FakeAlertSender, FakeClock
+from tsproxy.services.grace import GraceHandler
 from tsproxy.services.locks import KeyedLocks
 from tsproxy.services.masking import Masker
 
@@ -341,9 +344,14 @@ async def test_purchase_in_grace_counts_from_payment_and_ends_grace(
     assert (await load_client(s, client.id)).grace_started_at is None
 
 
-async def test_disabled_account_is_switched_back_on(s: Setup, client: Client) -> None:
+async def test_access_disabled_after_grace_is_switched_back_on(
+    s: Setup, client: Client, session: AsyncSession
+) -> None:
+    # льготный кончился: бот выключил доступ, аккаунт и отметка льготного остались
+    client.grace_started_at = s.clock() - timedelta(days=6)
+    await session.commit()
     await existing_account(s, expire_at=s.clock() + timedelta(hours=1))
-    s.remnawave.set_status(TELEGRAM_ID, AccountStatus.DISABLED)  # льготный кончился
+    s.remnawave.set_status(TELEGRAM_ID, AccountStatus.DISABLED)
     order_id, payment = await paid_order(s, client)
     paid_at = s.clock()
 
@@ -352,6 +360,62 @@ async def test_disabled_account_is_switched_back_on(s: Setup, client: Client) ->
     account = await s.remnawave.get_account(TELEGRAM_ID)
     assert account.status is AccountStatus.ACTIVE
     assert account.expire_at == paid_at + MONTH
+    assert (await load_client(s, client.id)).grace_started_at is None
+
+
+@dataclass
+class RecordingGraceMessenger:
+    stages: list[GraceStage] = field(default_factory=list)
+
+    async def send_grace_notice(
+        self, telegram_id: int, stage: GraceStage, access_until: datetime
+    ) -> bool:
+        self.stages.append(stage)
+        return True
+
+
+async def grace_check(handler: GraceHandler, s: Setup) -> None:
+    account = await s.remnawave.get_account(TELEGRAM_ID)
+    await handler.handle(
+        AccountCheck(TELEGRAM_ID, account, CheckSource.RECONCILIATION, None, s.clock())
+    )
+
+
+async def test_payment_in_grace_ends_grace_at_once_even_while_panel_is_down(
+    s: Setup, client: Client, mask: Masker
+) -> None:
+    grace_messenger = RecordingGraceMessenger()
+    grace = GraceHandler(
+        s.session_factory, s.remnawave, EventLog(s.clock, mask), grace_messenger, s.clock
+    )
+    paid_until = s.clock() + timedelta(hours=1)
+    await existing_account(s, expire_at=paid_until)
+    s.clock.now = paid_until
+    s.remnawave.set_status(TELEGRAM_ID, AccountStatus.EXPIRED)
+    await grace_check(grace, s)  # срок кончился — льготный начался (задача 11)
+    assert grace_messenger.stages == [GraceStage.STARTED]
+
+    s.clock.advance(timedelta(days=1))
+    s.remnawave.down = True
+    order_id, payment = await paid_order(s, client)
+    paid_at = s.clock()
+    assert (await s.service.credit(order_id, payment)).outcome is PaymentOutcome.PENDING
+
+    # оплатил — льготный кончился сразу, хотя доступ ещё выдаётся
+    assert (await load_client(s, client.id)).grace_started_at is None
+    s.remnawave.down = False
+    await grace_check(grace, s)
+    assert grace_messenger.stages == [GraceStage.STARTED]  # без «продлите подписку»
+
+    s.clock.advance(timedelta(minutes=1))
+    await s.service.retry_grants()
+
+    # новый срок — от момента оплаты, не от конца льготного: льготные дни — подарок
+    account = await s.remnawave.get_account(TELEGRAM_ID)
+    assert account.expire_at == s.clock() + MONTH
+    assert s.clock() == paid_at + timedelta(minutes=1)
+    await grace_check(grace, s)
+    assert grace_messenger.stages == [GraceStage.STARTED]
 
 
 async def test_order_with_expired_link_is_still_credited(s: Setup, client: Client) -> None:

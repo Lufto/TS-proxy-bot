@@ -55,6 +55,10 @@ TEXT_PLACEHOLDERS: dict[str, set[str]] = {
     "devices.title_no_limit": {"used"},
     "devices.item": {"number", "name", "system", "connected_at"},
     "devices.item_no_system": {"number", "name", "connected_at"},
+    # задача 11: льготный период
+    "grace.started": {"until"},
+    "grace.reminder": {"until"},
+    "grace.last_day": {"until"},
     **{
         f"units.{unit}_{form}": {"n"}
         for unit in ("days", "hours")

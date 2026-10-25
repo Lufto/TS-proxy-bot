@@ -7,11 +7,11 @@
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import CursorResult, update
+from sqlalchemy import CursorResult, delete, exists, insert, literal, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tsproxy.db.enums import OrderStatus
-from tsproxy.db.models import Client, NodeOutage, Order
+from tsproxy.db.enums import NotificationKind, OrderStatus
+from tsproxy.db.models import Client, NodeOutage, Notification, Order
 
 # Заказы, оплату которых ещё можно засчитать. Отменённый (ссылка истекла) — тоже:
 # подтверждённая оплата засчитывается всегда, даже по просроченной ссылке (задача 04 п. 4)
@@ -79,6 +79,62 @@ async def claim_order_payment(
         )
     )
     return affected_rows(result) == 1
+
+
+async def claim_grace(session: AsyncSession, client_id: int, started_at: datetime) -> bool:
+    """Отметить «льготный начался» (задача 11). `False` — отметка уже стоит:
+    повторное событие об окончании не даёт ещё 3 дня."""
+    result = await session.execute(
+        update(Client)
+        .where(Client.id == client_id, Client.grace_started_at.is_(None))
+        .values(grace_started_at=started_at)
+    )
+    return affected_rows(result) == 1
+
+
+async def claim_notification(
+    session: AsyncSession,
+    client_id: int,
+    kind: NotificationKind,
+    related_expire_at: datetime,
+    now: datetime,
+) -> bool:
+    """Записать уведомление до отправки. `False` — такое уже отправлено.
+
+    `INSERT … SELECT … WHERE NOT EXISTS`: на дубль нет ни строки, ни ошибки уникальности,
+    поэтому остальная транзакция не откатывается.
+    """
+    table = Notification.__table__.c
+    already = exists().where(
+        Notification.client_id == client_id,
+        Notification.kind == kind,
+        Notification.related_expire_at == related_expire_at,
+    )
+    values = select(
+        literal(client_id),
+        literal(kind, type_=table.kind.type),
+        literal(related_expire_at, type_=table.related_expire_at.type),
+        literal(now, type_=table.sent_at.type),
+    ).where(~already)
+    result = await session.execute(
+        insert(Notification).from_select(
+            ["client_id", "kind", "related_expire_at", "sent_at"], values
+        )
+    )
+    return affected_rows(result) == 1
+
+
+async def release_notification(
+    session: AsyncSession, client_id: int, kind: NotificationKind, related_expire_at: datetime
+) -> None:
+    """Снять запись уведомления, которое не ушло: следующая проверка пришлёт его снова."""
+    await session.execute(
+        delete(Notification).where(
+            Notification.client_id == client_id,
+            Notification.kind == kind,
+            Notification.related_expire_at == related_expire_at,
+        )
+    )
 
 
 def affected_rows(result: object) -> int:
