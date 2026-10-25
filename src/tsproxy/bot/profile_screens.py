@@ -3,9 +3,11 @@
 Без UUID, HWID, имени аккаунта в панели и других технических кодов (задача 10).
 """
 
+from datetime import datetime
+
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from tsproxy.bot.callbacks import DeviceCallback, MenuCallback, ScreenId
+from tsproxy.bot.callbacks import DeviceCallback, MenuCallback, RevokeLinkCallback, ScreenId
 from tsproxy.bot.screens import Screen
 from tsproxy.content.loader import Texts
 from tsproxy.domain.dates import format_moscow
@@ -90,6 +92,7 @@ class ProfileScreens:
             [self._button("buttons.devices", ScreenId.DEVICES)],
             [self._button(action_key, action_screen)],
             [self._button("buttons.connect", ScreenId.CONNECT)],
+            self._revoke_row(),
             self._back(),
         ]
         return Screen(text, InlineKeyboardMarkup(inline_keyboard=rows))
@@ -133,7 +136,12 @@ class ProfileScreens:
         `notice_key` — итог удаления («удалено» или «уже нет») над списком.
         """
         notice = [] if notice_key is None else [self._texts.get(notice_key)]
-        back_rows = [[self._button("buttons.profile_back", ScreenId.PROFILE)], self._back()]
+        # Удаление только освобождает место — выгнать чужое устройство может лишь перевыпуск
+        back_rows = [
+            self._revoke_row(),
+            [self._button("buttons.profile_back", ScreenId.PROFILE)],
+            self._back(),
+        ]
         if not devices.devices:
             text = PARAGRAPH.join([self._texts.get("devices.empty"), *notice])
             rows = [[self._button("buttons.connect", ScreenId.CONNECT)], *back_rows]
@@ -155,4 +163,37 @@ class ProfileScreens:
             for number, device in enumerate(devices.devices, start=1)
         ]
         rows += back_rows
+        return Screen(text, InlineKeyboardMarkup(inline_keyboard=rows))
+
+    # --- Перевыпуск ссылки (задача 31) ---
+
+    def _revoke_row(self) -> list[InlineKeyboardButton]:
+        return [self._button("buttons.revoke_link", ScreenId.REVOKE_LINK)]
+
+    def revoke_ask(self) -> Screen:
+        """Предупреждение: старая ссылка перестанет работать на всех устройствах."""
+        rows = [
+            [
+                InlineKeyboardButton(
+                    text=self._texts.get("buttons.confirm_revoke_link"),
+                    callback_data=RevokeLinkCallback().pack(),
+                )
+            ],
+            [self._button("buttons.cancel_revoke_link", ScreenId.PROFILE)],
+        ]
+        return Screen(
+            self._texts.get("revoke_link.ask"), InlineKeyboardMarkup(inline_keyboard=rows)
+        )
+
+    def revoke_too_soon(self, available_at: datetime) -> Screen:
+        """Раньше суток с прошлого перевыпуска: когда можно снова.
+
+        Нынешняя ссылка — в «🚀 Подключиться»: туда же попадёт и второе из двух «Да».
+        """
+        rows = [
+            [self._button("buttons.connect", ScreenId.CONNECT)],
+            [self._button("buttons.profile_back", ScreenId.PROFILE)],
+            self._back(),
+        ]
+        text = self._texts.get("revoke_link.too_soon", available_at=format_moscow(available_at))
         return Screen(text, InlineKeyboardMarkup(inline_keyboard=rows))

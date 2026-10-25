@@ -29,6 +29,7 @@ from tsproxy.services.client_card import ClientCardService
 from tsproxy.services.clients import ClientService
 from tsproxy.services.events import EventLog
 from tsproxy.services.fakes import FakeAlertSender, FakeClock
+from tsproxy.services.link_revoke import LinkRevokeService
 from tsproxy.services.locks import KeyedLocks
 from tsproxy.services.orders import OrderService
 from tsproxy.services.profile import ProfileService
@@ -151,6 +152,7 @@ def ctx(
             clock,
             KeyedLocks(),
         ),
+        link_revokes=LinkRevokeService(session_factory, remnawave, events, clock, KeyedLocks()),
     )
 
 
