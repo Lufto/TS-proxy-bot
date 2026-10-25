@@ -238,6 +238,10 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         "payment.screen",
         "payment.too_many",
         "payment.unavailable",
+        # задача 13: оплата засчитана
+        "payment.paid",
+        "payment.paid_prorated",
+        "payment.pending",
     }
 )
 REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
@@ -263,6 +267,15 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
         "alerts.node_down",
         "alerts.node_restored",
         "alerts.payments_unavailable",  # задача 12
+        # задача 13: зачёт оплаты и выдача доступа
+        "alerts.payment_amount_mismatch",
+        "alerts.payment_not_recorded",
+        "alerts.grant_delayed",
+        "alerts.grant_failed",
+        "alerts.grant_manual",
+        "payments.received",
+        "payments.received_prorated",
+        "payments.no_username",
     }
 )
 

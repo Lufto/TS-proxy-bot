@@ -159,6 +159,12 @@ class Screens:
         )
         return Screen(text, InlineKeyboardMarkup(inline_keyboard=rows))
 
+    def access_granted(self, text: str, account: ProxyAccount) -> Screen:
+        """Доступ выдан (например, после оплаты): текст, ссылка подписки и «Инструкции»."""
+        rows = self._link_rows(account)
+        rows += [[self._button("buttons.instructions", ScreenId.INSTRUCTIONS)], self._back()]
+        return Screen(text, InlineKeyboardMarkup(inline_keyboard=rows))
+
     def trial_already_used(self) -> Screen:
         """Пробный уже был — предложить тарифы."""
         rows = [

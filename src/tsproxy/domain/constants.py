@@ -34,6 +34,12 @@ PRORATION_BONUS_HOURS = 2  # сверх пропорционального ср�
 KOPECK = Decimal("0.01")
 PAYMENT_LINK_LIFETIME = timedelta(hours=1)  # ссылка на оплату живёт час (правило 3)
 
+# --- Выдача доступа после оплаты (задача 04 п. 6, задача 21 п. 7) ---
+GRANT_FAST_RETRY_INTERVAL = timedelta(minutes=1)  # первые полчаса — каждую минуту
+GRANT_FAST_RETRIES = 30  # ≈ 30 минут повторов раз в минуту, потом тревога
+GRANT_SLOW_RETRY_INTERVAL = timedelta(minutes=10)  # дальше — раз в 10 минут
+GRANT_RETRY_DEADLINE = timedelta(days=1)  # до суток с момента зачёта оплаты
+
 # --- Возврат (задача 12) ---
 REFUND_WINDOW_DAYS = 30  # возврат только в течение 30 дней с оплаты
 REFUND_COOLDOWN_MONTHS = 6  # не чаще раза в полгода на клиента
