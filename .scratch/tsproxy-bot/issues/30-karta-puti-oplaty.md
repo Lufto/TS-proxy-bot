@@ -1,7 +1,7 @@
 # Карта пути клиента по оплате и уязвимые места
 
 Type: research
-Status: ready-for-agent
+Status: resolved
 Blocked by: 12
 
 ## Что сделать
@@ -15,3 +15,5 @@ Blocked by: 12
 Результат — `research/payment-journeys.md` (схемы Mermaid + таблица сценариев). Код не меняется.
 
 ## Comments
+
+- 2026-10-25, агент: готово — `research/payment-journeys.md`: схемы, 71 сценарий, 13 уязвимостей с задачами (главные — двойная оплата, поздняя оплата закрытого заказа, две оплаты при лежащей Remnawave), 9 вопросов владельцу.
