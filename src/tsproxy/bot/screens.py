@@ -5,7 +5,14 @@ from dataclasses import dataclass
 
 from aiogram.types import CopyTextButton, InlineKeyboardButton, InlineKeyboardMarkup
 
-from tsproxy.bot.callbacks import InstructionsCallback, MenuCallback, Platform, ScreenId
+from tsproxy.bot.callbacks import (
+    FaqCallback,
+    FaqQuestion,
+    InstructionsCallback,
+    MenuCallback,
+    Platform,
+    ScreenId,
+)
 from tsproxy.content.loader import Texts
 from tsproxy.domain.constants import TRIAL_DEVICE_LIMIT, TRIAL_TRAFFIC_GB
 from tsproxy.domain.dates import format_moscow
@@ -71,9 +78,25 @@ class Screens:
         )
 
     def support(self) -> Screen:
-        """«💬 Поддержка»: просто напишите вопрос в чат (частые вопросы — задача 17)."""
+        """«💬 Поддержка»: частые вопросы кнопками, иначе — просто напишите вопрос в чат."""
+        rows = [
+            [
+                InlineKeyboardButton(
+                    text=self._texts.get(f"faq.{question.value}.button"),
+                    callback_data=FaqCallback(question=question).pack(),
+                )
+            ]
+            for question in FaqQuestion
+        ]
+        rows.append(self._back())
+        return Screen(self._texts.get("support.intro"), InlineKeyboardMarkup(inline_keyboard=rows))
+
+    def faq_answer(self, question: FaqQuestion) -> Screen:
+        """Ответ на частый вопрос: назад к вопросам или в меню."""
+        rows = [[self._button("buttons.faq_back", ScreenId.SUPPORT)], self._back()]
         return Screen(
-            self._texts.get("support.intro"), InlineKeyboardMarkup(inline_keyboard=[self._back()])
+            self._texts.get(f"faq.{question.value}.answer"),
+            InlineKeyboardMarkup(inline_keyboard=rows),
         )
 
     def instructions_menu(self) -> Screen:

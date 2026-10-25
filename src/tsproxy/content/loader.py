@@ -4,6 +4,7 @@
 """
 
 import html
+import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
@@ -16,6 +17,12 @@ import yaml
 TEXTS_FILE = "texts.yaml"
 ADMIN_TEXTS_FILE = "admin_texts.yaml"
 TARIFFS_FILE = "tariffs.yaml"
+# Быстрые ответы поддержки в admin_texts.yaml: quick_replies.<имя>.button и .text (задача 17)
+QUICK_REPLIES_GROUP = "quick_replies"
+QUICK_PARTS = ("button", "text")
+QUICK_REPLY_ID_MAX_LENGTH = 32
+QUICK_REPLY_ID_PATTERN = rf"[a-z0-9_]{{1,{QUICK_REPLY_ID_MAX_LENGTH}}}"
+QUICK_REPLY_ID = re.compile(QUICK_REPLY_ID_PATTERN)
 
 
 class ContentError(Exception):
@@ -56,6 +63,17 @@ class Texts:
 
     def placeholders(self, key: str) -> set[str]:
         return {field for _, field, _, _ in Formatter().parse(self._items[key]) if field}
+
+    def ids_under(self, prefix: str) -> list[str]:
+        """Имена групп внутри `prefix` в порядке файла: `quick_replies.hello.text` → `hello`."""
+        start = f"{prefix}."
+        ids: list[str] = []
+        for key in self._items:
+            if key.startswith(start):
+                group = key.removeprefix(start).split(".", 1)[0]
+                if group not in ids:
+                    ids.append(group)
+        return ids
 
 
 def _read_yaml(path: Path) -> Any:
@@ -226,6 +244,13 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         "support.not_delivered",
         "support.reply_prefix",
         "fallback.unknown_command",
+        # задача 17: частые вопросы на экране «💬 Поддержка» (набор — FaqQuestion)
+        "buttons.faq_back",
+        *(
+            f"faq.{question}.{part}"
+            for question in ("connect", "not_working", "devices", "renew", "payment")
+            for part in ("button", "answer")
+        ),
         # задача 12: тарифы и оплата
         "buttons.pay",
         "buttons.tariffs_back",
@@ -250,11 +275,50 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
         # задача 16: обращения в поддержку
         "alerts.support_topic_failed",
         "support.topic_name",
-        "support.topic_header",
         "support.no_username",
         "support.reply_unsupported",
         "support.reply_failed",
         "support.client_blocked",
+        # задача 17: карточка клиента, кнопки темы, напоминание, быстрые ответы
+        *(
+            f"support.card.{key}"
+            for key in (
+                "title",
+                "title_reopened",
+                "client",
+                "subscription_none",
+                "subscription_trial",
+                "subscription_trial_traffic_used_up",
+                "subscription_active",
+                "subscription_grace",
+                "subscription_expired",
+                "subscription_suspended",
+                "subscription_unknown",
+                "devices",
+                "devices_no_limit",
+                "payments",
+                "payments_none",
+                "trial",
+                "trial_none",
+                "hint",
+            )
+        ),
+        *(
+            f"support.buttons.{key}"
+            for key in ("extend", "devices", "take", "close", "quick_replies", "hide")
+        ),
+        "support.taken",
+        "support.closed",
+        "support.already_yours",
+        "support.already_closed",
+        "support.take_closed",
+        "support.ticket_not_found",
+        "support.quick_reply_not_found",
+        "support.client_actions_pending",
+        "support.reminder",
+        "support.reminder_assignee",
+        "support.quick_replies_title",
+        "support.quick_reply_sent",
         # задача 09: вебхуки Remnawave, сверка, связь с нодами
         "alerts.remnawave_webhook_forged",
         "alerts.reconcile_unavailable",
@@ -267,6 +331,22 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
 )
 
 
+def quick_reply_ids(admin_texts: Texts) -> list[str]:
+    """Имена быстрых ответов поддержки (задача 17). Имя попадает в данные кнопки — поэтому
+    только латиница, цифры и `_`; у каждой заготовки должны быть `button` и `text`."""
+    ids = admin_texts.ids_under(QUICK_REPLIES_GROUP)
+    if not ids:
+        raise ContentError(f"{ADMIN_TEXTS_FILE}: нужна хотя бы одна заготовка в quick_replies")
+    for reply_id in ids:
+        if not QUICK_REPLY_ID.fullmatch(reply_id):
+            raise ContentError(
+                f"{ADMIN_TEXTS_FILE}: имя заготовки «{reply_id}» — латиница, цифры и _, "
+                f"до {QUICK_REPLY_ID_MAX_LENGTH} символов"
+            )
+        admin_texts.require(f"{QUICK_REPLIES_GROUP}.{reply_id}.{part}" for part in QUICK_PARTS)
+    return ids
+
+
 def load_content(directory: Path) -> Content:
     content = Content(
         texts=load_texts(directory / TEXTS_FILE),
@@ -275,4 +355,5 @@ def load_content(directory: Path) -> Content:
     )
     content.texts.require(REQUIRED_TEXTS)
     content.admin_texts.require(REQUIRED_ADMIN_TEXTS)
+    quick_reply_ids(content.admin_texts)
     return content

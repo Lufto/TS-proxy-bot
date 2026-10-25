@@ -8,6 +8,10 @@
   с `//` — внутренняя заметка, клиенту не уходит. Команды (`/…`) клиенту не уходят.
 - Ответ на конкретное сообщение (reply) с одной стороны приходит ответом и с другой.
 - Переписка — в базе (`services.support`). Тексты сообщений в лог не пишем.
+- Задача 17: экран «💬 Поддержка» сначала показывает частые вопросы; в начале темы — карточка
+  клиента с кнопками (`bot.support_card`, `bot.support_actions`); клиент пишет в течение
+  суток после закрытия — обращение переоткрывается, в теме — новая карточка. Напоминание
+  о забытом обращении — `bot.support_reminders`.
 
 Клиент — всегда `from_user.id` отправителя. Действия в группе — только от `ADMIN_IDS`
 и только в группе администраторов (`AdminFilter`).
@@ -23,8 +27,14 @@ from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message, MessageId, ReplyParameters, User
 
 from tsproxy.bot.admin import AdminAccess, AdminFilter
-from tsproxy.bot.callbacks import MenuCallback, ScreenId
+from tsproxy.bot.callbacks import FaqCallback, MenuCallback, ScreenId
 from tsproxy.bot.context import BotContext, profile_of
+from tsproxy.bot.support_actions import (
+    CardClientActions,
+    PendingCardClientActions,
+    register_ticket_actions,
+)
+from tsproxy.bot.support_card import SupportTopicTexts
 from tsproxy.bot.throttling import RateDecision, is_command
 from tsproxy.db.enums import MessageAuthor
 from tsproxy.domain.support import fit_topic_name, is_internal_note
@@ -79,16 +89,23 @@ def _file_id(message: Message) -> str | None:
     return None if media is None else media.file_id
 
 
-def create_support_router(access: AdminAccess) -> Router:
-    """Роутер поддержки. Подключается после остальных: берёт все обычные сообщения клиента."""
+def create_support_router(
+    access: AdminAccess, client_actions: CardClientActions | None = None
+) -> Router:
+    """Роутер поддержки. Подключается после остальных: берёт все обычные сообщения клиента.
+
+    `client_actions` — «➕ Продлить» и «📱 Устройства» из карточки (задача 18); по умолчанию
+    заглушка.
+    """
     router = Router(name="support")
     private = F.chat.type == ChatType.PRIVATE
+    private_button = F.message.chat.type == ChatType.PRIVATE
     router.message.register(on_support_command, private, Command(SUPPORT_COMMAND))
     router.callback_query.register(
-        on_support_screen,
-        F.message.chat.type == ChatType.PRIVATE,
-        MenuCallback.filter(F.screen == ScreenId.SUPPORT),
+        on_support_screen, private_button, MenuCallback.filter(F.screen == ScreenId.SUPPORT)
     )
+    router.callback_query.register(on_faq, private_button, FaqCallback.filter())
+    register_ticket_actions(router, access, client_actions or PendingCardClientActions())
     router.message.register(on_client_message, private, lambda m: not is_command(m))
     router.message.register(
         on_topic_message,
@@ -113,6 +130,12 @@ async def on_support_command(message: Message, ctx: BotContext) -> None:
 async def on_support_screen(callback: CallbackQuery, ctx: BotContext) -> None:
     await callback.answer()
     await ctx.delivery.show(callback, ctx.screens.support())
+
+
+async def on_faq(callback: CallbackQuery, callback_data: FaqCallback, ctx: BotContext) -> None:
+    """Ответ на частый вопрос — в том же сообщении меню."""
+    await callback.answer()
+    await ctx.delivery.show(callback, ctx.screens.faq_answer(callback_data.question))
 
 
 # --- Клиент → тема ---
@@ -144,6 +167,9 @@ async def _forward_to_topic(
     ticket = await ctx.support.current_ticket(client.id)
     first_in_topic = ticket.topic_id is None
     topic_id = ticket.topic_id or await _open_topic(bot, ctx, ticket, sender)
+    if ticket.reopened and ticket.topic_id is not None:
+        # переоткрыто в той же теме — свежая карточка с кнопками внизу темы
+        await _send_card(bot, ctx, ticket, ticket.topic_id)
     copied = None
     if topic_id is not None:
         copied = await _copy_to_topic(message, sender, ticket, topic_id, bot, ctx)
@@ -184,15 +210,23 @@ async def _open_topic(bot: Bot, ctx: BotContext, ticket: TicketRef, sender: User
     topic_id = topic.message_thread_id
     await ctx.support.attach_topic(ticket.id, topic_id)
     logger.info("Обращение #%s: тема %s", ticket.id, topic_id)
-    header = ctx.admin_texts.get(
-        "support.topic_header",
-        ticket_id=ticket.id,
-        name=sender.full_name,
-        username=sender.username or ctx.admin_texts.get("support.no_username"),
-        telegram_id=sender.id,
-    )
-    await bot.send_message(ctx.access.admin_chat_id, header, message_thread_id=topic_id)
+    await _send_card(bot, ctx, ticket, topic_id)
     return topic_id
+
+
+async def _send_card(bot: Bot, ctx: BotContext, ticket: TicketRef, topic_id: int) -> None:
+    """Карточка клиента с кнопками — в начале темы или при переоткрытии обращения."""
+    card = await ctx.client_cards.card(ticket.client_telegram_id)
+    if card is None:
+        # клиента только что записали в базу в этом же обработчике
+        raise LookupError(f"Обращение #{ticket.id}: клиента нет в базе")
+    screen = SupportTopicTexts(ctx.admin_texts).card(ticket.id, card, reopened=ticket.reopened)
+    await bot.send_message(
+        ctx.access.admin_chat_id,
+        screen.text,
+        message_thread_id=topic_id,
+        reply_markup=screen.markup,
+    )
 
 
 async def _copy_to_topic(

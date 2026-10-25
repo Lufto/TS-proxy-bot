@@ -8,16 +8,28 @@ import pytest
 import yaml
 from conftest import REPO_CONTENT
 
-from tsproxy.bot.callbacks import InstructionsCallback, MenuCallback, Platform, ScreenId
+from tsproxy.bot.callbacks import (
+    FaqCallback,
+    FaqQuestion,
+    InstructionsCallback,
+    MenuCallback,
+    Platform,
+    QuickReplyCallback,
+    ScreenId,
+    TicketAction,
+    TicketCallback,
+)
 from tsproxy.bot.screens import Screens
 from tsproxy.content.loader import (
     ADMIN_TEXTS_FILE,
+    QUICK_REPLY_ID_MAX_LENGTH,
     REQUIRED_TEXTS,
     TEXTS_FILE,
     Content,
     ContentError,
     Texts,
     load_content,
+    quick_reply_ids,
 )
 from tsproxy.integrations.fakes import FakeRemnawave
 
@@ -89,6 +101,8 @@ async def test_all_screens_use_only_required_texts(content: Content) -> None:
     screens.main_menu(trial_available=True)
     screens.about()
     screens.support()
+    for question in FaqQuestion:
+        screens.faq_answer(question)
     screens.instructions_menu()
     for platform in Platform:
         screens.instructions(platform)
@@ -114,7 +128,29 @@ def test_callback_answers_fit_telegram_limit(content: Content, key: str) -> None
     assert len(content.texts.get(key)) <= CALLBACK_ANSWER_MAX
 
 
-def test_callback_data_fits_telegram_limit() -> None:
+def test_callback_data_fits_telegram_limit(content: Content) -> None:
     packed = [MenuCallback(screen=s).pack() for s in ScreenId]
     packed += [InstructionsCallback(platform=p).pack() for p in Platform]
+    packed += [FaqCallback(question=q).pack() for q in FaqQuestion]
+    big_ticket = 10**12  # номер обращения с запасом
+    packed += [TicketCallback(action=a, ticket_id=big_ticket).pack() for a in TicketAction]
+    packed += [
+        QuickReplyCallback(ticket_id=big_ticket, reply=reply).pack()
+        for reply in [*quick_reply_ids(content.admin_texts), "x" * QUICK_REPLY_ID_MAX_LENGTH]
+    ]
     assert all(len(data.encode()) <= CALLBACK_DATA_MAX_BYTES for data in packed)
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "support.already_yours",
+        "support.already_closed",
+        "support.take_closed",
+        "support.ticket_not_found",
+        "support.quick_reply_not_found",
+        "support.client_actions_pending",
+    ],
+)
+def test_admin_callback_answers_fit_telegram_limit(content: Content, key: str) -> None:
+    assert len(content.admin_texts.get(key)) <= CALLBACK_ANSWER_MAX

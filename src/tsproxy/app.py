@@ -40,6 +40,7 @@ from tsproxy.bot.delivery import ClientDelivery
 from tsproxy.bot.dispatcher import bot_commands, create_dispatcher
 from tsproxy.bot.screens import Screens
 from tsproxy.bot.support_guard import SupportGuard, support_rate_limiter
+from tsproxy.bot.support_reminders import SupportReminders
 from tsproxy.bot.throttling import RateLimiter
 from tsproxy.bot.trial import deliver_pending_trials
 from tsproxy.config import PaymentsMode, RunMode, Settings
@@ -52,6 +53,7 @@ from tsproxy.integrations.remnawave_types import RemnawaveUnavailable
 from tsproxy.logging_setup import MaskingFilter
 from tsproxy.services.account_checks import AccountCheckHandler, AccountChecks
 from tsproxy.services.alerts import Alerter
+from tsproxy.services.client_card import ClientCardService
 from tsproxy.services.clients import ClientService
 from tsproxy.services.clock import Clock, system_clock
 from tsproxy.services.events import EventLog
@@ -73,6 +75,8 @@ logger = logging.getLogger(__name__)
 ALERT_FLUSH_INTERVAL = timedelta(minutes=1)
 # Пробные, которые не выдались из-за панели, — доделываются сами (задача 07)
 PENDING_TRIALS_INTERVAL = timedelta(minutes=1)
+# Забытые обращения (нет ответа дольше часа) — проверка раз в 5 минут (задача 17)
+SUPPORT_REMINDERS_INTERVAL = timedelta(minutes=5)
 # Сверка с Remnawave — страховка от потерянных вебхуков (задача 09: «каждые 5–10 минут»)
 RECONCILE_INTERVAL = timedelta(minutes=5)
 STOP_SIGNALS = (signal.SIGINT, signal.SIGTERM)
@@ -206,9 +210,10 @@ def build_application(
         access=AdminAccess(settings.admin_ids, settings.admin_chat_id),
         trials=TrialService(session_factory, remnawave, events, clock),
         profiles=ProfileService(remnawave, clock),
-        support=SupportService(session_factory, clock, mask),
+        support=SupportService(session_factory, clock, mask, events),
         support_guard=SupportGuard(support_rate_limiter()),
         orders=orders,
+        client_cards=ClientCardService(session_factory, ProfileService(remnawave, clock)),
     )
     dispatcher = create_dispatcher(ctx, RateLimiter())
     # Обработчики проверок прокси-аккаунтов: их вызывают и вебхуки Remnawave, и сверка.
@@ -244,6 +249,11 @@ def build_application(
                     RECONCILE_INTERVAL,
                     reconciliation.run,
                     run_at_start=True,  # бот лежал — сразу догнать пропущенное (задача 09)
+                ),
+                PeriodicJob(
+                    "support_reminders",
+                    SUPPORT_REMINDERS_INTERVAL,
+                    SupportReminders(bot, ctx).run,
                 ),
             ]
         ),
