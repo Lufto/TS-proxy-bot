@@ -94,17 +94,14 @@ class ProfileScreens:
         ]
         return Screen(text, InlineKeyboardMarkup(inline_keyboard=rows))
 
-    def no_account(self) -> Screen:
+    def no_account(self, *, trial_available: bool) -> Screen:
         """Профиль, когда подписки ещё нет: предложить пробный и тарифы.
 
-        Пробный — всегда, как в «🚀 Подключиться» (`Screens.no_account`): без аккаунта
-        доступа клиент не получал, даже если пробный отмечен.
+        Пробный — пока пробные включены, как в «🚀 Подключиться» (`Screens.no_account`):
+        без аккаунта доступа клиент не получал, даже если пробный отмечен.
         """
-        rows = [
-            [self._button("buttons.trial", ScreenId.TRIAL)],
-            [self._button("buttons.tariffs", ScreenId.TARIFFS)],
-            self._back(),
-        ]
+        rows = [[self._button("buttons.trial", ScreenId.TRIAL)]] if trial_available else []
+        rows += [[self._button("buttons.tariffs", ScreenId.TARIFFS)], self._back()]
         return Screen(
             self._texts.get("profile.no_account"), InlineKeyboardMarkup(inline_keyboard=rows)
         )

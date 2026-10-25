@@ -309,7 +309,7 @@ def test_all_profile_screens_use_only_required_texts(content: Content) -> None:
             for limit in (3, None):
                 profile = Profile(status, EXPIRE_AT, left, DeviceSlots(1, limit), traffic)
                 screens.profile(profile)
-    screens.no_account()
+    screens.no_account(trial_available=True)
     with_system = device()
     without_system = Device(
         hwid="x", platform=None, os_version=None, device_model=None, created_at=NOW

@@ -39,6 +39,8 @@ def trial_screen(screens: Screens, result: TrialResult) -> Screen | None:
             return screens.trial_has_subscription()
         case TrialOutcome.PENDING:
             return screens.trial_pending()
+        case TrialOutcome.DISABLED:
+            return screens.trial_disabled()
         case TrialOutcome.IN_PROGRESS:
             return None
     raise ValueError(f"Неожиданный результат пробного: {result.outcome}")

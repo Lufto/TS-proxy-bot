@@ -155,17 +155,15 @@ class Screens:
         rows.append(self._back())
         return Screen(text, InlineKeyboardMarkup(inline_keyboard=rows))
 
-    def no_account(self) -> Screen:
+    def no_account(self, *, trial_available: bool) -> Screen:
         """«🚀 Подключиться», а подписки ещё нет: предложить пробный и тарифы.
 
-        Пробный предлагаем всегда: без аккаунта доступа клиент ещё не получал, даже если
-        пробный отмечен (панель не ответила при выдаче) — повторное нажатие доделает выдачу.
+        Пробный предлагаем, пока пробные включены (задача 28): без аккаунта доступа клиент
+        ещё не получал, даже если пробный отмечен (панель не ответила при выдаче) —
+        повторное нажатие доделает выдачу.
         """
-        rows = [
-            [self._button("buttons.trial", ScreenId.TRIAL)],
-            [self._button("buttons.tariffs", ScreenId.TARIFFS)],
-            self._back(),
-        ]
+        rows = [[self._button("buttons.trial", ScreenId.TRIAL)]] if trial_available else []
+        rows += [[self._button("buttons.tariffs", ScreenId.TARIFFS)], self._back()]
         return Screen(
             self._texts.get("connect.no_account"), InlineKeyboardMarkup(inline_keyboard=rows)
         )
@@ -211,6 +209,11 @@ class Screens:
         return Screen(
             self._texts.get("trial.has_subscription"), InlineKeyboardMarkup(inline_keyboard=rows)
         )
+
+    def trial_disabled(self) -> Screen:
+        """Пробные выключены (задача 28): «временно недоступен» и тарифы."""
+        rows = [[self._button("buttons.tariffs", ScreenId.TARIFFS)], self._back()]
+        return Screen(self._texts.get("trial.disabled"), InlineKeyboardMarkup(inline_keyboard=rows))
 
     def unavailable(self) -> Screen:
         """Панель Remnawave не ответила — попросить попробовать позже."""

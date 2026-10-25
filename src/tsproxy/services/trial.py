@@ -20,12 +20,18 @@
 пробного остаётся (в боевом режиме аккаунты не удаляются). Новое нажатие обновляет его:
 лимиты пробного, трафик с нуля, 7 дней от нажатия, доступ включён. Аккаунт без лимита
 трафика — это выданная подписка, поверх неё пробный не выдаётся.
+
+Выключатель пробных (задача 28): пока пробные выключены, новый пробный не выдаётся —
+`DISABLED`. Пробный, который клиент уже взял (отметка есть, панель не ответила), доделывается
+и нажатием, и фоновой задачей. Каждая новая отметка — это нажатие для счётчика спама;
+перехват зависшей отметки — нет, иначе выдача после долгого сбоя панели выглядела бы наплывом.
 """
 
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
+from typing import Protocol
 
 from sqlalchemy import and_, exists, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -60,6 +66,7 @@ class TrialOutcome(StrEnum):
     HAS_SUBSCRIPTION = "has_subscription"  # клиент платил или у него уже есть подписка
     IN_PROGRESS = "in_progress"  # пробный выдаёт параллельное нажатие
     PENDING = "pending"  # панель не ответила: пробный за клиентом, выдаст фоновая задача
+    DISABLED = "disabled"  # пробные выключены (задача 28): новый пробный не выдаётся
 
 
 @dataclass(frozen=True)
@@ -78,6 +85,14 @@ class DeliveredTrial:
     account: ProxyAccount
 
 
+class TrialGate(Protocol):
+    """Выключатель пробных (задача 28), настоящий — `services.trial_switch.TrialSwitch`."""
+
+    async def enabled(self) -> bool: ...
+
+    async def note_new_trial(self) -> None: ...
+
+
 class TrialService:
     """Выдача пробного периода: отметка в базе, аккаунт в Remnawave, событие в журнале."""
 
@@ -87,11 +102,13 @@ class TrialService:
         remnawave: RemnawaveClient,
         events: EventLog,
         clock: Clock,
+        gate: TrialGate,
     ) -> None:
         self._session_factory = session_factory
         self._remnawave = remnawave
         self._events = events
         self._clock = clock
+        self._gate = gate
 
     async def start(self, client_id: int, telegram_id: int) -> TrialResult:
         """Нажатие «Попробовать бесплатно». Сбой панели не бросает, а даёт PENDING."""
@@ -102,6 +119,9 @@ class TrialService:
                 return TrialResult(TrialOutcome.HAS_SUBSCRIPTION)
             if claimed_at is not None and await trial_delivered(session, client_id, claimed_at):
                 return TrialResult(TrialOutcome.ALREADY_USED)
+        # Новый пробный — только пока пробные включены; уже взятый доделываем всегда
+        if claimed_at is None and not await self._gate.enabled():
+            return TrialResult(TrialOutcome.DISABLED)
         try:
             account = await self._find_account(telegram_id)
         except RemnawaveUnavailable as error:
@@ -150,6 +170,7 @@ class TrialService:
             if not await claim_trial(session, client_id, utc_now(self._clock)):
                 return TrialResult(TrialOutcome.IN_PROGRESS)
             await session.commit()
+        await self._gate.note_new_trial()
         return TrialResult(TrialOutcome.PENDING)
 
     async def _deliver(
@@ -170,6 +191,8 @@ class TrialService:
             if not await self._claim(session, client_id, claimed_at):
                 return TrialResult(TrialOutcome.IN_PROGRESS)
             await session.commit()
+        if claimed_at is None:
+            await self._gate.note_new_trial()  # новая отметка, а не перехват зависшей
         try:
             account = await self._grant(client_id, telegram_id, account)
         except RemnawaveUnavailable as error:

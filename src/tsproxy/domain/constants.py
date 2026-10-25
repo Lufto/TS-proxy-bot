@@ -21,6 +21,10 @@ TRIAL_EXTENSION_DAYS = 3  # продление, если клиент ни ра�
 TRIAL_MAX_EXTENSIONS = 5  # итого до 7 + 5 × 3 = 22 дней
 TRIAL_TRAFFIC_WARNING_PERCENT = 80  # предупредить, когда израсходовано 80% (ideas.md №1)
 PERCENT = 100
+# Автовыключение пробных (задача 28): больше 200 новых пробных за 10 минут — похоже
+# на спам, бот выключает пробные сам; включает обратно только администратор
+TRIAL_SPAM_LIMIT = 200
+TRIAL_SPAM_WINDOW = timedelta(minutes=10)
 
 # --- Платная подписка (задачи 05, 15) ---
 PAID_DEVICE_LIMIT = 3

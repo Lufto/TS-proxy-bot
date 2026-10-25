@@ -194,6 +194,7 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         "trial.already_used",
         "trial.pending",
         "trial.has_subscription",
+        "trial.disabled",  # задача 28
         "about.text",
         "instructions.choose",
         "instructions.ios",
@@ -420,6 +421,16 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
         "payments.received",
         "payments.received_prorated",
         "payments.no_username",
+        # задача 28: выключатель пробных и автовыключение при спаме
+        "alerts.trials_disabled",
+        "alerts.trials_enabled",
+        "alerts.trials_spam",
+        "admin.trials.enabled",
+        "admin.trials.disabled",
+        "admin.trials.switched",
+        "admin.trials.unchanged",
+        "admin.trials.disable_button",
+        "admin.trials.enable_button",
     }
 )
 

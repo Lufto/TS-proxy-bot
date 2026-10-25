@@ -39,8 +39,13 @@ async def profile_screen(ctx: BotContext, client: Client) -> Screen:
     except RemnawaveUnavailable as error:
         return await panel_unavailable_screen(ctx, client.telegram_id, error)
     if profile is None:
-        return screens.no_account()
+        return await _no_account(ctx, screens)
     return screens.profile(profile)
+
+
+async def _no_account(ctx: BotContext, screens: ProfileScreens) -> Screen:
+    """Подписки нет: пробный и тарифы; пробный — пока пробные включены (задача 28)."""
+    return screens.no_account(trial_available=await ctx.trial_switch.enabled())
 
 
 async def on_profile_command(message: Message, ctx: BotContext) -> None:
@@ -67,7 +72,10 @@ async def on_devices(callback: CallbackQuery, ctx: BotContext) -> None:
     except RemnawaveUnavailable as error:
         screen = await panel_unavailable_screen(ctx, client.telegram_id, error)
     else:
-        screen = screens.no_account() if devices is None else screens.devices(devices)
+        if devices is None:
+            screen = await _no_account(ctx, screens)
+        else:
+            screen = screens.devices(devices)
     await ctx.delivery.show(callback, screen)
 
 
@@ -84,7 +92,7 @@ async def on_delete_device(
         screen = await panel_unavailable_screen(ctx, client.telegram_id, error)
     else:
         if result is None:
-            screen = screens.no_account()
+            screen = await _no_account(ctx, screens)
         else:
             notice = "devices.deleted" if result.deleted else "devices.not_found"
             screen = screens.devices(result.devices, notice_key=notice)

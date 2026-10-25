@@ -37,7 +37,7 @@ async def connect_screen(ctx: BotContext, telegram_id: int) -> Screen:
         account = await ctx.remnawave.get_account(telegram_id)
     except AccountNotFound:
         # нормальная ситуация: клиент ещё не брал пробный и не покупал
-        return ctx.screens.no_account()
+        return ctx.screens.no_account(trial_available=await ctx.trial_switch.enabled())
     except RemnawaveUnavailable as error:
         return await panel_unavailable_screen(ctx, telegram_id, error)
     return ctx.screens.connect(account)

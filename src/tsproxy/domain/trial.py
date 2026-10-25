@@ -4,6 +4,7 @@
 потом прощальное сообщение. Подключался — без продлений и без льготного периода.
 """
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -15,6 +16,8 @@ from tsproxy.domain.constants import (
     TRIAL_DEVICE_LIMIT,
     TRIAL_EXTENSION_DAYS,
     TRIAL_MAX_EXTENSIONS,
+    TRIAL_SPAM_LIMIT,
+    TRIAL_SPAM_WINDOW,
     TRIAL_TRAFFIC_GB,
     UNLIMITED_TRAFFIC_BYTES,
 )
@@ -126,3 +129,14 @@ def trial_extension_end(expire_at: datetime, now: datetime) -> datetime:
     """
     require_aware(now)
     return max(expire_at, now) + TRIAL_EXTENSION
+
+
+def recent_trials(granted_at: Iterable[datetime], now: datetime) -> list[datetime]:
+    """Новые пробные за последние 10 минут — окно автовыключения (задача 28)."""
+    require_aware(now)
+    return [moment for moment in granted_at if moment > now - TRIAL_SPAM_WINDOW]
+
+
+def trial_spam_detected(recent_count: int) -> bool:
+    """Больше 200 новых пробных за 10 минут — похоже на спам, пробные пора выключить."""
+    return recent_count > TRIAL_SPAM_LIMIT

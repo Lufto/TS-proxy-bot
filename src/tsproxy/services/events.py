@@ -46,6 +46,9 @@ class EventKind(StrEnum):
     COMPENSATION_GRANTED = "compensation_granted"  # компенсация за сбой
     ADMIN_ACTION = "admin_action"  # любое действие администратора
     FAKE_PAYMENT_NOTIFICATION = "fake_payment_notification"  # отклонённое поддельное уведомление
+    # задача 28: выключатель пробных. Последнее из двух — источник правды, вкл или выкл
+    TRIALS_DISABLED = "trials_disabled"  # пробные выключены (администратором или при спаме)
+    TRIALS_ENABLED = "trials_enabled"  # пробные снова включены администратором
 
 
 class EventLog:
