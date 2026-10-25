@@ -12,6 +12,9 @@
   с тем же ключом идемпотентности, поэтому «потерянный» платёж не задвоится.
 
 Засчитывает оплату задача 13, уведомления и «Проверить оплату» — задача 14.
+
+Оплата выключена (`PAYMENTS_MODE=off`, задача 29) — платёжки нет: витрина та же,
+но `checkout` отказывает до любых записей в базу и запросов к платёжке.
 """
 
 import logging
@@ -48,6 +51,10 @@ class TooManyPayments(Exception):
     """Клиент слишком часто создаёт новые платежи — подождать."""
 
 
+class PaymentsDisabled(Exception):
+    """Оплата выключена (`PAYMENTS_MODE=off`): заказы и платежи не создаются."""
+
+
 @dataclass(frozen=True)
 class TariffOffer:
     """Тариф на витрине: скидка — от цены месяца, её бот считает сам."""
@@ -71,7 +78,7 @@ class OrderService:
     def __init__(
         self,
         session_factory: async_sessionmaker[AsyncSession],
-        payments: PaymentProvider,
+        payments: PaymentProvider | None,  # None — оплата выключена (задача 29)
         events: EventLog,
         texts: Texts,
         tariffs: Sequence[Tariff],
@@ -87,6 +94,11 @@ class OrderService:
         self._admin_ids = admin_ids
         self._clock = clock
         self._locks = locks
+
+    @property
+    def payments_enabled(self) -> bool:
+        """Можно ли сейчас купить: подключена ли платёжка."""
+        return self._payments is not None
 
     # --- Витрина ---
 
@@ -120,7 +132,11 @@ class OrderService:
         """Ссылка на оплату тарифа: та же, если она ещё жива, иначе — новый заказ и платёж.
 
         Ошибки платёжки (`PaymentError`) не глотаются: экран решает, что сказать клиенту.
+        Оплата выключена — `PaymentsDisabled` раньше всего остального: ни заказа, ни платежа.
         """
+        payments = self._payments
+        if payments is None:
+            raise PaymentsDisabled(f"оплата выключена, клиент {client.telegram_id}")
         tariff = self._tariff_for(client.telegram_id, tariff_id)
         async with self._locks.hold(client.id):
             now = utc_now(self._clock)
@@ -134,7 +150,7 @@ class OrderService:
                 if order is None or not _retry_allowed(order, now):
                     await self._check_rate(session, client.id, now)
                     order = await self._new_order(session, client.id, tariff, now)
-            created = await self._payments.create_payment(
+            created = await payments.create_payment(
                 PaymentRequest(
                     order_id=order.id,
                     amount=order.price,
@@ -142,7 +158,7 @@ class OrderService:
                     idempotency_key=order.idempotency_key,
                 )
             )
-            return await self._attach_payment(order.id, tariff, created, now)
+            return await self._attach_payment(order.id, tariff, payments.name, created, now)
 
     async def _open_order(
         self, session: AsyncSession, client_id: int, tariff: Tariff
@@ -197,12 +213,17 @@ class OrderService:
         return order
 
     async def _attach_payment(
-        self, order_id: int, tariff: Tariff, created: CreatedPayment, now: datetime
+        self,
+        order_id: int,
+        tariff: Tariff,
+        provider: str,
+        created: CreatedPayment,
+        now: datetime,
     ) -> Checkout:
         """Записать платёж в заказ. Срок ссылки — от момента до запроса: с запасом."""
         async with self._session_factory() as session:
             order = await session.get_one(Order, order_id)
-            order.payment_provider = self._payments.name
+            order.payment_provider = provider
             order.payment_id = created.payment_id
             order.payment_url = created.url
             order.payment_url_expires_at = payment_link_expires_at(now, created.expires_at)
@@ -211,7 +232,7 @@ class OrderService:
                 EventKind.PAYMENT_CREATED,
                 client_id=order.client_id,
                 order_id=order.id,
-                details={"provider": self._payments.name, "payment_id": created.payment_id},
+                details={"provider": provider, "payment_id": created.payment_id},
             )
             await session.commit()
         logger.info("Заказ %s: платёж %s создан", order_id, created.payment_id)

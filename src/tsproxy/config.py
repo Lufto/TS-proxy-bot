@@ -28,6 +28,8 @@ DEFAULT_WEB_PORT = 8080
 class PaymentsMode(StrEnum):
     FAKE = "fake"  # поддельная платёжка для разработки
     REAL = "real"
+    # оплата выключена: тестовый запуск только с пробным, пока платёжка не выбрана (задача 29)
+    OFF = "off"
 
 
 class Settings(BaseSettings):
@@ -119,7 +121,10 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _check_payments(self) -> Self:
-        """Поддельная платёжка в боевом режиме засчитала бы оплату, которой не было (аудит R23)."""
+        """Поддельная платёжка в боевом режиме засчитала бы оплату, которой не было (аудит R23).
+
+        `off` разрешён везде: денег он не принимает, ложной оплаты не будет (задача 29).
+        """
         if self.run_mode is RunMode.PROD and self.payments_mode is PaymentsMode.FAKE:
             raise ValueError("PAYMENTS_MODE=fake нельзя в режиме prod")
         return self

@@ -263,6 +263,10 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         "payment.screen",
         "payment.too_many",
         "payment.unavailable",
+        # задача 29: оплата выключена
+        "tariffs.off_title",
+        "tariffs.off_trial",
+        "tariffs.off_later",
         # задача 13: оплата засчитана
         "payment.paid",
         "payment.paid_prorated",
@@ -290,6 +294,8 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
         "alerts.remnawave_unavailable",
         "alerts.remnawave_at_start",
         "alerts.bot_error",
+        # задача 29: оплата выключена
+        "alerts.payments_off",
         # задача 16: обращения в поддержку
         "alerts.support_topic_failed",
         "support.topic_name",

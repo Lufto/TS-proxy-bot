@@ -12,6 +12,9 @@ Telegram, журнал событий, тревоги, тексты. Остал�
 - фоновые задачи: сводки повторов тревог раз в минуту; сверка с Remnawave раз в 5 минут
   и сразу при запуске (задача 09); повторы выдачи доступа после оплаты раз в минуту (задача 13).
 
+`PAYMENTS_MODE=off` (задача 29) — тестовый запуск без платёжки: тарифы видны, купить нельзя;
+при запуске — предупреждение в лог и тревога, чтобы не забыть включить оплату.
+
 Ctrl+C или `systemctl stop` (SIGINT/SIGTERM) — мягкая остановка: бот дорабатывает
 текущие апдейты, затем закрываются HTTP-клиенты и база.
 """
@@ -83,6 +86,8 @@ logger = logging.getLogger(__name__)
 ALERT_FLUSH_INTERVAL = timedelta(minutes=1)
 # Пробные, которые не выдались из-за панели, — доделываются сами (задача 07)
 PENDING_TRIALS_INTERVAL = timedelta(minutes=1)
+# Ключ склейки тревоги «оплата выключена» (задача 29)
+PAYMENTS_OFF_ALERT = "payments_off"
 # Повторы выдачи доступа после оплаты — расписание каждого заказа в базе (задача 13)
 PAYMENT_GRANTS_INTERVAL = timedelta(minutes=1)
 # Забытые обращения (нет ответа дольше часа) — проверка раз в 5 минут (задача 17)
@@ -290,6 +295,9 @@ def build_application(
                     lambda: deliver_pending_trials(ctx),
                     run_at_start=True,
                 ),
+                # Работает и при PAYMENTS_MODE=off: доделывает выдачу по уже оплаченным
+                # заказам (платёжка для этого не нужна, только Remnawave). Иначе после
+                # переключения на off оплаченные, но не выданные заказы зависли бы.
                 PeriodicJob(
                     "payment_grants",
                     PAYMENT_GRANTS_INTERVAL,
@@ -312,8 +320,13 @@ def build_application(
     )
 
 
-def _payment_provider(settings: Settings, clock: Clock) -> PaymentProvider:
-    """Платёжка по `PAYMENTS_MODE`. Поддельная в боевом режиме не стартует (проверяют настройки)."""
+def _payment_provider(settings: Settings, clock: Clock) -> PaymentProvider | None:
+    """Платёжка по `PAYMENTS_MODE`. Поддельная в боевом режиме не стартует (проверяют настройки).
+
+    `None` — оплата выключена (задача 29): заказы и платежи не создаются.
+    """
+    if settings.payments_mode is PaymentsMode.OFF:
+        return None
     if settings.payments_mode is PaymentsMode.FAKE:
         return FakePaymentProvider(clock, FakePaymentLedger(settings.fake_payments_file))
     raise ValueError("PAYMENTS_MODE=real: настоящая платёжка ещё не подключена (задача 15)")
@@ -377,6 +390,16 @@ async def _check_panel(app: Application) -> None:
     logger.info("Remnawave %s", version)
 
 
+async def check_payments_mode(app: Application) -> None:
+    """Оплата выключена — напомнить в лог и в «🚨 Тревоги», чтобы не забыть включить (задача 29)."""
+    if app.settings.payments_mode is not PaymentsMode.OFF:
+        return
+    logger.warning("Оплата выключена (PAYMENTS_MODE=off): купить подписку нельзя, только пробный")
+    await app.alerter.raise_alert(
+        PAYMENTS_OFF_ALERT, app.content.admin_texts.get("alerts.payments_off")
+    )
+
+
 async def connect_telegram(app: Application) -> None:
     """Команды бота и способ получения апдейтов: снять webhook (dev) или поставить (prod)."""
     settings = app.settings
@@ -430,6 +453,7 @@ async def run_application(app: Application) -> None:
     polling: asyncio.Task[None] | None = None
     try:
         await _check_panel(app)
+        await check_payments_mode(app)
         await connect_telegram(app)
         tasks.append(asyncio.create_task(server.serve(), name="web"))
         if settings.run_mode is RunMode.DEV:
