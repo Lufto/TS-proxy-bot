@@ -238,6 +238,24 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         "payment.screen",
         "payment.too_many",
         "payment.unavailable",
+        # задача 13: оплата засчитана
+        "payment.paid",
+        "payment.paid_prorated",
+        "payment.pending",
+        # задача 11: льготный период
+        "grace.started",
+        "grace.reminder",
+        "grace.last_day",
+        "grace.ended",
+        # задача 10: напоминания, продления пробного, пробный трафик
+        "notices.trial_day_before",
+        "notices.trial_hour_before",
+        "notices.paid_day_before",
+        "notices.paid_hour_before",
+        "notices.trial_extended",
+        "notices.trial_farewell",
+        "notices.trial_traffic_warning",
+        "notices.trial_traffic_used_up",
     }
 )
 REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
@@ -330,6 +348,15 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
         "admin.devices.no_account",
         "admin.devices.deleted",
         "admin.devices.not_found",
+        # задача 13: зачёт оплаты и выдача доступа
+        "alerts.payment_amount_mismatch",
+        "alerts.payment_not_recorded",
+        "alerts.grant_delayed",
+        "alerts.grant_failed",
+        "alerts.grant_manual",
+        "payments.received",
+        "payments.received_prorated",
+        "payments.no_username",
     }
 )
 

@@ -113,5 +113,16 @@ def decide_on_trial_expiry(trial: TrialEnd, now: datetime) -> TrialExpiryDecisio
         return TrialExpiryDecision(TrialExpiryAction.END, used)
     if used >= TRIAL_MAX_EXTENSIONS:
         return TrialExpiryDecision(TrialExpiryAction.FAREWELL, used)
-    new_expire_at = max(trial.expire_at, now) + TRIAL_EXTENSION
-    return TrialExpiryDecision(TrialExpiryAction.EXTEND, used + 1, new_expire_at)
+    return TrialExpiryDecision(
+        TrialExpiryAction.EXTEND, used + 1, trial_extension_end(trial.expire_at, now)
+    )
+
+
+def trial_extension_end(expire_at: datetime, now: datetime) -> datetime:
+    """До какого момента продлить пробный: 3 дня от более поздней из дат «конец» и «сейчас».
+
+    Тот же расчёт, когда продление доделывают после сбоя панели: дни считаются от момента,
+    когда доступ действительно появился.
+    """
+    require_aware(now)
+    return max(expire_at, now) + TRIAL_EXTENSION

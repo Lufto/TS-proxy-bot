@@ -38,6 +38,9 @@ TEXT_PLACEHOLDERS: dict[str, set[str]] = {
     "tariffs.button_hidden": {"title", "price"},
     "payment.description": {"title"},
     "payment.screen": {"title", "price", "expires_at"},
+    # задача 13: оплата засчитана
+    "payment.paid": {"expire_at", "device_limit"},
+    "payment.paid_prorated": {"expire_at", "device_limit", "amount", "price"},
     # задача 08: профиль и устройства
     "buttons.delete_device": {"number"},
     "profile.status_trial": {"expire_at", "left"},
@@ -52,6 +55,18 @@ TEXT_PLACEHOLDERS: dict[str, set[str]] = {
     "devices.title_no_limit": {"used"},
     "devices.item": {"number", "name", "system", "connected_at"},
     "devices.item_no_system": {"number", "name", "connected_at"},
+    # задача 11: льготный период
+    "grace.started": {"until"},
+    "grace.reminder": {"until"},
+    "grace.last_day": {"until"},
+    # задача 10: напоминания, продления пробного, пробный трафик
+    "notices.trial_day_before": {"expire_at"},
+    "notices.trial_hour_before": {"expire_at"},
+    "notices.paid_day_before": {"expire_at"},
+    "notices.paid_hour_before": {"expire_at"},
+    "notices.trial_extended": {"days", "expire_at"},
+    "notices.trial_traffic_warning": {"used", "limit"},
+    "notices.trial_traffic_used_up": {"limit"},
     **{
         f"units.{unit}_{form}": {"n"}
         for unit in ("days", "hours")

@@ -82,30 +82,14 @@ def _device_limit(account: ProxyAccount) -> int | None:
     return account.device_limit or None
 
 
-def _on_trial(client: Client, account: ProxyAccount) -> bool:
+def on_trial(client: Client, account: ProxyAccount) -> bool:
     """Пробный: пробный выдавался, а лимит трафика ещё стоит.
 
+    Тем же правилом пользуются напоминания (`services/reminders.py`).
     Покупка снимает лимит 7 ГБ (аудит §7.6), у оплаченного срока трафик без лимита.
     """
     limited = account.traffic_limit_bytes != UNLIMITED_TRAFFIC_BYTES
     return client.trial_granted_at is not None and limited
-
-
-def client_snapshot(client: Client, account: ProxyAccount | None) -> ClientSnapshot:
-    """Состояние клиента для правил сроков: срок и доступ — из панели, отметки — из базы."""
-    if account is None:
-        return ClientSnapshot(
-            expire_at=None,
-            on_trial=False,
-            grace_started_at=client.grace_started_at,
-            access_disabled=False,
-        )
-    return ClientSnapshot(
-        expire_at=account.expire_at,
-        on_trial=_on_trial(client, account),
-        grace_started_at=client.grace_started_at,
-        access_disabled=account.status is AccountStatus.DISABLED,
-    )
 
 
 class ProfileService:
@@ -128,13 +112,16 @@ class ProfileService:
             return None
         devices = await self._remnawave.list_devices(client.telegram_id)
         now = utc_now(self._clock)
-        snapshot = client_snapshot(client, account)
-        on_trial = snapshot.on_trial
+        trial = on_trial(client, account)
+        snapshot = ClientSnapshot(
+            expire_at=account.expire_at,
+            on_trial=trial,
+            grace_started_at=client.grace_started_at,
+            access_disabled=account.status is AccountStatus.DISABLED,
+        )
         traffic_used_up = account.status is AccountStatus.LIMITED
         traffic = (
-            TrafficUsage(account.traffic_used_bytes, account.traffic_limit_bytes)
-            if on_trial
-            else None
+            TrafficUsage(account.traffic_used_bytes, account.traffic_limit_bytes) if trial else None
         )
         return Profile(
             status=profile_status(snapshot, now, traffic_used_up=traffic_used_up),

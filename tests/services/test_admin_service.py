@@ -1,6 +1,7 @@
 """Админка (задача 18): поиск клиента, карточка, ручная выдача с пределом, сброс пробного,
 устройства и перевыпуск ссылки. Каждое действие — в журнале с Telegram ID администратора."""
 
+import asyncio
 from datetime import datetime, timedelta
 from decimal import Decimal
 
@@ -32,6 +33,7 @@ from tsproxy.services.admin import (
 )
 from tsproxy.services.events import EventKind, EventLog
 from tsproxy.services.fakes import FakeClock
+from tsproxy.services.locks import KeyedLocks
 from tsproxy.services.masking import Masker
 from tsproxy.services.profile import ProfileService, device_ref
 from tsproxy.services.trial import TrialOutcome, TrialService
@@ -58,13 +60,21 @@ def events(clock: FakeClock, mask: Masker) -> EventLog:
 
 
 @pytest.fixture
+def term_locks() -> KeyedLocks:
+    return KeyedLocks()
+
+
+@pytest.fixture
 def admin(
     session_factory: async_sessionmaker[AsyncSession],
     remnawave: FakeRemnawave,
     events: EventLog,
     clock: FakeClock,
+    term_locks: KeyedLocks,
 ) -> AdminService:
-    return AdminService(session_factory, remnawave, ProfileService(remnawave, clock), events, clock)
+    return AdminService(
+        session_factory, remnawave, ProfileService(remnawave, clock), events, clock, term_locks
+    )
 
 
 @pytest.fixture
@@ -338,6 +348,33 @@ async def test_expected_date_compared_to_the_second(
     )
 
     assert result.outcome is ExtensionOutcome.EXTENDED
+
+
+async def test_extend_waits_for_payment_crediting_of_same_client(
+    admin: AdminService,
+    remnawave: FakeRemnawave,
+    client: Client,
+    clock: FakeClock,
+    term_locks: KeyedLocks,
+) -> None:
+    """Зачёт оплаты держит блокировку срока клиента (по его id в базе): ручная выдача ждёт
+    и не считает срок от старой даты — срок изменился, выдача не делается (CHANGED)."""
+    expire_at = clock.now + timedelta(days=10)
+    await paid_account(remnawave, expire_at)
+    paid_until = expire_at + timedelta(days=30)
+
+    async with term_locks.hold(client.id):
+        extension = asyncio.create_task(
+            admin.extend(ADMIN_ID, TELEGRAM_ID, 7, expected_expire_at=expire_at)
+        )
+        await asyncio.sleep(0.01)
+        assert not extension.done()
+        await remnawave.set_expiry(TELEGRAM_ID, paid_until)  # «оплата» под блокировкой
+
+    result = await extension
+
+    assert result.outcome is ExtensionOutcome.CHANGED
+    assert (await remnawave.get_account(TELEGRAM_ID)).expire_at == paid_until
 
 
 @pytest.mark.parametrize("days", [0, MAX_MANUAL_GRANT_DAYS + 1])

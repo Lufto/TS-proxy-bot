@@ -1,8 +1,17 @@
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
 from tsproxy.domain.client_state import ClientSnapshot
 from tsproxy.domain.constants import GRACE_DAYS, LAST_CHANCE_DAYS
-from tsproxy.domain.grace import GraceAction, decide_on_expiry, grace_ends_at, is_last_chance
+from tsproxy.domain.grace import (
+    GraceAction,
+    GraceStage,
+    decide_on_expiry,
+    grace_ends_at,
+    grace_notice,
+    is_last_chance,
+)
 
 NOW = datetime(2026, 11, 10, 12, 0, tzinfo=UTC)
 GRACE = timedelta(days=GRACE_DAYS + LAST_CHANCE_DAYS)
@@ -109,3 +118,44 @@ def test_trial_end_is_not_grace() -> None:
 
 def test_client_without_account_is_not_expired() -> None:
     assert decide_on_expiry(paid(None), NOW).action is GraceAction.NOT_EXPIRED
+
+
+# --- Какое сообщение о льготном периоде сейчас пора прислать ---
+
+
+def test_first_day_notice_is_grace_started() -> None:
+    notice = grace_notice(NOW, NOW + timedelta(hours=5))
+    assert notice.stage is GraceStage.STARTED
+    assert notice.due_at == NOW
+
+
+@pytest.mark.parametrize("day", range(1, GRACE_DAYS))
+def test_daily_reminder_on_each_following_grace_day(day: int) -> None:
+    notice = grace_notice(NOW, NOW + timedelta(days=day, hours=1))
+    assert notice.stage is GraceStage.REMINDER
+    assert notice.due_at == NOW + timedelta(days=day)  # своя дата у каждого дня — свой повтор
+
+
+def test_last_chance_day_notice_is_the_big_warning() -> None:
+    notice = grace_notice(NOW, NOW + timedelta(days=GRACE_DAYS))
+    assert notice.stage is GraceStage.LAST_DAY
+    assert notice.due_at == NOW + timedelta(days=GRACE_DAYS)
+    assert is_last_chance(NOW, notice.due_at)
+
+
+def test_after_grace_notice_is_the_final_one() -> None:
+    notice = grace_notice(NOW, NOW + GRACE + timedelta(days=10))
+    assert notice.stage is GraceStage.ENDED
+    assert notice.due_at == grace_ends_at(NOW)
+
+
+def test_bot_was_down_for_days_only_current_notice_is_due() -> None:
+    # Бот лежал первые два дня: пачку пропущенных не шлём, только сегодняшнее
+    notice = grace_notice(NOW, NOW + timedelta(days=2, hours=3))
+    assert notice.due_at == NOW + timedelta(days=2)
+
+
+def test_same_day_gives_same_notice() -> None:
+    morning = grace_notice(NOW, NOW + timedelta(days=1, minutes=1))
+    evening = grace_notice(NOW, NOW + timedelta(days=1, hours=23))
+    assert morning == evening

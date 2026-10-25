@@ -142,7 +142,12 @@ def ctx(
             KeyedLocks(),
         ),
         admin=AdminService(
-            session_factory, remnawave, ProfileService(remnawave, clock), events, clock
+            session_factory,
+            remnawave,
+            ProfileService(remnawave, clock),
+            events,
+            clock,
+            KeyedLocks(),
         ),
     )
 

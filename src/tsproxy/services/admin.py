@@ -27,6 +27,7 @@ from tsproxy.db.enums import OrderStatus
 from tsproxy.db.models import Client, Order
 from tsproxy.db.repository import reset_trial_claim
 from tsproxy.domain.admin import ClientQuery, check_grant_days, manual_grant_target
+from tsproxy.domain.client_state import ClientSnapshot
 from tsproxy.domain.trial import paid_access_limits
 from tsproxy.integrations.remnawave_types import (
     AccountNotFound,
@@ -37,14 +38,9 @@ from tsproxy.integrations.remnawave_types import (
 )
 from tsproxy.services.clock import Clock, utc_now
 from tsproxy.services.events import EventKind, EventLog
+from tsproxy.services.grace import client_snapshot
 from tsproxy.services.locks import KeyedLocks
-from tsproxy.services.profile import (
-    DeviceDeletion,
-    DeviceList,
-    Profile,
-    ProfileService,
-    client_snapshot,
-)
+from tsproxy.services.profile import DeviceDeletion, DeviceList, Profile, ProfileService
 from tsproxy.services.trial import has_paid_order, trial_delivered
 
 logger = logging.getLogger(__name__)
@@ -164,15 +160,16 @@ class AdminService:
         profiles: ProfileService,
         events: EventLog,
         clock: Clock,
-        locks: KeyedLocks | None = None,
+        term_locks: KeyedLocks,
     ) -> None:
         self._session_factory = session_factory
         self._remnawave = remnawave
         self._profiles = profiles
         self._events = events
         self._clock = clock
-        # Два администратора (или двойное нажатие) над одним клиентом — по очереди
-        self._locks = locks or KeyedLocks()
+        # Та же блокировка по id клиента, что у зачёта оплаты (`CreditingService`): иначе
+        # оплата и ручная выдача посчитают новый срок от одной старой даты и дни потеряются
+        self._term_locks = term_locks
 
     # --- Поиск и карточка ---
 
@@ -220,7 +217,7 @@ class AdminService:
         if client is None:
             return None
         account = await self._account(telegram_id)
-        target = manual_grant_target(client_snapshot(client, account), self._now(), days)
+        target = manual_grant_target(_snapshot(client, account), self._now(), days)
         current = None if account is None else account.expire_at
         return ExtensionPreview(telegram_id, days, current, target)
 
@@ -239,7 +236,11 @@ class AdminService:
         включается, отметка льготного снимается, как при оплате.
         """
         check_grant_days(days)
-        async with self._locks.hold(telegram_id):
+        found = await self._find(telegram_id)
+        if found is None:
+            return ExtensionResult(ExtensionOutcome.CLIENT_NOT_FOUND)
+        async with self._term_locks.hold(found.id):
+            # перечитываем под блокировкой: зачёт оплаты мог снять отметку льготного
             client = await self._find(telegram_id)
             if client is None:
                 return ExtensionResult(ExtensionOutcome.CLIENT_NOT_FOUND)
@@ -248,7 +249,7 @@ class AdminService:
             if not same_second(before, expected_expire_at):
                 logger.info("Ручная выдача клиенту %s: срок уже изменился", client.id)
                 return ExtensionResult(ExtensionOutcome.CHANGED, before)
-            target = manual_grant_target(client_snapshot(client, account), self._now(), days)
+            target = manual_grant_target(_snapshot(client, account), self._now(), days)
             account = await self._grant(telegram_id, account, target)
             async with self._session_factory() as session:
                 await session.execute(
@@ -301,7 +302,7 @@ class AdminService:
 
         Прокси-аккаунт не трогаем: новое нажатие обновит его (`TrialService`).
         """
-        async with self._locks.hold(telegram_id), self._session_factory() as session:
+        async with self._session_factory() as session:
             client = await _client(session, telegram_id)
             if client is None:
                 return TrialResetOutcome.CLIENT_NOT_FOUND
@@ -394,6 +395,13 @@ class AdminService:
             admin_id=admin_id,
             details={"action": action.value, **details},
         )
+
+
+def _snapshot(client: Client, account: ProxyAccount | None) -> ClientSnapshot:
+    """Состояние клиента для правил сроков; без прокси-аккаунта — «новый клиент»."""
+    if account is None:
+        return ClientSnapshot(None, False, client.grace_started_at, access_disabled=False)
+    return client_snapshot(client, account)
 
 
 async def _client(session: AsyncSession, telegram_id: int) -> Client | None:

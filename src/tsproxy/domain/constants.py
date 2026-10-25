@@ -19,6 +19,8 @@ TRIAL_TRAFFIC_GB = 7
 TRIAL_DEVICE_LIMIT = 3
 TRIAL_EXTENSION_DAYS = 3  # продление, если клиент ни разу не подключался
 TRIAL_MAX_EXTENSIONS = 5  # итого до 7 + 5 × 3 = 22 дней
+TRIAL_TRAFFIC_WARNING_PERCENT = 80  # предупредить, когда израсходовано 80% (ideas.md №1)
+PERCENT = 100
 
 # --- Платная подписка (задачи 05, 15) ---
 PAID_DEVICE_LIMIT = 3
@@ -33,6 +35,12 @@ MONTH_DAYS = 30  # «месяц» в тарифах — ровно 30 дней
 PRORATION_BONUS_HOURS = 2  # сверх пропорционального срока при оплате не на сумму тарифа
 KOPECK = Decimal("0.01")
 PAYMENT_LINK_LIFETIME = timedelta(hours=1)  # ссылка на оплату живёт час (правило 3)
+
+# --- Выдача доступа после оплаты (задача 04 п. 6, задача 21 п. 7) ---
+GRANT_FAST_RETRY_INTERVAL = timedelta(minutes=1)  # первые полчаса — каждую минуту
+GRANT_FAST_RETRIES = 30  # ≈ 30 минут повторов раз в минуту, потом тревога
+GRANT_SLOW_RETRY_INTERVAL = timedelta(minutes=10)  # дальше — раз в 10 минут
+GRANT_RETRY_DEADLINE = timedelta(days=1)  # до суток с момента зачёта оплаты
 
 # --- Возврат (задача 12) ---
 REFUND_WINDOW_DAYS = 30  # возврат только в течение 30 дней с оплаты
