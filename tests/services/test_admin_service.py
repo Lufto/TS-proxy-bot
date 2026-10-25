@@ -32,7 +32,7 @@ from tsproxy.services.admin import (
     TrialResetOutcome,
 )
 from tsproxy.services.events import EventKind, EventLog
-from tsproxy.services.fakes import FakeClock
+from tsproxy.services.fakes import FakeClock, FakeTrialGate
 from tsproxy.services.locks import KeyedLocks
 from tsproxy.services.masking import Masker
 from tsproxy.services.profile import ProfileService, device_ref
@@ -84,7 +84,7 @@ def trials(
     events: EventLog,
     clock: FakeClock,
 ) -> TrialService:
-    return TrialService(session_factory, remnawave, events, clock)
+    return TrialService(session_factory, remnawave, events, clock, FakeTrialGate())
 
 
 async def admin_events(session: AsyncSession) -> list[Event]:

@@ -1,4 +1,5 @@
-"""Подделки для тестов сервисов: управляемые часы и отправка тревог без Telegram."""
+"""Подделки для тестов сервисов: управляемые часы, отправка тревог без Telegram,
+выключатель пробных без журнала."""
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -35,3 +36,17 @@ class FakeAlertSender:
         if self.error is not None:
             raise self.error
         self.sent.append(SentMessage(chat_id, thread_id, text))
+
+
+@dataclass
+class FakeTrialGate:
+    """Выключатель пробных без журнала: `enabled` ставит тест, `new_trials` — счётчик нажатий."""
+
+    is_enabled: bool = True
+    new_trials: int = 0
+
+    async def enabled(self) -> bool:
+        return self.is_enabled
+
+    async def note_new_trial(self) -> None:
+        self.new_trials += 1

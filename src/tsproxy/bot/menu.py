@@ -12,6 +12,7 @@ from aiogram.types import CallbackQuery, Message
 from tsproxy.bot.callbacks import InstructionsCallback, MenuCallback, ScreenId
 from tsproxy.bot.context import BotContext, profile_of
 from tsproxy.bot.screens import Screen
+from tsproxy.db.models import Client
 
 
 def create_menu_router() -> Router:
@@ -33,20 +34,25 @@ async def _show(callback: CallbackQuery, ctx: BotContext, screen: Screen) -> Non
     await ctx.delivery.show(callback, screen)
 
 
+async def _main_menu(ctx: BotContext, client: Client) -> Screen:
+    """Главное меню. «🎁 Попробовать бесплатно» — пока пробные включены (задача 28)
+    и клиенту пробный положен."""
+    trial_available = await ctx.trial_switch.enabled() and await ctx.clients.trial_offered(client)
+    return ctx.screens.main_menu(trial_available=trial_available)
+
+
 async def on_start(message: Message, ctx: BotContext) -> None:
     """`/start`: записать клиента (или обновить имя), снять «заблокировал», прислать меню."""
     if message.from_user is None:
         return
     client = await ctx.clients.register(profile_of(message.from_user))
-    screen = ctx.screens.main_menu(trial_available=await ctx.clients.trial_offered(client))
-    await ctx.delivery.send(message.from_user.id, screen)
+    await ctx.delivery.send(message.from_user.id, await _main_menu(ctx, client))
 
 
 async def on_main_menu(callback: CallbackQuery, ctx: BotContext) -> None:
     await callback.answer()
     client = await ctx.clients.resolve(profile_of(callback.from_user))
-    screen = ctx.screens.main_menu(trial_available=await ctx.clients.trial_offered(client))
-    await _show(callback, ctx, screen)
+    await _show(callback, ctx, await _main_menu(ctx, client))
 
 
 async def on_about(callback: CallbackQuery, ctx: BotContext) -> None:

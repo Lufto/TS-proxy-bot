@@ -35,6 +35,7 @@ from tsproxy.services.orders import OrderService
 from tsproxy.services.profile import ProfileService
 from tsproxy.services.support import SupportService
 from tsproxy.services.trial import TrialService
+from tsproxy.services.trial_switch import TrialSwitch
 
 REPO_CONTENT = Path(__file__).parent.parent.parent / "content"
 
@@ -117,6 +118,10 @@ def ctx(
 ) -> BotContext:
     mask = MaskingFilter([BOT_TOKEN]).mask
     events = EventLog(clock, mask)
+    alerter = Alerter(
+        alert_sender, content.admin_texts, ADMIN_CHAT_ID, ALERTS_THREAD_ID, clock, mask
+    )
+    trial_switch = TrialSwitch(session_factory, events, alerter, content.admin_texts, clock)
     return BotContext(
         texts=content.texts,
         admin_texts=content.admin_texts,
@@ -124,12 +129,10 @@ def ctx(
         clients=clients,
         remnawave=remnawave,
         delivery=ClientDelivery(bot, clients),
-        alerter=Alerter(
-            alert_sender, content.admin_texts, ADMIN_CHAT_ID, ALERTS_THREAD_ID, clock, mask
-        ),
+        alerter=alerter,
         events=events,
         access=AdminAccess(frozenset({ADMIN_ID}), ADMIN_CHAT_ID),
-        trials=TrialService(session_factory, remnawave, events, clock),
+        trials=TrialService(session_factory, remnawave, events, clock, trial_switch),
         profiles=ProfileService(remnawave, clock),
         support=SupportService(session_factory, clock, mask, events),
         support_guard=SupportGuard(support_rate_limiter(monotonic)),
@@ -153,6 +156,7 @@ def ctx(
             KeyedLocks(),
         ),
         link_revokes=LinkRevokeService(session_factory, remnawave, events, clock, KeyedLocks()),
+        trial_switch=trial_switch,
     )
 
 

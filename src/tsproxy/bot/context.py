@@ -23,6 +23,7 @@ from tsproxy.services.orders import OrderService
 from tsproxy.services.profile import ProfileService
 from tsproxy.services.support import SupportService
 from tsproxy.services.trial import TrialService
+from tsproxy.services.trial_switch import TrialSwitch
 
 # Имя, под которым контекст лежит в данных диспетчера
 CONTEXT_KEY = "ctx"
@@ -47,6 +48,7 @@ class BotContext:
     client_cards: ClientCardService  # карточка клиента в теме обращения (задача 17)
     admin: AdminService  # поиск клиента и действия администратора (задача 18)
     link_revokes: LinkRevokeService  # клиент сам перевыпускает ссылку (задача 31)
+    trial_switch: TrialSwitch  # выключатель пробных (задача 28), тот же, что у `trials`
 
 
 def profile_of(user: User) -> ClientProfile:

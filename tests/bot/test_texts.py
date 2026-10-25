@@ -123,11 +123,12 @@ async def test_all_screens_use_only_required_texts(content: Content) -> None:
     for platform in Platform:
         screens.instructions(platform)
     screens.connect(account)
-    screens.no_account()
+    screens.no_account(trial_available=True)
     screens.trial_granted(account)
     screens.trial_already_used()
     screens.trial_pending()
     screens.trial_has_subscription()
+    screens.trial_disabled()
     screens.unavailable()
     screens.error()
     screens.unknown_command()

@@ -16,7 +16,7 @@ from tsproxy.domain.constants import BYTES_PER_GB, TRIAL_DEVICE_LIMIT, TRIAL_TRA
 from tsproxy.integrations.fakes import FakeRemnawave
 from tsproxy.integrations.remnawave_types import ProxyAccount, RemnawaveUnavailable
 from tsproxy.services.events import EventKind, EventLog
-from tsproxy.services.fakes import FakeClock
+from tsproxy.services.fakes import FakeClock, FakeTrialGate
 from tsproxy.services.masking import Masker
 from tsproxy.services.trial import DeliveredTrial, TrialOutcome, TrialResult, TrialService
 
@@ -66,7 +66,7 @@ def make_service(
     clock: FakeClock,
     mask: Masker,
 ) -> TrialService:
-    return TrialService(session_factory, remnawave, EventLog(clock, mask), clock)
+    return TrialService(session_factory, remnawave, EventLog(clock, mask), clock, FakeTrialGate())
 
 
 @pytest.fixture

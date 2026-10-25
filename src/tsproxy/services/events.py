@@ -49,6 +49,9 @@ class EventKind(StrEnum):
     # Ссылку подписки перевыпустил сам клиент (задача 31), кто — в `details["by"]`.
     # Перевыпуск администратором, как и любое его действие, — ADMIN_ACTION (задача 18)
     SUBSCRIPTION_REVOKED = "subscription_revoked"
+    # задача 28: выключатель пробных. Последнее из двух — источник правды, вкл или выкл
+    TRIALS_DISABLED = "trials_disabled"  # пробные выключены (администратором или при спаме)
+    TRIALS_ENABLED = "trials_enabled"  # пробные снова включены администратором
 
 
 class EventLog:

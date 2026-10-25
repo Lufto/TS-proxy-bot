@@ -78,6 +78,7 @@ from tsproxy.services.remnawave_signals import RemnawaveSignals
 from tsproxy.services.support import SupportService
 from tsproxy.services.term_guard import TermLockedHandlers
 from tsproxy.services.trial import TrialService
+from tsproxy.services.trial_switch import TrialSwitch
 from tsproxy.web.app import create_web_app
 from tsproxy.web.remnawave import RemnawaveWebhook
 from tsproxy.web.telegram import TelegramWebhook, webhook_url
@@ -235,6 +236,8 @@ def build_application(
         clock,
         term_locks,
     )
+    # Выключатель пробных (задача 28): состояние — последнее событие в журнале
+    trial_switch = TrialSwitch(session_factory, events, alerter, content.admin_texts, clock)
     ctx = BotContext(
         texts=content.texts,
         admin_texts=content.admin_texts,
@@ -245,7 +248,7 @@ def build_application(
         alerter=alerter,
         events=events,
         access=AdminAccess(settings.admin_ids, settings.admin_chat_id),
-        trials=TrialService(session_factory, remnawave, events, clock),
+        trials=TrialService(session_factory, remnawave, events, clock, trial_switch),
         profiles=profiles,
         support=SupportService(session_factory, clock, mask, events),
         support_guard=SupportGuard(support_rate_limiter()),
@@ -253,6 +256,7 @@ def build_application(
         client_cards=ClientCardService(session_factory, profiles),
         admin=AdminService(session_factory, remnawave, profiles, events, clock, term_locks),
         link_revokes=LinkRevokeService(session_factory, remnawave, events, clock, KeyedLocks()),
+        trial_switch=trial_switch,
     )
     dispatcher = create_dispatcher(ctx, RateLimiter())
     # Обработчики проверок прокси-аккаунтов: их вызывают и вебхуки Remnawave, и сверка.
