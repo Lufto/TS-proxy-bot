@@ -31,6 +31,7 @@ EXPIRE = datetime(2026, 12, 1, tzinfo=UTC)
 WRITE_ACTIONS: dict[str, Callable[[RemnawaveClient, int], Awaitable[object]]] = {
     "set_expiry": lambda c, tid: c.set_expiry(tid, EXPIRE),
     "set_limits": lambda c, tid: c.set_limits(tid, device_limit=3, traffic_limit_bytes=0),
+    "reset_traffic": lambda c, tid: c.reset_traffic(tid),
     "enable": lambda c, tid: c.enable_account(tid),
     "disable": lambda c, tid: c.disable_account(tid),
     "add_to_squad": lambda c, tid: c.add_to_squad(tid, "test"),

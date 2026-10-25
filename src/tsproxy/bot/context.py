@@ -13,6 +13,7 @@ from tsproxy.bot.screens import Screens
 from tsproxy.bot.support_guard import SupportGuard
 from tsproxy.content.loader import Texts
 from tsproxy.integrations.remnawave_types import RemnawaveClient
+from tsproxy.services.admin import AdminService
 from tsproxy.services.alerts import Alerter
 from tsproxy.services.clients import ClientProfile, ClientService
 from tsproxy.services.events import EventLog
@@ -41,6 +42,7 @@ class BotContext:
     support: SupportService
     support_guard: SupportGuard
     orders: OrderService  # тарифы и заказы (задача 12)
+    admin: AdminService  # поиск клиента и действия администратора (задача 18)
 
 
 def profile_of(user: User) -> ClientProfile:

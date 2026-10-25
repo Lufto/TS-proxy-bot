@@ -91,6 +91,23 @@ def _on_trial(client: Client, account: ProxyAccount) -> bool:
     return client.trial_granted_at is not None and limited
 
 
+def client_snapshot(client: Client, account: ProxyAccount | None) -> ClientSnapshot:
+    """Состояние клиента для правил сроков: срок и доступ — из панели, отметки — из базы."""
+    if account is None:
+        return ClientSnapshot(
+            expire_at=None,
+            on_trial=False,
+            grace_started_at=client.grace_started_at,
+            access_disabled=False,
+        )
+    return ClientSnapshot(
+        expire_at=account.expire_at,
+        on_trial=_on_trial(client, account),
+        grace_started_at=client.grace_started_at,
+        access_disabled=account.status is AccountStatus.DISABLED,
+    )
+
+
 class ProfileService:
     """Профиль и устройства клиента. Клиент — всегда по Telegram ID нажавшего."""
 
@@ -111,13 +128,8 @@ class ProfileService:
             return None
         devices = await self._remnawave.list_devices(client.telegram_id)
         now = utc_now(self._clock)
-        on_trial = _on_trial(client, account)
-        snapshot = ClientSnapshot(
-            expire_at=account.expire_at,
-            on_trial=on_trial,
-            grace_started_at=client.grace_started_at,
-            access_disabled=account.status is AccountStatus.DISABLED,
-        )
+        snapshot = client_snapshot(client, account)
+        on_trial = snapshot.on_trial
         traffic_used_up = account.status is AccountStatus.LIMITED
         traffic = (
             TrafficUsage(account.traffic_used_bytes, account.traffic_limit_bytes)

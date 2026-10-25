@@ -297,6 +297,12 @@ class RemnawaveApiClient:
             telegram_id, hwid_device_limit=device_limit, traffic_limit_bytes=traffic_limit_bytes
         )
 
+    async def reset_traffic(self, telegram_id: int) -> ProxyAccount:
+        account = await self._own_account(telegram_id)
+        # Обнулить трафик второй раз — то же самое: повтор безопасен
+        user = await self._call(lambda: self._sdk.users.reset_user_traffic(account.id), retry=True)
+        return _to_account(user)
+
     async def add_to_squad(self, telegram_id: int, squad_name: str) -> ProxyAccount:
         account = await self._own_account(telegram_id)
         if squad_name in account.squad_names:

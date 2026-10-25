@@ -51,6 +51,7 @@ from tsproxy.integrations.remnawave import RemnawaveApiClient, create_http_clien
 from tsproxy.integrations.remnawave_types import RemnawaveUnavailable
 from tsproxy.logging_setup import MaskingFilter
 from tsproxy.services.account_checks import AccountCheckHandler, AccountChecks
+from tsproxy.services.admin import AdminService
 from tsproxy.services.alerts import Alerter
 from tsproxy.services.clients import ClientService
 from tsproxy.services.clock import Clock, system_clock
@@ -194,6 +195,7 @@ def build_application(
         clock,
         KeyedLocks(),
     )
+    profiles = ProfileService(remnawave, clock)
     ctx = BotContext(
         texts=content.texts,
         admin_texts=content.admin_texts,
@@ -205,10 +207,11 @@ def build_application(
         events=events,
         access=AdminAccess(settings.admin_ids, settings.admin_chat_id),
         trials=TrialService(session_factory, remnawave, events, clock),
-        profiles=ProfileService(remnawave, clock),
+        profiles=profiles,
         support=SupportService(session_factory, clock, mask),
         support_guard=SupportGuard(support_rate_limiter()),
         orders=orders,
+        admin=AdminService(session_factory, remnawave, profiles, events, clock),
     )
     dispatcher = create_dispatcher(ctx, RateLimiter())
     # Обработчики проверок прокси-аккаунтов: их вызывают и вебхуки Remnawave, и сверка.

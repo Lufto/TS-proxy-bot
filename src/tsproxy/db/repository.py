@@ -37,6 +37,20 @@ async def reclaim_trial(
     return affected_rows(result) == 1
 
 
+async def reset_trial_claim(session: AsyncSession, client_id: int, claimed_at: datetime) -> bool:
+    """Сбросить пробный (администратор, задача 18): снять отметку и счётчик продлений.
+
+    `False` — отметка уже другая: её перехватила фоновая выдача или сбросил другой
+    администратор.
+    """
+    result = await session.execute(
+        update(Client)
+        .where(Client.id == client_id, Client.trial_granted_at == claimed_at)
+        .values(trial_granted_at=None, trial_extensions=0)
+    )
+    return affected_rows(result) == 1
+
+
 async def claim_outage_compensation(
     session: AsyncSession, outage_id: int, admin_id: int, now: datetime
 ) -> bool:

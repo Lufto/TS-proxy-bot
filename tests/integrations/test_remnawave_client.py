@@ -169,6 +169,14 @@ async def test_set_limits(panel: MockPanel, make_client: MakeClient) -> None:
     assert panel.body() == {"id": 7, "hwidDeviceLimit": 3, "trafficLimitBytes": 0}
 
 
+async def test_reset_traffic(panel: MockPanel, make_client: MakeClient) -> None:
+    panel.on("GET", USER_PATH, ok(user(status="LIMITED")))
+    panel.on("POST", "/api/users/7/actions/reset-traffic", ok(user(status="ACTIVE")))
+    account = await make_client(RunMode.PROD).reset_traffic(100)
+    assert account.status is AccountStatus.ACTIVE
+    assert [r.url.path for r in panel.writes] == ["/api/users/7/actions/reset-traffic"]
+
+
 async def test_disable_and_enable(panel: MockPanel, make_client: MakeClient) -> None:
     panel.on("GET", USER_PATH, ok(user()))
     panel.on("POST", "/api/users/7/actions/disable", ok(user(status="DISABLED")))

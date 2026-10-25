@@ -23,6 +23,7 @@ from tsproxy.db.models import Base
 from tsproxy.integrations.fake_payments import FakePaymentProvider
 from tsproxy.integrations.fakes import FakeRemnawave
 from tsproxy.logging_setup import MaskingFilter
+from tsproxy.services.admin import AdminService
 from tsproxy.services.alerts import Alerter
 from tsproxy.services.clients import ClientService
 from tsproxy.services.events import EventLog
@@ -139,6 +140,9 @@ def ctx(
             frozenset({ADMIN_ID}),
             clock,
             KeyedLocks(),
+        ),
+        admin=AdminService(
+            session_factory, remnawave, ProfileService(remnawave, clock), events, clock
         ),
     )
 

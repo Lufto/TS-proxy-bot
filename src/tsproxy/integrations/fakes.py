@@ -233,6 +233,14 @@ class FakeRemnawave:
         self.writes.append(("set_limits", stored.username))
         return stored.snapshot()
 
+    async def reset_traffic(self, telegram_id: int) -> ProxyAccount:
+        stored = self._own(telegram_id)
+        stored.traffic_used_bytes = 0
+        if stored.status is AccountStatus.LIMITED:
+            stored.status = AccountStatus.ACTIVE  # так делает панель после сброса трафика
+        self.writes.append(("reset_traffic", stored.username))
+        return stored.snapshot()
+
     async def enable_account(self, telegram_id: int) -> ProxyAccount:
         stored = self._own(telegram_id)
         if stored.status is AccountStatus.DISABLED:
