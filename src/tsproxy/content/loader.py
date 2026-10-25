@@ -238,6 +238,15 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         "payment.screen",
         "payment.too_many",
         "payment.unavailable",
+        # задача 10: напоминания, продления пробного, пробный трафик
+        "notices.trial_day_before",
+        "notices.trial_hour_before",
+        "notices.paid_day_before",
+        "notices.paid_hour_before",
+        "notices.trial_extended",
+        "notices.trial_farewell",
+        "notices.trial_traffic_warning",
+        "notices.trial_traffic_used_up",
     }
 )
 REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(

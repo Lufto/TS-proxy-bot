@@ -7,9 +7,11 @@
 from datetime import datetime
 
 from sqlalchemy import CursorResult, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tsproxy.db.models import Client, NodeOutage
+from tsproxy.db.enums import NotificationKind
+from tsproxy.db.models import Client, NodeOutage, Notification
 
 
 async def claim_trial(session: AsyncSession, client_id: int, now: datetime) -> bool:
@@ -35,6 +37,47 @@ async def reclaim_trial(
         .values(trial_granted_at=now)
     )
     return affected_rows(result) == 1
+
+
+async def claim_trial_extension(
+    session: AsyncSession, client_id: int, extensions_used: int
+) -> bool:
+    """Засчитать очередное продление пробного: счётчик растёт с `extensions_used` на 1.
+
+    `False` — это продление уже засчитал параллельный запрос.
+    """
+    result = await session.execute(
+        update(Client)
+        .where(Client.id == client_id, Client.trial_extensions == extensions_used)
+        .values(trial_extensions=extensions_used + 1)
+    )
+    return affected_rows(result) == 1
+
+
+async def claim_notification(
+    session: AsyncSession,
+    client_id: int,
+    kind: NotificationKind,
+    related_expire_at: datetime,
+    now: datetime,
+) -> bool:
+    """Записать уведомление клиенту — до отправки, чтобы оно не ушло дважды.
+
+    Уникальный ключ (клиент, вид, срок) пропускает только одну запись. `False` — такое
+    уведомление к этому сроку уже записано; транзакция сессии тогда откатывается целиком,
+    вместе со всем, что вызывающий код сделал в ней до этого.
+    """
+    session.add(
+        Notification(
+            client_id=client_id, kind=kind, related_expire_at=related_expire_at, sent_at=now
+        )
+    )
+    try:
+        await session.flush()
+    except IntegrityError:
+        await session.rollback()
+        return False
+    return True
 
 
 async def claim_outage_compensation(

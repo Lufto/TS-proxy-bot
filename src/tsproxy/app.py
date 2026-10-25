@@ -38,6 +38,7 @@ from tsproxy.bot.connect import REMNAWAVE_UNAVAILABLE_ALERT
 from tsproxy.bot.context import BotContext
 from tsproxy.bot.delivery import ClientDelivery
 from tsproxy.bot.dispatcher import bot_commands, create_dispatcher
+from tsproxy.bot.notices import NoticeScreens, TelegramNotifier
 from tsproxy.bot.screens import Screens
 from tsproxy.bot.support_guard import SupportGuard, support_rate_limiter
 from tsproxy.bot.throttling import RateLimiter
@@ -60,6 +61,7 @@ from tsproxy.services.nodes import NodeMonitor
 from tsproxy.services.orders import OrderService
 from tsproxy.services.profile import ProfileService
 from tsproxy.services.reconciliation import Reconciliation
+from tsproxy.services.reminders import ReminderService
 from tsproxy.services.remnawave_signals import RemnawaveSignals
 from tsproxy.services.support import SupportService
 from tsproxy.services.trial import TrialService
@@ -214,7 +216,15 @@ def build_application(
     # Обработчики проверок прокси-аккаунтов: их вызывают и вебхуки Remnawave, и сверка.
     # Задача 10 — напоминания и продления пробного, задача 11 — льготный период:
     # добавлять в этот список (AccountChecks копирует его при создании).
-    account_handlers: list[AccountCheckHandler] = []
+    account_handlers: list[AccountCheckHandler] = [
+        ReminderService(
+            session_factory,
+            remnawave,
+            events,
+            TelegramNotifier(NoticeScreens(content.texts), ctx.delivery),
+            clock,
+        ),
+    ]
     account_checks = AccountChecks(remnawave, settings.run_mode, clock, account_handlers)
     nodes = NodeMonitor(remnawave, session_factory, alerter, content.admin_texts, clock)
     reconciliation = Reconciliation(account_checks, nodes, alerter, content.admin_texts)

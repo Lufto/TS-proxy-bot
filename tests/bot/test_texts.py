@@ -52,6 +52,14 @@ TEXT_PLACEHOLDERS: dict[str, set[str]] = {
     "devices.title_no_limit": {"used"},
     "devices.item": {"number", "name", "system", "connected_at"},
     "devices.item_no_system": {"number", "name", "connected_at"},
+    # задача 10: напоминания, продления пробного, пробный трафик
+    "notices.trial_day_before": {"expire_at"},
+    "notices.trial_hour_before": {"expire_at"},
+    "notices.paid_day_before": {"expire_at"},
+    "notices.paid_hour_before": {"expire_at"},
+    "notices.trial_extended": {"days", "expire_at"},
+    "notices.trial_traffic_warning": {"used", "limit"},
+    "notices.trial_traffic_used_up": {"limit"},
     **{
         f"units.{unit}_{form}": {"n"}
         for unit in ("days", "hours")
