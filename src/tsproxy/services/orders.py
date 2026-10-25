@@ -35,8 +35,8 @@ from tsproxy.services.locks import KeyedLocks
 
 logger = logging.getLogger(__name__)
 
-# Значения выбраны агентом, нужно подтверждение владельца
-NEW_PAYMENTS_LIMIT = 5
+# Решение владельца 2026-10-25: 10 новых платежей за 10 минут, дальше — сообщение «подождите»
+NEW_PAYMENTS_LIMIT = 10
 NEW_PAYMENTS_WINDOW = timedelta(minutes=10)
 
 

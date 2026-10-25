@@ -103,11 +103,17 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _check_remnawave_webhook(self) -> Self:
-        """Секрет вебхуков Remnawave — по правилам панели, иначе подписи не совпадут."""
+        """Секрет вебхуков Remnawave — по правилам панели, иначе подписи не совпадут.
+
+        В боевом режиме обязателен (решение владельца 2026-10-25): без него бот узнаёт
+        об окончаниях сроков только из сверки, с опозданием до 5 минут.
+        """
         secret = self.remnawave_webhook_secret
-        if secret is not None and not REMNAWAVE_WEBHOOK_SECRET_RE.fullmatch(
-            secret.get_secret_value()
-        ):
+        if secret is None:
+            if self.run_mode is RunMode.PROD:
+                raise ValueError("REMNAWAVE_WEBHOOK_SECRET: в режиме prod обязателен")
+            return self
+        if not REMNAWAVE_WEBHOOK_SECRET_RE.fullmatch(secret.get_secret_value()):
             raise ValueError("REMNAWAVE_WEBHOOK_SECRET: от 32 символов, только A-Z, a-z и 0-9")
         return self
 

@@ -26,6 +26,7 @@ from tsproxy.integrations.fake_payments import FakePaymentProvider
 from tsproxy.web.telegram import TELEGRAM_WEBHOOK_PATH
 
 WEBHOOK_SECRET = "A" * 40
+REMNAWAVE_WEBHOOK_SECRET = "R" * 40
 PUBLIC_BASE_URL = "https://bot.ts-proxy.com"
 
 
@@ -50,6 +51,7 @@ def prod_settings(tmp_path: Path) -> Settings:
         payments_mode=PaymentsMode.REAL,
         public_base_url=PUBLIC_BASE_URL,
         telegram_webhook_secret=WEBHOOK_SECRET,
+        remnawave_webhook_secret=REMNAWAVE_WEBHOOK_SECRET,
     )
 
 
@@ -125,6 +127,7 @@ def test_prod_requires_https_url_and_strong_secret(
         "payments_mode": PaymentsMode.REAL,
         "public_base_url": PUBLIC_BASE_URL,
         "telegram_webhook_secret": WEBHOOK_SECRET,
+        "remnawave_webhook_secret": REMNAWAVE_WEBHOOK_SECRET,
     }
     values.update(overrides)
     with pytest.raises(ValidationError):
