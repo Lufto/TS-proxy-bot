@@ -2,6 +2,10 @@
 
 Кнопка тарифа несёт только его id. Цену, доступность скрытого тарифа и «та же ссылка
 или новая» решает `OrderService`; клиент — всегда `from_user.id` нажавшего.
+
+Оплата выключена (`PAYMENTS_MODE=off`, задача 29) — вместо кнопок тарифов их список текстом
+и «Оплата скоро появится» (+ «🎁 Попробовать бесплатно», если пробный доступен). Старая
+кнопка тарифа показывает тот же экран: заказ не создаётся, к платёжке запросов нет.
 """
 
 import logging
@@ -15,16 +19,24 @@ from tsproxy.bot.callbacks import MenuCallback, ScreenId, TariffCallback
 from tsproxy.bot.context import BotContext, profile_of
 from tsproxy.bot.screens import Screen
 from tsproxy.content.loader import Texts
+from tsproxy.db.models import Client
 from tsproxy.domain.dates import format_moscow
 from tsproxy.domain.money import format_rubles
 from tsproxy.integrations.payments_types import PaymentUnavailable
-from tsproxy.services.orders import Checkout, TariffOffer, TariffUnavailable, TooManyPayments
+from tsproxy.services.orders import (
+    Checkout,
+    PaymentsDisabled,
+    TariffOffer,
+    TariffUnavailable,
+    TooManyPayments,
+)
 
 logger = logging.getLogger(__name__)
 
 BUY_COMMAND = "buy"
 # Ключ склейки тревоги «платёжка не отвечает» — общий для всего бота
 PAYMENTS_UNAVAILABLE_ALERT = "payments_unavailable"
+PARAGRAPH = "\n\n"
 
 
 class TariffScreens:
@@ -68,6 +80,17 @@ class TariffScreens:
         rows.append(self._menu_button("buttons.back", ScreenId.MAIN))
         return Screen(self._texts.get("tariffs.title"), InlineKeyboardMarkup(inline_keyboard=rows))
 
+    def payments_off(self, offers: tuple[TariffOffer, ...], *, trial_available: bool) -> Screen:
+        """Оплата выключена: тарифы с ценами текстом, без кнопок оплаты (задача 29)."""
+        prices = "\n".join(self._offer_text(offer) for offer in offers)
+        note = self._texts.get("tariffs.off_trial" if trial_available else "tariffs.off_later")
+        rows = [self._menu_button("buttons.trial", ScreenId.TRIAL)] if trial_available else []
+        rows.append(self._menu_button("buttons.back", ScreenId.MAIN))
+        return Screen(
+            PARAGRAPH.join([self._texts.get("tariffs.off_title"), prices, note]),
+            InlineKeyboardMarkup(inline_keyboard=rows),
+        )
+
     def payment(self, checkout: Checkout) -> Screen:
         """Ссылка на оплату, до какого времени она действует и что будет после оплаты."""
         price = format_rubles(checkout.tariff.price)
@@ -107,22 +130,27 @@ def create_tariffs_router() -> Router:
     return router
 
 
-def _tariffs_screen(ctx: BotContext, telegram_id: int) -> Screen:
-    return TariffScreens(ctx.texts).tariffs(ctx.orders.offers(telegram_id))
+async def _tariffs_screen(ctx: BotContext, client: Client) -> Screen:
+    """Тарифы с кнопками оплаты — или, если оплата выключена, списком (задача 29)."""
+    screens = TariffScreens(ctx.texts)
+    offers = ctx.orders.offers(client.telegram_id)
+    if ctx.orders.payments_enabled:
+        return screens.tariffs(offers)
+    return screens.payments_off(offers, trial_available=await ctx.clients.trial_offered(client))
 
 
 async def on_buy_command(message: Message, ctx: BotContext) -> None:
     """`/buy` — экран тарифов новым сообщением."""
     if message.from_user is None:
         return
-    await ctx.clients.resolve(profile_of(message.from_user))
-    await ctx.delivery.send(message.from_user.id, _tariffs_screen(ctx, message.from_user.id))
+    client = await ctx.clients.resolve(profile_of(message.from_user))
+    await ctx.delivery.send(message.from_user.id, await _tariffs_screen(ctx, client))
 
 
 async def on_tariffs(callback: CallbackQuery, ctx: BotContext) -> None:
     await callback.answer()
-    await ctx.clients.resolve(profile_of(callback.from_user))
-    await ctx.delivery.show(callback, _tariffs_screen(ctx, callback.from_user.id))
+    client = await ctx.clients.resolve(profile_of(callback.from_user))
+    await ctx.delivery.show(callback, await _tariffs_screen(ctx, client))
 
 
 async def on_tariff(
@@ -135,7 +163,8 @@ async def on_tariff(
         # старая кнопка (тариф убрали из файла) или подменённая (скрытый тариф)
         logger.info("Клиент %s: тариф %r недоступен", telegram_id, callback_data.tariff_id)
         await callback.answer(ctx.texts.get("tariffs.not_available"))
-        await ctx.delivery.show(callback, _tariffs_screen(ctx, telegram_id))
+        client = await ctx.clients.resolve(profile_of(callback.from_user))
+        await ctx.delivery.show(callback, await _tariffs_screen(ctx, client))
         return
     # Отвечаем на нажатие сразу: платёжка может думать несколько секунд
     await callback.answer()
@@ -143,9 +172,13 @@ async def on_tariff(
     screens = TariffScreens(ctx.texts)
     try:
         checkout = await ctx.orders.checkout(client, callback_data.tariff_id)
+    except PaymentsDisabled:
+        # старая кнопка тарифа, а оплата выключена (задача 29): заказ не создан
+        logger.info("Клиент %s: оплата выключена, тариф %r", telegram_id, callback_data.tariff_id)
+        screen = await _tariffs_screen(ctx, client)
     except TariffUnavailable:
         logger.info("Клиент %s: тариф %r недоступен", telegram_id, callback_data.tariff_id)
-        screen = _tariffs_screen(ctx, telegram_id)
+        screen = await _tariffs_screen(ctx, client)
     except TooManyPayments:
         screen = screens.notice("payment.too_many")
     except PaymentUnavailable as error:

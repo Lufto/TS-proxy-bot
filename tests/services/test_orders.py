@@ -24,6 +24,7 @@ from tsproxy.services.orders import (
     NEW_PAYMENTS_LIMIT,
     NEW_PAYMENTS_WINDOW,
     OrderService,
+    PaymentsDisabled,
     TariffUnavailable,
     TooManyPayments,
 )
@@ -51,7 +52,7 @@ def payments(clock: FakeClock) -> FakePaymentProvider:
 
 def make_service(
     session_factory: async_sessionmaker[AsyncSession],
-    payments: FakePaymentProvider,
+    payments: FakePaymentProvider | None,
     clock: FakeClock,
     mask: Masker,
     tariffs: tuple[Tariff, ...] = TARIFFS,
@@ -323,3 +324,54 @@ async def test_too_many_new_payments(
     await service.checkout(client, many[-1].id)
     async with session_factory() as session:
         assert await session.scalar(select(func.count()).select_from(Order)) == len(many)
+
+
+# --- Оплата выключена (задача 29) ---
+
+
+def test_payments_enabled_only_with_provider(
+    session_factory: async_sessionmaker[AsyncSession],
+    payments: FakePaymentProvider,
+    clock: FakeClock,
+    mask: Masker,
+) -> None:
+    assert make_service(session_factory, payments, clock, mask).payments_enabled
+    assert not make_service(session_factory, None, clock, mask).payments_enabled
+
+
+def test_tariffs_are_shown_while_payments_off(
+    session_factory: async_sessionmaker[AsyncSession], clock: FakeClock, mask: Masker
+) -> None:
+    """Витрина та же: клиент видит цены, хотя купить пока нельзя."""
+    service = make_service(session_factory, None, clock, mask)
+
+    assert [o.tariff.id for o in service.offers(telegram_id=111)] == ["m1", "m3", "m6", "m12"]
+
+
+async def test_checkout_while_payments_off_creates_nothing(
+    session_factory: async_sessionmaker[AsyncSession],
+    clock: FakeClock,
+    mask: Masker,
+    client: Client,
+) -> None:
+    """«Готово, когда» задачи 29: «Купить» не создаёт ни заказ, ни платёж."""
+    service = make_service(session_factory, None, clock, mask)
+
+    with pytest.raises(PaymentsDisabled):
+        await service.checkout(client, "m1")
+
+    assert await all_orders(session_factory) == []
+    assert await event_kinds(session_factory) == []
+
+
+async def test_payments_off_is_checked_before_tariff(
+    session_factory: async_sessionmaker[AsyncSession],
+    clock: FakeClock,
+    mask: Masker,
+    client: Client,
+) -> None:
+    """Старая кнопка несуществующего тарифа — тоже «оплата выключена», а не «нет тарифа»."""
+    service = make_service(session_factory, None, clock, mask)
+
+    with pytest.raises(PaymentsDisabled):
+        await service.checkout(client, "m100")

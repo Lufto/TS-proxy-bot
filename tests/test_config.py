@@ -66,3 +66,15 @@ def test_prod_requires_remnawave_webhook_secret(env: pytest.MonkeyPatch) -> None
 
     env.setenv("REMNAWAVE_WEBHOOK_SECRET", "R" * 40)
     assert make().remnawave_webhook_secret is not None
+
+
+@pytest.mark.parametrize("run_mode", ["dev", "prod"])
+def test_payments_off_is_allowed_everywhere(env: pytest.MonkeyPatch, run_mode: str) -> None:
+    """Задача 29: тестовый запуск без платёжки — и на Mac, и на сервере."""
+    env.setenv("RUN_MODE", run_mode)
+    env.setenv("PUBLIC_BASE_URL", "https://bot.ts-proxy.com")
+    env.setenv("TELEGRAM_WEBHOOK_SECRET", "A" * 40)
+    env.setenv("REMNAWAVE_WEBHOOK_SECRET", "R" * 40)
+    env.setenv("PAYMENTS_MODE", "off")
+
+    assert make().payments_mode is PaymentsMode.OFF
