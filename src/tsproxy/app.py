@@ -72,6 +72,7 @@ from tsproxy.services.reconciliation import Reconciliation
 from tsproxy.services.reminders import ReminderService
 from tsproxy.services.remnawave_signals import RemnawaveSignals
 from tsproxy.services.support import SupportService
+from tsproxy.services.term_guard import TermLockedHandlers
 from tsproxy.services.trial import TrialService
 from tsproxy.web.app import create_web_app
 from tsproxy.web.remnawave import RemnawaveWebhook
@@ -250,22 +251,29 @@ def build_application(
     # Обработчики проверок прокси-аккаунтов: их вызывают и вебхуки Remnawave, и сверка.
     # Задача 10 — напоминания и продления пробного, задача 11 — льготный период:
     # добавлять в этот список (AccountChecks копирует его при создании).
-    account_handlers: list[AccountCheckHandler] = [
-        GraceHandler(
-            session_factory,
-            remnawave,
-            events,
-            TelegramGraceMessenger(ctx.delivery, content.texts),
-            clock,
-        ),
-        ReminderService(
-            session_factory,
-            remnawave,
-            events,
-            TelegramNotifier(NoticeScreens(content.texts), ctx.delivery),
-            clock,
-        ),
-    ]
+    # Оба меняют срок — под общей блокировкой срока и по свежему аккаунту (`term_guard`)
+    term_locked = TermLockedHandlers(
+        [
+            GraceHandler(
+                session_factory,
+                remnawave,
+                events,
+                TelegramGraceMessenger(ctx.delivery, content.texts),
+                clock,
+            ),
+            ReminderService(
+                session_factory,
+                remnawave,
+                events,
+                TelegramNotifier(NoticeScreens(content.texts), ctx.delivery),
+                clock,
+            ),
+        ],
+        session_factory,
+        remnawave,
+        term_locks,
+    )
+    account_handlers: list[AccountCheckHandler] = [term_locked]
     account_checks = AccountChecks(remnawave, settings.run_mode, clock, account_handlers)
     nodes = NodeMonitor(remnawave, session_factory, alerter, content.admin_texts, clock)
     reconciliation = Reconciliation(account_checks, nodes, alerter, content.admin_texts)

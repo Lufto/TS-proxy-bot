@@ -27,6 +27,7 @@ from tsproxy.services.reminders import (
     TrialFarewell,
     TrialTraffic,
 )
+from tsproxy.services.term_guard import TermLockedHandlers
 
 GB = 1024**3
 EXPIRE_AT = NOW + timedelta(days=1)  # 13:00 МСК следующего дня
@@ -152,5 +153,6 @@ async def test_application_checks_accounts_with_reminders(tmp_path: Path, conten
     await close_application(app)
     [job] = [j for j in app.jobs._jobs if j.name == "remnawave_reconcile"]
     reconciliation = job.run.__self__  # type: ignore[attr-defined]
-    handlers = reconciliation._accounts._handlers
-    assert any(isinstance(handler, ReminderService) for handler in handlers)
+    [guarded] = reconciliation._accounts._handlers
+    assert isinstance(guarded, TermLockedHandlers)
+    assert any(isinstance(handler, ReminderService) for handler in guarded.handlers)
