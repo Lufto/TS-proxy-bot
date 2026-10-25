@@ -7,6 +7,7 @@
 from datetime import datetime
 
 from sqlalchemy import CursorResult, delete, exists, insert, literal, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tsproxy.db.enums import NotificationKind
@@ -34,6 +35,21 @@ async def reclaim_trial(
         update(Client)
         .where(Client.id == client_id, Client.trial_granted_at == claimed_at)
         .values(trial_granted_at=now)
+    )
+    return affected_rows(result) == 1
+
+
+async def claim_trial_extension(
+    session: AsyncSession, client_id: int, extensions_used: int
+) -> bool:
+    """Засчитать очередное продление пробного: счётчик растёт с `extensions_used` на 1.
+
+    `False` — это продление уже засчитал параллельный запрос.
+    """
+    result = await session.execute(
+        update(Client)
+        .where(Client.id == client_id, Client.trial_extensions == extensions_used)
+        .values(trial_extensions=extensions_used + 1)
     )
     return affected_rows(result) == 1
 
@@ -70,8 +86,10 @@ async def claim_notification(
 ) -> bool:
     """Записать уведомление до отправки. `False` — такое уже отправлено.
 
-    `INSERT … SELECT … WHERE NOT EXISTS`: на дубль нет ни строки, ни ошибки уникальности,
-    поэтому остальная транзакция не откатывается.
+    `INSERT … SELECT … WHERE NOT EXISTS`: на обычный дубль нет ни строки, ни ошибки,
+    и остальная транзакция живёт дальше (вызывающий код сам решает, фиксировать ли её).
+    Только при гонке двух вставок срабатывает уникальный ключ — тогда транзакция
+    откатывается целиком.
     """
     table = Notification.__table__.c
     already = exists().where(
@@ -85,11 +103,17 @@ async def claim_notification(
         literal(related_expire_at, type_=table.related_expire_at.type),
         literal(now, type_=table.sent_at.type),
     ).where(~already)
-    result = await session.execute(
-        insert(Notification).from_select(
-            ["client_id", "kind", "related_expire_at", "sent_at"], values
+    try:
+        result = await session.execute(
+            insert(Notification).from_select(
+                ["client_id", "kind", "related_expire_at", "sent_at"], values
+            )
         )
-    )
+    except IntegrityError:
+        # Параллельная запись проскочила между проверкой и вставкой — уникальный ключ
+        # её не пустил. Ошибка ломает транзакцию, поэтому откатываем её целиком.
+        await session.rollback()
+        return False
     return affected_rows(result) == 1
 
 

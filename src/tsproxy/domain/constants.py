@@ -19,6 +19,8 @@ TRIAL_TRAFFIC_GB = 7
 TRIAL_DEVICE_LIMIT = 3
 TRIAL_EXTENSION_DAYS = 3  # продление, если клиент ни разу не подключался
 TRIAL_MAX_EXTENSIONS = 5  # итого до 7 + 5 × 3 = 22 дней
+TRIAL_TRAFFIC_WARNING_PERCENT = 80  # предупредить, когда израсходовано 80% (ideas.md №1)
+PERCENT = 100
 
 # --- Платная подписка (задачи 05, 15) ---
 PAID_DEVICE_LIMIT = 3

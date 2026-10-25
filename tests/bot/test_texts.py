@@ -56,6 +56,14 @@ TEXT_PLACEHOLDERS: dict[str, set[str]] = {
     "grace.started": {"until"},
     "grace.reminder": {"until"},
     "grace.last_day": {"until"},
+    # задача 10: напоминания, продления пробного, пробный трафик
+    "notices.trial_day_before": {"expire_at"},
+    "notices.trial_hour_before": {"expire_at"},
+    "notices.paid_day_before": {"expire_at"},
+    "notices.paid_hour_before": {"expire_at"},
+    "notices.trial_extended": {"days", "expire_at"},
+    "notices.trial_traffic_warning": {"used", "limit"},
+    "notices.trial_traffic_used_up": {"limit"},
     **{
         f"units.{unit}_{form}": {"n"}
         for unit in ("days", "hours")

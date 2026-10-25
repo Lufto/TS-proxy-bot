@@ -39,6 +39,7 @@ from tsproxy.bot.context import BotContext
 from tsproxy.bot.delivery import ClientDelivery
 from tsproxy.bot.dispatcher import bot_commands, create_dispatcher
 from tsproxy.bot.grace import TelegramGraceMessenger
+from tsproxy.bot.notices import NoticeScreens, TelegramNotifier
 from tsproxy.bot.screens import Screens
 from tsproxy.bot.support_guard import SupportGuard, support_rate_limiter
 from tsproxy.bot.throttling import RateLimiter
@@ -62,6 +63,7 @@ from tsproxy.services.nodes import NodeMonitor
 from tsproxy.services.orders import OrderService
 from tsproxy.services.profile import ProfileService
 from tsproxy.services.reconciliation import Reconciliation
+from tsproxy.services.reminders import ReminderService
 from tsproxy.services.remnawave_signals import RemnawaveSignals
 from tsproxy.services.support import SupportService
 from tsproxy.services.trial import TrialService
@@ -222,6 +224,13 @@ def build_application(
             remnawave,
             events,
             TelegramGraceMessenger(ctx.delivery, content.texts),
+            clock,
+        ),
+        ReminderService(
+            session_factory,
+            remnawave,
+            events,
+            TelegramNotifier(NoticeScreens(content.texts), ctx.delivery),
             clock,
         ),
     ]

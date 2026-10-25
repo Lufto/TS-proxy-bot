@@ -30,6 +30,8 @@ class NotificationKind(StrEnum):
     GRACE_ENDED = "grace_ended"  # льготный кончился, доступ выключен (задача 11)
     TRIAL_EXTENDED = "trial_extended"  # пробный период продлён
     FAREWELL = "farewell"  # прощание после конца пробного
+    TRIAL_TRAFFIC_WARNING = "trial_traffic_warning"  # израсходовано 80% пробного трафика
+    TRIAL_TRAFFIC_USED_UP = "trial_traffic_used_up"  # пробный трафик кончился
 
 
 class TicketStatus(StrEnum):
