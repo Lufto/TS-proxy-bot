@@ -15,6 +15,11 @@
 `STALE_CLAIM_AFTER`: до этого выдачу, возможно, ещё ведёт первое нажатие. Перехват
 отметки тоже атомарный (`reclaim_trial`), и 7 дней считаются от момента, когда доступ
 действительно появился.
+
+Сброс пробного администратором (задача 18) снимает отметку, а прокси-аккаунт с прошлого
+пробного остаётся (в боевом режиме аккаунты не удаляются). Новое нажатие обновляет его:
+лимиты пробного, трафик с нуля, 7 дней от нажатия, доступ включён. Аккаунт без лимита
+трафика — это выданная подписка, поверх неё пробный не выдаётся.
 """
 
 import logging
@@ -93,9 +98,9 @@ class TrialService:
         async with self._session_factory() as session:
             client = await session.get_one(Client, client_id)
             claimed_at = client.trial_granted_at
-            if await _has_paid_order(session, client_id):
+            if await has_paid_order(session, client_id):
                 return TrialResult(TrialOutcome.HAS_SUBSCRIPTION)
-            if claimed_at is not None and await _trial_delivered(session, client_id, claimed_at):
+            if claimed_at is not None and await trial_delivered(session, client_id, claimed_at):
                 return TrialResult(TrialOutcome.ALREADY_USED)
         try:
             account = await self._find_account(telegram_id)
@@ -103,13 +108,13 @@ class TrialService:
             logger.warning("Пробный клиента %s: панель не ответила: %s", client_id, error)
             return await self._claim_for_later(client_id, claimed_at)
         # Пока ждали панель, параллельное нажатие могло отметить пробный и создать аккаунт:
-        # без перечитывания он выглядел бы как «подписка уже есть»
+        # без перечитывания оно выглядело бы как повторный пробный после сброса
         async with self._session_factory() as session:
             claimed_at = await session.scalar(
                 select(Client.trial_granted_at).where(Client.id == client_id)
             )
-        if account is not None and claimed_at is None:
-            return TrialResult(TrialOutcome.HAS_SUBSCRIPTION, account)
+        # Аккаунт с подпиской отсекает `_deliver`; аккаунт с лимитами пробного без отметки
+        # остался от прошлого пробного, который сбросил администратор
         return await self._deliver(client_id, telegram_id, claimed_at, account)
 
     async def deliver_pending(self) -> list[DeliveredTrial]:
@@ -187,7 +192,12 @@ class TrialService:
     async def _grant(
         self, client_id: int, telegram_id: int, account: ProxyAccount | None
     ) -> ProxyAccount:
-        """Создать прокси-аккаунт с лимитами пробного (если его нет) и записать событие."""
+        """Создать прокси-аккаунт с лимитами пробного (если его нет) и записать событие.
+
+        Аккаунт уже есть: либо панель создала его для этой выдачи, но не ответила, — берём
+        как есть; либо он остался от прошлого, уже доставленного пробного (сброс
+        администратором) — обновляем.
+        """
         if account is None:
             grant = start_trial(utc_now(self._clock))
             account = await self._remnawave.get_or_create_account(
@@ -196,6 +206,8 @@ class TrialService:
                 device_limit=grant.device_limit,
                 traffic_limit_bytes=grant.traffic_limit_bytes,
             )
+        elif await self._delivered_before(client_id):
+            account = await self._renew(client_id, telegram_id)
         async with self._session_factory() as session:
             await self._events.record(
                 session,
@@ -206,6 +218,37 @@ class TrialService:
             await session.commit()
         logger.info("Клиент %s: пробный период выдан", client_id)
         return account
+
+    async def _delivered_before(self, client_id: int) -> bool:
+        """Клиенту уже доставляли пробный (до текущей выдачи, событие ещё не записано)."""
+        async with self._session_factory() as session:
+            return bool(
+                await session.scalar(
+                    select(
+                        exists().where(
+                            Event.client_id == client_id,
+                            Event.kind == EventKind.TRIAL_GRANTED.value,
+                        )
+                    )
+                )
+            )
+
+    async def _renew(self, client_id: int, telegram_id: int) -> ProxyAccount:
+        """Повторный пробный на старом аккаунте: лимиты, трафик с нуля, 7 дней, доступ включён.
+
+        Все шаги — абсолютные значения: если панель не ответила посередине, фоновая задача
+        повторит их целиком.
+        """
+        grant = start_trial(utc_now(self._clock))
+        await self._remnawave.set_limits(
+            telegram_id,
+            device_limit=grant.device_limit,
+            traffic_limit_bytes=grant.traffic_limit_bytes,
+        )
+        await self._remnawave.reset_traffic(telegram_id)
+        await self._remnawave.set_expiry(telegram_id, grant.expire_at)
+        logger.info("Клиент %s: повторный пробный после сброса", client_id)
+        return await self._remnawave.enable_account(telegram_id)
 
     async def _pending_claims(self) -> list[tuple[int, int, datetime]]:
         """Отмеченные, но не доставленные пробные: (id клиента, Telegram ID, отметка)."""
@@ -232,7 +275,7 @@ class TrialService:
             return [(row[0], row[1], row[2]) for row in rows]
 
 
-async def _has_paid_order(session: AsyncSession, client_id: int) -> bool:
+async def has_paid_order(session: AsyncSession, client_id: int) -> bool:
     return bool(
         await session.scalar(
             select(exists().where(Order.client_id == client_id, Order.paid_at.is_not(None)))
@@ -240,7 +283,7 @@ async def _has_paid_order(session: AsyncSession, client_id: int) -> bool:
     )
 
 
-async def _trial_delivered(session: AsyncSession, client_id: int, claimed_at: datetime) -> bool:
+async def trial_delivered(session: AsyncSession, client_id: int, claimed_at: datetime) -> bool:
     """Пробный доставлен — после отметки записано событие «пробный выдан».
 
     Сравнение с отметкой нужно, чтобы сброс пробного администратором (задача 18) и новая

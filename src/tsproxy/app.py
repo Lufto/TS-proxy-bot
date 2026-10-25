@@ -55,6 +55,7 @@ from tsproxy.integrations.remnawave import RemnawaveApiClient, create_http_clien
 from tsproxy.integrations.remnawave_types import RemnawaveUnavailable
 from tsproxy.logging_setup import MaskingFilter
 from tsproxy.services.account_checks import AccountCheckHandler, AccountChecks
+from tsproxy.services.admin import AdminService
 from tsproxy.services.admin_topics import AdminTopic
 from tsproxy.services.alerts import Alerter
 from tsproxy.services.client_card import ClientCardService
@@ -207,6 +208,7 @@ def build_application(
         clock,
         KeyedLocks(),
     )
+    profiles = ProfileService(remnawave, clock)
     screens = Screens(content.texts)
     delivery = ClientDelivery(bot, clients)
     # Одна блокировка на клиента для всего, что меняет срок подписки: зачёт оплаты,
@@ -237,11 +239,12 @@ def build_application(
         events=events,
         access=AdminAccess(settings.admin_ids, settings.admin_chat_id),
         trials=TrialService(session_factory, remnawave, events, clock),
-        profiles=ProfileService(remnawave, clock),
+        profiles=profiles,
         support=SupportService(session_factory, clock, mask, events),
         support_guard=SupportGuard(support_rate_limiter()),
         orders=orders,
-        client_cards=ClientCardService(session_factory, ProfileService(remnawave, clock)),
+        client_cards=ClientCardService(session_factory, profiles),
+        admin=AdminService(session_factory, remnawave, profiles, events, clock, term_locks),
     )
     dispatcher = create_dispatcher(ctx, RateLimiter())
     # Обработчики проверок прокси-аккаунтов: их вызывают и вебхуки Remnawave, и сверка.

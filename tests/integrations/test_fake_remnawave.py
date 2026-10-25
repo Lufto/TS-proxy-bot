@@ -108,6 +108,16 @@ async def test_unlimited_traffic_lifts_limited() -> None:
     assert account.traffic_limit_bytes == 0
 
 
+async def test_reset_traffic_lifts_limited() -> None:
+    fake = make_fake()
+    await create(fake)
+    fake.set_traffic_used(100, 7 * GIB)
+    fake.set_status(100, AccountStatus.LIMITED)
+    account = await fake.reset_traffic(100)
+    assert account.status is AccountStatus.ACTIVE
+    assert account.traffic_used_bytes == 0
+
+
 async def test_disable_enable() -> None:
     fake = make_fake()
     await create(fake)

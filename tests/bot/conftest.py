@@ -23,6 +23,7 @@ from tsproxy.db.models import Base
 from tsproxy.integrations.fake_payments import FakePaymentProvider
 from tsproxy.integrations.fakes import FakeRemnawave
 from tsproxy.logging_setup import MaskingFilter
+from tsproxy.services.admin import AdminService
 from tsproxy.services.alerts import Alerter
 from tsproxy.services.client_card import ClientCardService
 from tsproxy.services.clients import ClientService
@@ -142,6 +143,14 @@ def ctx(
             KeyedLocks(),
         ),
         client_cards=ClientCardService(session_factory, ProfileService(remnawave, clock)),
+        admin=AdminService(
+            session_factory,
+            remnawave,
+            ProfileService(remnawave, clock),
+            events,
+            clock,
+            KeyedLocks(),
+        ),
     )
 
 
