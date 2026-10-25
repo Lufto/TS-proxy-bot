@@ -12,6 +12,7 @@ from typing import Annotated
 from aiogram.filters.callback_data import CallbackData
 from pydantic import Field
 
+from tsproxy.content.loader import QUICK_REPLY_ID_PATTERN
 from tsproxy.services.profile import DEVICE_REF_LENGTH
 
 
@@ -59,3 +60,45 @@ class TariffCallback(CallbackData, prefix="buy"):
     """«Купить тариф». Только id тарифа: цену и доступность проверяет сервис заказов."""
 
     tariff_id: str
+
+
+# --- Поддержка (задача 17) ---
+
+
+class FaqQuestion(StrEnum):
+    """Частые вопросы на экране «💬 Поддержка». Тексты — `faq.<значение>` в `texts.yaml`."""
+
+    CONNECT = "connect"
+    NOT_WORKING = "not_working"
+    DEVICES = "devices"
+    RENEW = "renew"
+    PAYMENT = "payment"
+
+
+class FaqCallback(CallbackData, prefix="faq"):
+    question: FaqQuestion
+
+
+class TicketAction(StrEnum):
+    """Кнопки в теме обращения. Нажать их может только администратор в группе (`AdminFilter`)."""
+
+    TAKE = "take"  # «🙋 Беру»
+    CLOSE = "close"  # «✅ Закрыть»
+    QUICK_REPLIES = "quick"  # «💬 Быстрые ответы» — показать заготовки
+    HIDE = "hide"  # «✖️ Скрыть» меню заготовок
+    EXTEND = "extend"  # «➕ Продлить на N дней» — задача 18
+    DEVICES = "devices"  # «📱 Устройства» — задача 18
+
+
+class TicketCallback(CallbackData, prefix="ticket"):
+    """Кнопка в теме обращения. Номер обращения — не доступ: права проверяет `AdminFilter`."""
+
+    action: TicketAction
+    ticket_id: int
+
+
+class QuickReplyCallback(CallbackData, prefix="qr"):
+    """Заготовка ответа. Имя проверяется по `admin_texts.yaml` при нажатии."""
+
+    ticket_id: int
+    reply: Annotated[str, Field(pattern=rf"^{QUICK_REPLY_ID_PATTERN}$")]

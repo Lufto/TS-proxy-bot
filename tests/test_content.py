@@ -3,7 +3,13 @@ from pathlib import Path
 
 import pytest
 
-from tsproxy.content.loader import ContentError, load_content, load_tariffs, load_texts
+from tsproxy.content.loader import (
+    ContentError,
+    load_content,
+    load_tariffs,
+    load_texts,
+    quick_reply_ids,
+)
 
 REPO_CONTENT = Path(__file__).parent.parent / "content"
 
@@ -82,3 +88,38 @@ def test_unknown_tariff_field_is_error(tmp_path: Path) -> None:
     text = TARIFF.format(price=150) + "    discount: 10\n"
     with pytest.raises(ContentError, match="лишние"):
         load_tariffs(write(tmp_path / "tariffs.yaml", text))
+
+
+# --- Быстрые ответы поддержки (задача 17) ---
+
+QUICK = "quick_replies:\n  hello:\n    button: 👋\n    text: Здравствуйте!\n"
+
+
+def test_groups_are_listed_in_file_order(tmp_path: Path) -> None:
+    text = QUICK + "  done:\n    button: ✅\n    text: Готово\nother: x\n"
+    texts = load_texts(write(tmp_path / "t.yaml", text))
+    assert texts.ids_under("quick_replies") == ["hello", "done"]
+    assert texts.ids_under("missing") == []
+
+
+def test_repo_quick_replies_are_valid() -> None:
+    admin_texts = load_content(REPO_CONTENT).admin_texts
+    assert len(quick_reply_ids(admin_texts)) >= 3
+
+
+def test_valid_quick_replies_pass(tmp_path: Path) -> None:
+    assert quick_reply_ids(load_texts(write(tmp_path / "t.yaml", QUICK))) == ["hello"]
+
+
+@pytest.mark.parametrize(
+    ("text", "error"),
+    [
+        ("other: x\n", "хотя бы одна"),
+        ("quick_replies:\n  hello:\n    button: 👋\n", r"quick_replies\.hello\.text"),
+        ("quick_replies:\n  Привет:\n    button: 👋\n    text: Да\n", "латиница"),
+        (QUICK.replace("hello", "h" * 33), "латиница"),
+    ],
+)
+def test_broken_quick_replies_stop_startup(tmp_path: Path, text: str, error: str) -> None:
+    with pytest.raises(ContentError, match=error):
+        quick_reply_ids(load_texts(write(tmp_path / "t.yaml", text)))

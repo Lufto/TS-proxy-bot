@@ -24,6 +24,7 @@ from tsproxy.integrations.fake_payments import FakePaymentProvider
 from tsproxy.integrations.fakes import FakeRemnawave
 from tsproxy.logging_setup import MaskingFilter
 from tsproxy.services.alerts import Alerter
+from tsproxy.services.client_card import ClientCardService
 from tsproxy.services.clients import ClientService
 from tsproxy.services.events import EventLog
 from tsproxy.services.fakes import FakeAlertSender, FakeClock
@@ -128,7 +129,7 @@ def ctx(
         access=AdminAccess(frozenset({ADMIN_ID}), ADMIN_CHAT_ID),
         trials=TrialService(session_factory, remnawave, events, clock),
         profiles=ProfileService(remnawave, clock),
-        support=SupportService(session_factory, clock, mask),
+        support=SupportService(session_factory, clock, mask, events),
         support_guard=SupportGuard(support_rate_limiter(monotonic)),
         orders=OrderService(
             session_factory,
@@ -140,6 +141,7 @@ def ctx(
             clock,
             KeyedLocks(),
         ),
+        client_cards=ClientCardService(session_factory, ProfileService(remnawave, clock)),
     )
 
 
