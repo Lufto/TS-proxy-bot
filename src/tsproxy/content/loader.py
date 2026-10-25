@@ -229,6 +229,13 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         "devices.empty",
         "devices.deleted",
         "devices.not_found",
+        # задача 31: клиент сам перевыпускает ссылку подписки
+        "buttons.revoke_link",
+        "buttons.confirm_revoke_link",
+        "buttons.cancel_revoke_link",
+        "revoke_link.ask",
+        "revoke_link.too_soon",
+        "revoke_link.done",
         "units.days_one",
         "units.days_few",
         "units.days_many",

@@ -1,7 +1,8 @@
-"""«👤 Мой профиль», `/profile` и «📱 Мои устройства» с «🗑 Удалить».
+"""«👤 Мой профиль», `/profile`, «📱 Мои устройства» с «🗑 Удалить» и «🔄 Перевыпустить ссылку».
 
 Клиент — всегда `from_user.id` нажавшего. Кнопка «🗑 Удалить» несёт только короткую
 ссылку на устройство; сервис ищет его среди устройств нажавшего (аудит §4.3).
+Кнопки перевыпуска (задача 31) не несут ничего: перевыпускается только своя ссылка.
 """
 
 from aiogram import F, Router
@@ -9,13 +10,14 @@ from aiogram.enums import ChatType
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
-from tsproxy.bot.callbacks import DeviceCallback, MenuCallback, ScreenId
+from tsproxy.bot.callbacks import DeviceCallback, MenuCallback, RevokeLinkCallback, ScreenId
 from tsproxy.bot.connect import panel_unavailable_screen
 from tsproxy.bot.context import BotContext, profile_of
 from tsproxy.bot.profile_screens import ProfileScreens
 from tsproxy.bot.screens import Screen
 from tsproxy.db.models import Client
 from tsproxy.integrations.remnawave_types import RemnawaveUnavailable
+from tsproxy.services.link_revoke import LinkRevoked, LinkRevokeNoAccount, LinkRevokeTooSoon
 
 PROFILE_COMMAND = "profile"
 
@@ -28,6 +30,10 @@ def create_profile_router() -> Router:
     router.callback_query.register(on_profile, MenuCallback.filter(F.screen == ScreenId.PROFILE))
     router.callback_query.register(on_devices, MenuCallback.filter(F.screen == ScreenId.DEVICES))
     router.callback_query.register(on_delete_device, DeviceCallback.filter())
+    router.callback_query.register(
+        on_revoke_ask, MenuCallback.filter(F.screen == ScreenId.REVOKE_LINK)
+    )
+    router.callback_query.register(on_revoke, RevokeLinkCallback.filter())
     return router
 
 
@@ -88,4 +94,34 @@ async def on_delete_device(
         else:
             notice = "devices.deleted" if result.deleted else "devices.not_found"
             screen = screens.devices(result.devices, notice_key=notice)
+    await ctx.delivery.show(callback, screen)
+
+
+async def on_revoke_ask(callback: CallbackQuery, ctx: BotContext) -> None:
+    """«🔄 Перевыпустить ссылку»: предупреждение или сразу «можно будет …», если раньше суток."""
+    await callback.answer()
+    client = await ctx.clients.resolve(profile_of(callback.from_user))
+    screens = ProfileScreens(ctx.texts)
+    available_at = await ctx.link_revokes.available_at(client)
+    screen = screens.revoke_ask() if available_at is None else screens.revoke_too_soon(available_at)
+    await ctx.delivery.show(callback, screen)
+
+
+async def on_revoke(callback: CallbackQuery, ctx: BotContext) -> None:
+    """«✅ Да, перевыпустить»: новая ссылка — экраном как в «🚀 Подключиться»."""
+    await callback.answer()
+    client = await ctx.clients.resolve(profile_of(callback.from_user))
+    screens = ProfileScreens(ctx.texts)
+    try:
+        result = await ctx.link_revokes.revoke(client)
+    except RemnawaveUnavailable as error:
+        screen = await panel_unavailable_screen(ctx, client.telegram_id, error)
+    else:
+        match result:
+            case LinkRevoked(account):
+                screen = ctx.screens.access_granted(ctx.texts.get("revoke_link.done"), account)
+            case LinkRevokeTooSoon(available_at):
+                screen = screens.revoke_too_soon(available_at)
+            case LinkRevokeNoAccount():
+                screen = screens.no_account()
     await ctx.delivery.show(callback, screen)

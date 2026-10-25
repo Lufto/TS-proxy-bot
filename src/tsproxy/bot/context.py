@@ -18,6 +18,7 @@ from tsproxy.services.alerts import Alerter
 from tsproxy.services.client_card import ClientCardService
 from tsproxy.services.clients import ClientProfile, ClientService
 from tsproxy.services.events import EventLog
+from tsproxy.services.link_revoke import LinkRevokeService
 from tsproxy.services.orders import OrderService
 from tsproxy.services.profile import ProfileService
 from tsproxy.services.support import SupportService
@@ -45,6 +46,7 @@ class BotContext:
     orders: OrderService  # тарифы и заказы (задача 12)
     client_cards: ClientCardService  # карточка клиента в теме обращения (задача 17)
     admin: AdminService  # поиск клиента и действия администратора (задача 18)
+    link_revokes: LinkRevokeService  # клиент сам перевыпускает ссылку (задача 31)
 
 
 def profile_of(user: User) -> ClientProfile:

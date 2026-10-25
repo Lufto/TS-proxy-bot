@@ -25,6 +25,7 @@ class ScreenId(StrEnum):
     TARIFFS = "tariffs"  # «💳 Тарифы» — задача 12
     PROFILE = "profile"  # «👤 Мой профиль» — задача 08
     DEVICES = "devices"  # «📱 Мои устройства» — задача 08
+    REVOKE_LINK = "revoke_link"  # «🔄 Перевыпустить ссылку»: предупреждение — задача 31
     INSTRUCTIONS = "instructions"
     SUPPORT = "support"  # «💬 Поддержка» — задачи 16–17
     ABOUT = "about"
@@ -54,6 +55,10 @@ class DeviceCallback(CallbackData, prefix="device"):
     """
 
     ref: Annotated[str, Field(pattern=rf"^[0-9a-f]{{{DEVICE_REF_LENGTH}}}$")]
+
+
+class RevokeLinkCallback(CallbackData, prefix="relink"):
+    """«✅ Да, перевыпустить» (задача 31). Без данных: чью ссылку — решает `from_user.id`."""
 
 
 class TariffCallback(CallbackData, prefix="buy"):

@@ -46,6 +46,9 @@ class EventKind(StrEnum):
     COMPENSATION_GRANTED = "compensation_granted"  # компенсация за сбой
     ADMIN_ACTION = "admin_action"  # любое действие администратора
     FAKE_PAYMENT_NOTIFICATION = "fake_payment_notification"  # отклонённое поддельное уведомление
+    # Ссылку подписки перевыпустил сам клиент (задача 31), кто — в `details["by"]`.
+    # Перевыпуск администратором, как и любое его действие, — ADMIN_ACTION (задача 18)
+    SUBSCRIPTION_REVOKED = "subscription_revoked"
 
 
 class EventLog:

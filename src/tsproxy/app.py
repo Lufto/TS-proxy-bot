@@ -64,6 +64,7 @@ from tsproxy.services.clock import Clock, system_clock
 from tsproxy.services.crediting import CreditingService
 from tsproxy.services.events import EventLog
 from tsproxy.services.grace import GraceHandler
+from tsproxy.services.link_revoke import LinkRevokeService
 from tsproxy.services.locks import KeyedLocks
 from tsproxy.services.nodes import NodeMonitor
 from tsproxy.services.orders import OrderService
@@ -245,6 +246,7 @@ def build_application(
         orders=orders,
         client_cards=ClientCardService(session_factory, profiles),
         admin=AdminService(session_factory, remnawave, profiles, events, clock, term_locks),
+        link_revokes=LinkRevokeService(session_factory, remnawave, events, clock, KeyedLocks()),
     )
     dispatcher = create_dispatcher(ctx, RateLimiter())
     # Обработчики проверок прокси-аккаунтов: их вызывают и вебхуки Remnawave, и сверка.
