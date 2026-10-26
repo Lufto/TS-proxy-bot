@@ -36,6 +36,7 @@ from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from tsproxy.bot.admin import AdminAccess
+from tsproxy.bot.admin_erasure import TelegramTopicRemover
 from tsproxy.bot.alert_sender import TelegramAlertSender
 from tsproxy.bot.connect import REMNAWAVE_UNAVAILABLE_ALERT
 from tsproxy.bot.context import BotContext
@@ -65,6 +66,7 @@ from tsproxy.services.client_card import ClientCardService
 from tsproxy.services.clients import ClientService
 from tsproxy.services.clock import Clock, system_clock
 from tsproxy.services.crediting import CreditingService
+from tsproxy.services.erasure import DataErasureService
 from tsproxy.services.events import EventLog
 from tsproxy.services.grace import GraceHandler
 from tsproxy.services.link_revoke import LinkRevokeService
@@ -257,6 +259,9 @@ def build_application(
         admin=AdminService(session_factory, remnawave, profiles, events, clock, term_locks),
         link_revokes=LinkRevokeService(session_factory, remnawave, events, clock, KeyedLocks()),
         trial_switch=trial_switch,
+        erasure=DataErasureService(
+            session_factory, TelegramTopicRemover(bot, settings.admin_chat_id), events
+        ),
     )
     dispatcher = create_dispatcher(ctx, RateLimiter())
     # Обработчики проверок прокси-аккаунтов: их вызывают и вебхуки Remnawave, и сверка.
