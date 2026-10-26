@@ -444,6 +444,51 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
         "admin.trials.unchanged",
         "admin.trials.disable_button",
         "admin.trials.enable_button",
+        # задача 19: статистика и рассылка
+        *(
+            f"admin.stats.{key}"
+            for key in (
+                "title",
+                "sales_today",
+                "sales_month",
+                "subscriptions",
+                "subscriptions_unknown",
+                "trials",
+                "trials_none",
+                "support",
+                "response",
+                "response_none",
+                "clients",
+                "duration_minutes",
+                "duration_hours",
+                "duration_under_minute",
+            )
+        ),
+        *(
+            f"admin.broadcast.{key}"
+            for key in (
+                "usage",
+                "preview_header",
+                "preview_failed",
+                "send_button",
+                "cancel_button",
+                "stop_button",
+                "already_handled",
+                "busy",
+                "no_recipients",
+                "preview_expired",
+                "cancelled",
+                "stopping",
+                "not_running",
+                "started",
+                "progress",
+                "counts",
+                "completed",
+                "stopped",
+                "aborted",
+                "crashed",
+            )
+        ),
     }
 )
 
