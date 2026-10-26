@@ -283,6 +283,11 @@ class CompensationService:
         task.add_done_callback(self._tasks.discard)
         return task
 
+    async def drain(self) -> None:
+        """Дождаться всех фоновых прогонов (тесты; ошибки прогонов уже ушли в тревоги)."""
+        while self._tasks:
+            await asyncio.gather(*self._tasks)
+
     async def _run_in_background(self, run: CompensationRun) -> None:
         try:
             await self.run(run)

@@ -37,6 +37,13 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from tsproxy.bot.admin import AdminAccess
 from tsproxy.bot.admin_broadcast import TelegramBroadcastSender, create_admin_broadcast_router
+from tsproxy.bot.admin_compensation import (
+    CompensationButtons,
+    CompensationScreens,
+    TelegramApologyMessenger,
+    TelegramCompensationReporter,
+    create_admin_compensation_router,
+)
 from tsproxy.bot.admin_erasure import TelegramTopicRemover
 from tsproxy.bot.admin_stats import create_admin_stats_router
 from tsproxy.bot.alert_sender import TelegramAlertSender
@@ -68,6 +75,7 @@ from tsproxy.services.broadcast import BroadcastService
 from tsproxy.services.client_card import ClientCardService
 from tsproxy.services.clients import ClientService
 from tsproxy.services.clock import Clock, system_clock
+from tsproxy.services.compensation import CompensationService
 from tsproxy.services.crediting import CreditingService
 from tsproxy.services.erasure import DataErasureService
 from tsproxy.services.events import EventLog
@@ -272,12 +280,32 @@ def build_application(
     broadcasts = BroadcastService(
         session_factory, events, clock, TelegramBroadcastSender(bot, delivery)
     )
+    # Компенсация при сбое ноды (задача 20): предложение — когда нода восстановилась,
+    # начисление — по кнопке, под той же блокировкой срока, что у оплаты
+    compensation_screens = CompensationScreens(content.admin_texts, content.texts)
+    compensation = CompensationService(
+        session_factory,
+        remnawave,
+        events,
+        alerter,
+        content.admin_texts,
+        TelegramCompensationReporter(
+            bot, compensation_screens, settings.admin_chat_id, settings.alerts_thread_id
+        ),
+        TelegramApologyMessenger(delivery, content.texts),
+        clock,
+        term_locks,
+    )
     dispatcher = create_dispatcher(
         ctx,
         RateLimiter(),
         extra_routers=[
             create_admin_stats_router(ctx.access, StatsService(session_factory, remnawave, clock)),
             create_admin_broadcast_router(ctx.access, broadcasts),
+            create_admin_compensation_router(
+                ctx.access,
+                CompensationButtons(compensation, compensation_screens, content.admin_texts),
+            ),
         ],
     )
     # Обработчики проверок прокси-аккаунтов: их вызывают и вебхуки Remnawave, и сверка.
@@ -307,7 +335,9 @@ def build_application(
     )
     account_handlers: list[AccountCheckHandler] = [term_locked]
     account_checks = AccountChecks(remnawave, settings.run_mode, clock, account_handlers)
-    nodes = NodeMonitor(remnawave, session_factory, alerter, content.admin_texts, clock)
+    nodes = NodeMonitor(
+        remnawave, session_factory, alerter, content.admin_texts, clock, on_closed=compensation
+    )
     reconciliation = Reconciliation(account_checks, nodes, alerter, content.admin_texts)
     remnawave_webhook = _remnawave_webhook(
         settings, RemnawaveSignals(account_checks, nodes), alerter, content, clock

@@ -296,14 +296,16 @@ class CompensationButtons:
         if offer is None:
             await callback.answer(self._texts.get("admin.compensation.not_found"), show_alert=True)
             return
+        if callback_data.step is CompensationStep.CANCEL:
+            await callback.answer()
+            if offer.amount > timedelta(0):
+                await _edit(callback, self._screens.offer(offer))
+            return  # иначе другой администратор уже компенсировал — «Отмена» ничего не запускает
         if offer.amount <= timedelta(0):
             # всё по этому сбою уже отмечено: «Продолжить» доделывает начатое без вопросов
             await self._start(callback, outage_id)
             return
-        if callback_data.step is CompensationStep.CANCEL:
-            screen = self._screens.offer(offer)
-        else:
-            screen = self._screens.confirm(offer)  # новое начисление — только с подтверждением
+        screen = self._screens.confirm(offer)  # новое начисление — только с подтверждением
         await callback.answer()
         await _edit(callback, screen)
 
