@@ -58,6 +58,7 @@ class AdminActionKind(StrEnum):
     TRIAL_RESET = "trial_reset"  # сброс пробного периода
     DEVICE_DELETED = "device_deleted"  # удалено устройство клиента
     LINK_REVOKED = "link_revoked"  # перевыпущена ссылка подписки
+    OUTAGE_COMPENSATION = "outage_compensation"  # компенсация за сбой ноды (задача 20)
 
 
 class ExtensionOutcome(StrEnum):
