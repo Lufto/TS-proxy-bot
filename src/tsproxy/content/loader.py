@@ -409,6 +409,13 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
         "admin.buttons.confirm_revoke",
         "admin.buttons.cancel",
         "admin.buttons.delete_device",
+        # задача 24: удаление данных клиента
+        "admin.buttons.erase",
+        "admin.buttons.confirm_erase",
+        "admin.erase.ask",
+        "admin.erase.done",
+        "admin.erase.nothing",
+        "admin.erase.topic_failed",
         "admin.extend.preview",
         "admin.extend.no_account",
         "admin.extend.done",
@@ -466,6 +473,51 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
         "admin.compensation.running",
         "admin.compensation.not_found",
         "admin.compensation.still_open",
+        # задача 19: статистика и рассылка
+        *(
+            f"admin.stats.{key}"
+            for key in (
+                "title",
+                "sales_today",
+                "sales_month",
+                "subscriptions",
+                "subscriptions_unknown",
+                "trials",
+                "trials_none",
+                "support",
+                "response",
+                "response_none",
+                "clients",
+                "duration_minutes",
+                "duration_hours",
+                "duration_under_minute",
+            )
+        ),
+        *(
+            f"admin.broadcast.{key}"
+            for key in (
+                "usage",
+                "preview_header",
+                "preview_failed",
+                "send_button",
+                "cancel_button",
+                "stop_button",
+                "already_handled",
+                "busy",
+                "no_recipients",
+                "preview_expired",
+                "cancelled",
+                "stopping",
+                "not_running",
+                "started",
+                "progress",
+                "counts",
+                "completed",
+                "stopped",
+                "aborted",
+                "crashed",
+            )
+        ),
     }
 )
 

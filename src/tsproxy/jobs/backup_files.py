@@ -9,6 +9,7 @@ import os
 import re
 import shutil
 import sqlite3
+from collections.abc import Callable
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -22,6 +23,10 @@ DAILY_DIR_NAME = "daily"
 MONTHLY_DIR_NAME = "monthly"
 # Ежедневные копии храним 2 недели (задача 08): сегодняшняя и 13 предыдущих
 DAILY_KEEP_DAYS = 14
+# Месячные — 3 года (решение владельца 2026-10-26): удалённые по запросу данные клиента
+# не должны жить в копиях вечно. Срок указать в политике обработки персональных данных.
+MONTHLY_KEEP_MONTHS = 36
+MONTHS_IN_YEAR = 12
 DIR_MODE = 0o700  # папки с копиями видит только владелец
 FILE_MODE = 0o600  # файлы копий читает и пишет только владелец
 GZIP_LEVEL = 9
@@ -29,6 +34,9 @@ SQLITE_OK = "ok"  # ответ `PRAGMA integrity_check` для целой баз
 
 _DAILY_NAME = re.compile(
     rf"^{re.escape(BACKUP_NAME_PREFIX)}(\d{{4}}-\d{{2}}-\d{{2}}){re.escape(BACKUP_SUFFIX)}$"
+)
+_MONTHLY_NAME = re.compile(
+    rf"^{re.escape(BACKUP_NAME_PREFIX)}(\d{{4}})-(\d{{2}}){re.escape(BACKUP_SUFFIX)}$"
 )
 
 
@@ -82,6 +90,23 @@ def expired_daily_names(names: list[str], today: date) -> list[str]:
     for name in names:
         match = _DAILY_NAME.match(name)
         if match is not None and date.fromisoformat(match.group(1)) < oldest_kept:
+            expired.append(name)
+    return sorted(expired)
+
+
+def expired_monthly_names(names: list[str], today: date) -> list[str]:
+    """Какие месячные копии пора удалить: старше `MONTHLY_KEEP_MONTHS` месяцев по имени.
+
+    Остаются копия этого месяца и 35 предыдущих. Чужие файлы не трогаем никогда.
+    """
+    current = today.year * MONTHS_IN_YEAR + today.month
+    expired = []
+    for name in names:
+        match = _MONTHLY_NAME.match(name)
+        if match is None:
+            continue
+        month = int(match.group(1)) * MONTHS_IN_YEAR + int(match.group(2))
+        if current - month >= MONTHLY_KEEP_MONTHS:
             expired.append(name)
     return sorted(expired)
 
@@ -140,11 +165,20 @@ def store_backup(encrypted: Path, backup_dir: Path, day: date) -> StoredBackup:
     return StoredBackup(daily=daily, monthly=monthly, size_bytes=daily.stat().st_size)
 
 
-def remove_expired_daily(backup_dir: Path, today: date) -> list[Path]:
-    """Удалить ежедневные копии старше двух недель. Месячные не трогаем никогда."""
-    daily_dir = backup_dir / DAILY_DIR_NAME
-    names = [entry.name for entry in daily_dir.iterdir() if entry.is_file()]
-    removed = [daily_dir / name for name in expired_daily_names(names, today)]
+def remove_expired(backup_dir: Path, today: date) -> list[Path]:
+    """Удалить ежедневные копии старше двух недель и месячные старше трёх лет."""
+    return _remove(backup_dir / DAILY_DIR_NAME, today, expired_daily_names) + _remove(
+        backup_dir / MONTHLY_DIR_NAME, today, expired_monthly_names
+    )
+
+
+def _remove(
+    directory: Path, today: date, expired: Callable[[list[str], date], list[str]]
+) -> list[Path]:
+    if not directory.is_dir():
+        return []
+    names = [entry.name for entry in directory.iterdir() if entry.is_file()]
+    removed = [directory / name for name in expired(names, today)]
     for path in removed:
         path.unlink()
     return removed

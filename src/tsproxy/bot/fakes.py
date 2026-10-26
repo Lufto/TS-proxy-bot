@@ -38,7 +38,9 @@ class FakeTelegramSession(BaseSession):
         super().__init__()
         self.requests: list[TelegramMethod[Any]] = []
         self.closed = False
-        self._failures: dict[type[TelegramMethod[Any]], tuple[type[TelegramAPIError], str]] = {}
+        self._failures: dict[
+            type[TelegramMethod[Any]], tuple[type[TelegramAPIError], str, dict[str, Any]]
+        ] = {}
         self._next_message_id = FIRST_MESSAGE_ID
 
     # --- Помощники для тестов ---
@@ -48,9 +50,13 @@ class FakeTelegramSession(BaseSession):
         method_type: type[TelegramMethod[Any]],
         error_type: type[TelegramAPIError],
         message: str,
+        **extra: Any,
     ) -> None:
-        """Следующий запрос вида `method_type` закончится ошибкой Telegram."""
-        self._failures[method_type] = (error_type, message)
+        """Следующий запрос вида `method_type` закончится ошибкой Telegram.
+
+        `extra` — дополнительные поля ошибки, например `retry_after=5` у `TelegramRetryAfter`.
+        """
+        self._failures[method_type] = (error_type, message, extra)
 
     def sent[M: TelegramMethod[Any]](self, method_type: type[M]) -> list[M]:
         """Запросы одного вида, по порядку."""
@@ -69,8 +75,8 @@ class FakeTelegramSession(BaseSession):
             await asyncio.sleep(FAKE_POLL_DELAY_SECONDS)
         failure = self._failures.pop(type(method), None)
         if failure is not None:
-            error_type, message = failure
-            raise error_type(method=method, message=message)
+            error_type, message, extra = failure
+            raise error_type(method=method, message=message, **extra)
         return cast(TelegramType, self._result(bot, method))
 
     async def close(self) -> None:
