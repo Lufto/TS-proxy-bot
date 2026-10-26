@@ -8,9 +8,11 @@ Telegram, журнал событий, тревоги, тексты. Остал�
 - бот aiogram: на Mac (`RUN_MODE=dev`) — polling, перед ним бот снимает webhook;
   на сервере (`RUN_MODE=prod`) — webhook с секретом, бот ставит его при старте;
 - веб-сервер FastAPI (uvicorn): вебхук Telegram в боевом режиме, вебхуки Remnawave
-  (если задан `REMNAWAVE_WEBHOOK_SECRET`), позже — платёжка и `/health`;
+  (если задан `REMNAWAVE_WEBHOOK_SECRET`), уведомления платёжки (если оплата включена,
+  задача 14), `/health` (задача 22);
 - фоновые задачи: сводки повторов тревог раз в минуту; сверка с Remnawave раз в 5 минут
   и сразу при запуске (задача 09); повторы выдачи доступа после оплаты раз в минуту (задача 13);
+  проверка оплат раз в 2 и раз в 30 минут и сверка с платёжкой в 09:00 МСК (задача 14);
   сторож фоновых задач раз в минуту, присмотр за бэкапами панели раз в час, бэкап базы бота
   в 04:30 МСК (только `RUN_MODE=prod`), ежедневный отчёт в 10:00 МСК (задача 22).
 
@@ -97,6 +99,8 @@ from tsproxy.services.locks import KeyedLocks
 from tsproxy.services.nodes import NodeMonitor
 from tsproxy.services.orders import OrderService
 from tsproxy.services.panel_backups import PanelBackupMonitor
+from tsproxy.services.payment_checks import PaymentChecks
+from tsproxy.services.payment_reconciliation import PaymentReconciliation
 from tsproxy.services.profile import ProfileService
 from tsproxy.services.reconciliation import Reconciliation
 from tsproxy.services.reminders import ReminderService
@@ -110,6 +114,7 @@ from tsproxy.services.trial_switch import TrialSwitch
 from tsproxy.services.watchdog import JobWatchdog
 from tsproxy.web.app import create_web_app
 from tsproxy.web.health import HealthEndpoint
+from tsproxy.web.payments import PaymentNotificationWebhook
 from tsproxy.web.remnawave import RemnawaveWebhook
 from tsproxy.web.telegram import TelegramWebhook, webhook_url
 
@@ -123,6 +128,11 @@ PENDING_TRIALS_INTERVAL = timedelta(minutes=1)
 PAYMENTS_OFF_ALERT = "payments_off"
 # Повторы выдачи доступа после оплаты — расписание каждого заказа в базе (задача 13)
 PAYMENT_GRANTS_INTERVAL = timedelta(minutes=1)
+# Проверка оплат в два темпа (задача 14): заказы младше 2 часов — раз в 2 минуты,
+# от 2 до 72 часов — раз в 30 минут; сверка с платёжкой — раз в сутки в 09:00 МСК
+FRESH_PAYMENT_CHECK_INTERVAL = timedelta(minutes=2)
+STALE_PAYMENT_CHECK_INTERVAL = timedelta(minutes=30)
+PAYMENTS_RECONCILE_AT = time(9, 0)  # по Москве, до ежедневного отчёта
 # Забытые обращения (нет ответа дольше часа) — проверка раз в 5 минут (задача 17)
 SUPPORT_REMINDERS_INTERVAL = timedelta(minutes=5)
 # Сверка с Remnawave — страховка от потерянных вебхуков (задача 09: «каждые 5–10 минут»)
@@ -292,16 +302,7 @@ def build_application(
     )
     clients = ClientService(session_factory, clock)
     events = EventLog(clock, mask)
-    orders = OrderService(
-        session_factory,
-        payments if payments is not None else _payment_provider(settings, clock),
-        events,
-        content.texts,
-        content.tariffs,
-        settings.admin_ids,
-        clock,
-        KeyedLocks(),
-    )
+    provider = payments if payments is not None else _payment_provider(settings, clock)
     profiles = ProfileService(remnawave, clock)
     screens = Screens(content.texts)
     delivery = ClientDelivery(bot, clients)
@@ -321,6 +322,32 @@ def build_application(
         TelegramPaymentMessages(delivery, PaymentScreens(content.texts, screens)),
         clock,
         term_locks,
+    )
+    # Уведомления платёжки, «Проверить оплату», фоновая проверка, «Купить» (задача 14)
+    payment_checks = PaymentChecks(
+        session_factory,
+        provider,
+        crediting,
+        events,
+        alerter,
+        content.admin_texts,
+        clock,
+        test_payments=_expects_test_payments(settings),
+    )
+    # Замки заказов: «Купить» берёт сначала их, потом (внутри зачёта) — замок срока
+    orders = OrderService(
+        session_factory,
+        provider,
+        events,
+        content.texts,
+        content.tariffs,
+        settings.admin_ids,
+        clock,
+        KeyedLocks(),
+        payment_checks,
+    )
+    payments_reconciliation = PaymentReconciliation(
+        session_factory, provider, payment_checks, alerter, content.admin_texts, clock
     )
     # Выключатель пробных (задача 28): состояние — последнее событие в журнале
     trial_switch = TrialSwitch(session_factory, events, alerter, content.admin_texts, clock)
@@ -346,6 +373,7 @@ def build_application(
         erasure=DataErasureService(
             session_factory, TelegramTopicRemover(bot, settings.admin_chat_id), events
         ),
+        payment_checks=payment_checks,
     )
     # Статистика и рассылка (задача 19)
     broadcasts = BroadcastService(
@@ -432,6 +460,8 @@ def build_application(
             _telegram_webhook(settings, bot, dispatcher),
             remnawave_webhook,
             HealthEndpoint(health),
+            # оплата выключена — уведомления не принимаем: перепроверить их не у кого
+            None if provider is None else PaymentNotificationWebhook(provider, payment_checks),
         ),
         alerter=alerter,
         broadcasts=broadcasts,
@@ -453,6 +483,20 @@ def build_application(
                     crediting.retry_grants,
                     run_at_start=True,  # бот лежал — сразу доделать выдачу оплаченного
                 ),
+                # Без платёжки (PAYMENTS_MODE=off) ничего не делают: спросить не у кого
+                PeriodicJob(
+                    "payment_checks_fresh",
+                    FRESH_PAYMENT_CHECK_INTERVAL,
+                    payment_checks.check_fresh,
+                    run_at_start=True,  # бот лежал — сразу найти оплаты с потерянными уведомлениями
+                ),
+                PeriodicJob(
+                    "payment_checks_stale",
+                    STALE_PAYMENT_CHECK_INTERVAL,
+                    payment_checks.check_stale,
+                    run_at_start=True,
+                ),
+                DailyJob("payments_reconcile", PAYMENTS_RECONCILE_AT, payments_reconciliation.run),
                 PeriodicJob(
                     "remnawave_reconcile",
                     RECONCILE_INTERVAL,
@@ -567,6 +611,12 @@ def _payment_provider(settings: Settings, clock: Clock) -> PaymentProvider | Non
     if settings.payments_mode is PaymentsMode.FAKE:
         return FakePaymentProvider(clock, FakePaymentLedger(settings.fake_payments_file))
     raise ValueError("PAYMENTS_MODE=real: настоящая платёжка ещё не подключена (задача 15)")
+
+
+def _expects_test_payments(settings: Settings) -> bool:
+    """Какие платежи засчитывать: в бою — только настоящие, в разработке — только тестовые
+    (поддельная платёжка, тестовый магазин). Не совпало — не засчитываем (аудит R08)."""
+    return settings.run_mode is not RunMode.PROD
 
 
 def _telegram_webhook(

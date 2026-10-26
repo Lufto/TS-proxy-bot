@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from payment_helpers import FakePaymentMessages, flaky_commits
 from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
@@ -43,7 +44,6 @@ from tsproxy.services.alerts import Alerter
 from tsproxy.services.clients import ClientService
 from tsproxy.services.crediting import (
     CreditingService,
-    GrantedAccess,
     OrderNotFound,
     PaymentMismatch,
     PaymentOutcome,
@@ -94,20 +94,6 @@ class SwitchableRemnawave(FakeRemnawave):
         if self.enable_down:
             raise RemnawaveUnavailable("timeout")
         return await super().enable_account(telegram_id)
-
-
-@dataclass
-class FakePaymentMessages:
-    """Сообщения клиенту об оплате — запоминаем вместо Telegram."""
-
-    granted: list[GrantedAccess] = field(default_factory=list)
-    pending: list[int] = field(default_factory=list)
-
-    async def access_granted(self, granted: GrantedAccess) -> None:
-        self.granted.append(granted)
-
-    async def access_pending(self, telegram_id: int) -> None:
-        self.pending.append(telegram_id)
 
 
 @dataclass
@@ -676,6 +662,8 @@ async def test_alert_after_half_hour_and_give_up_after_a_day(s: Setup, client: C
     [delayed] = s.alerts.sent
     assert s.clock() == paid_at + timedelta(minutes=30)
     assert f"#{order_id}" in delayed.text
+    # решение владельца 2026-10-25, п. 3: клиенту — «доступ задерживается, разбираемся»
+    assert s.messages.delayed == [TELEGRAM_ID]
 
     await retry_until_settled(s, order_id, timedelta(minutes=10))
 
@@ -688,6 +676,7 @@ async def test_alert_after_half_hour_and_give_up_after_a_day(s: Setup, client: C
     assert f"#{order_id}" in s.alerts.sent[-1].text
     assert EventKind.ACCESS_FAILED in await event_kinds(s)
     assert s.messages.granted == []
+    assert s.messages.delayed == [TELEGRAM_ID]  # второе сообщение — один раз
 
 
 async def test_panel_rejection_sends_order_to_manual_review(s: Setup, client: Client) -> None:
@@ -730,28 +719,6 @@ async def test_later_order_waits_for_earlier_one(s: Setup, client: Client) -> No
 # --- Оплата не записалась в базу ---
 
 
-def flaky_commits(
-    factory: async_sessionmaker[AsyncSession], failures: int
-) -> async_sessionmaker[AsyncSession]:
-    """Фабрика сессий, у которой первые `failures` коммитов падают («база занята»)."""
-    left = [failures]
-
-    def make() -> AsyncSession:
-        session = factory()
-        commit = session.commit
-
-        async def flaky_commit() -> None:
-            if left[0] > 0:
-                left[0] -= 1
-                raise OperationalError("UPDATE orders", {}, Exception("database is locked"))
-            await commit()
-
-        session.commit = flaky_commit  # type: ignore[method-assign]
-        return session
-
-    return make  # type: ignore[return-value]
-
-
 async def test_failed_write_is_retried_without_alert(
     session_factory: async_sessionmaker[AsyncSession],
     clock: FakeClock,
@@ -787,3 +754,55 @@ async def test_payment_never_recorded_raises_alert(
     order = await load_order(s, order_id)
     assert order.status is OrderStatus.CREATED
     assert s.remnawave.writes == []
+
+
+# --- Случайная двойная оплата (задача 14, решение владельца 2026-10-25, п. 1) ---
+
+
+async def payment_event(s: Setup, order_id: int) -> dict[str, Any]:
+    async with s.session_factory() as session:
+        details = await session.scalar(
+            select(Event.details).where(
+                Event.order_id == order_id, Event.kind == EventKind.PAYMENT_RECEIVED.value
+            )
+        )
+    assert details is not None
+    return details
+
+
+async def test_two_links_paid_at_once_are_marked_as_possible_double(
+    s: Setup, client: Client
+) -> None:
+    """Две ссылки жили одновременно, клиент оплатил обе: дни сложены, предложен возврат."""
+    first_id, first = await paid_order(s, client)
+    second_id, second = await paid_order(s, client)
+    s.clock.advance(timedelta(minutes=1))
+    first_paid_at = s.clock()
+    await s.service.credit(first_id, first)
+    s.clock.advance(timedelta(minutes=1))
+
+    result = await s.service.credit(second_id, second)
+
+    assert result.outcome is PaymentOutcome.GRANTED
+    account = await s.remnawave.get_account(TELEGRAM_ID)
+    assert account.expire_at == first_paid_at + 2 * MONTH  # дни сложены
+    assert s.messages.doubles == [(TELEGRAM_ID, s.clock() + timedelta(days=7))]
+    assert (await payment_event(s, second_id))["possible_double_of"] == first_id
+    assert (await payment_event(s, first_id))["possible_double_of"] is None
+    first_notice, second_notice = s.topic.sent
+    assert "двойная" not in first_notice.text
+    assert "двойная" in second_notice.text
+    assert f"#{first_id}" in second_notice.text
+
+
+async def test_purchase_after_paid_order_is_not_double(s: Setup, client: Client) -> None:
+    """Клиент уже видел «✅ Оплачено» и покупает снова — это не случайность."""
+    first_id, first = await paid_order(s, client)
+    await s.service.credit(first_id, first)
+    s.clock.advance(timedelta(minutes=5))
+    second_id, second = await paid_order(s, client)
+
+    await s.service.credit(second_id, second)
+
+    assert s.messages.doubles == []
+    assert (await payment_event(s, second_id))["possible_double_of"] is None

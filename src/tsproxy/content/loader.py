@@ -279,6 +279,17 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         "payment.paid",
         "payment.paid_prorated",
         "payment.pending",
+        # задача 14: проверка оплаты, двойная оплата, задержка доступа
+        "buttons.check_payment",
+        "payment.delayed",
+        "payment.double",
+        "payment.found",
+        "payment.check_not_paid",
+        "payment.check_canceled",
+        "payment.check_already",
+        "payment.check_not_found",
+        "payment.check_problem",
+        "payment.check_unavailable",
         # задача 11: льготный период
         "grace.started",
         "grace.reminder",
@@ -499,6 +510,24 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
         "payments.received",
         "payments.received_prorated",
         "payments.no_username",
+        # задача 14: уведомления платёжки, проверки оплат, сверка, двойная оплата
+        "payments.possible_double",
+        "alerts.payment_notification_forged",
+        "alerts.payment_rejected",
+        "alerts.payment_checks_unavailable",
+        "alerts.payments_reconcile",
+        "alerts.payments_reconcile_unavailable",
+        *(
+            f"payments.reconcile.{key}"
+            for key in (
+                "paid_without_order",
+                "credited_now",
+                "not_credited",
+                "credited_not_paid",
+                "missing_at_provider",
+                "refunded_outside_bot",
+            )
+        ),
         # задача 28: выключатель пробных и автовыключение при спаме
         "alerts.trials_disabled",
         "alerts.trials_enabled",

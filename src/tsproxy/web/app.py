@@ -1,8 +1,10 @@
-"""Веб-приложение FastAPI: вебхуки Telegram, Remnawave, `/health` (задача 22), позже платёжка."""
+"""Веб-приложение FastAPI: вебхуки Telegram и Remnawave, `/health` (задача 22),
+уведомления платёжки (задача 14)."""
 
 from fastapi import FastAPI
 
 from tsproxy.web.health import HealthEndpoint
+from tsproxy.web.payments import PaymentNotificationWebhook
 from tsproxy.web.remnawave import RemnawaveWebhook
 from tsproxy.web.telegram import TelegramWebhook
 
@@ -11,6 +13,7 @@ def create_web_app(
     telegram: TelegramWebhook | None,
     remnawave: RemnawaveWebhook | None = None,
     health: HealthEndpoint | None = None,
+    payments: PaymentNotificationWebhook | None = None,
 ) -> FastAPI:
     """`telegram` — приёмник вебхука Telegram; `None` в разработке (там polling).
 
@@ -18,6 +21,8 @@ def create_web_app(
     (тогда работает только сверка).
 
     `health` — `/health` для UptimeRobot; `None` — маршрута нет.
+
+    `payments` — приёмник уведомлений платёжки (задача 14); `None`, если оплата выключена.
     """
     # Документация API наружу не нужна: меньше поверхность для сканеров
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
@@ -27,4 +32,6 @@ def create_web_app(
         app.include_router(remnawave.router())
     if health is not None:
         app.include_router(health.router())
+    if payments is not None:
+        app.include_router(payments.router())
     return app

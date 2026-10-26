@@ -1,5 +1,5 @@
 """Подделки для тестов сервисов: управляемые часы, отправка тревог без Telegram,
-выключатель пробных без журнала, удаление тем группы."""
+выключатель пробных без журнала, удаление тем группы, проверка прошлых оплат без платёжки."""
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -67,3 +67,18 @@ class FakeTopicRemover:
         if topic_id == self.fail_on and self.error is not None:
             raise self.error
         self.removed.append(topic_id)
+
+
+@dataclass
+class FakeEarlierPayments:
+    """Проверка прошлых оплат перед новой ссылкой (задача 14) без платёжки.
+
+    `paid_order_id` ставит тест: «нашлась оплата этого заказа»; `checked` — чьи заказы проверяли.
+    """
+
+    paid_order_id: int | None = None
+    checked: list[int] = field(default_factory=list)
+
+    async def find_paid(self, client_id: int) -> int | None:
+        self.checked.append(client_id)
+        return self.paid_order_id

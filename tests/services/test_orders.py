@@ -17,7 +17,7 @@ from tsproxy.domain.payments import PAYMENT_REUSE_MIN_REMAINING
 from tsproxy.integrations.fake_payments import FAKE_PROVIDER_NAME, FakePaymentProvider
 from tsproxy.integrations.payments_types import PaymentUnavailable
 from tsproxy.services.events import EventKind, EventLog
-from tsproxy.services.fakes import FakeClock
+from tsproxy.services.fakes import FakeClock, FakeEarlierPayments
 from tsproxy.services.locks import KeyedLocks
 from tsproxy.services.masking import Masker
 from tsproxy.services.orders import (
@@ -66,6 +66,7 @@ def make_service(
         frozenset({ADMIN_TELEGRAM_ID}),
         clock,
         KeyedLocks(),
+        FakeEarlierPayments(),
     )
 
 

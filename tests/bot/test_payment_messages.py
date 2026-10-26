@@ -76,6 +76,27 @@ async def test_pending_message_promises_link_later(
     assert sent.text == ctx.texts.get("payment.pending")
 
 
+async def test_delayed_message_says_payment_is_safe(
+    ctx: BotContext, telegram: FakeTelegramSession
+) -> None:
+    """Доступ не выдан за 30 минут — второе сообщение (задача 14, решение владельца п. 3)."""
+    await messages(ctx).access_delayed(CLIENT_ID)
+
+    [sent] = telegram.sent(SendMessage)
+    assert sent.text == ctx.texts.get("payment.delayed")
+
+
+async def test_double_payment_message_offers_refund_until(
+    ctx: BotContext, telegram: FakeTelegramSession
+) -> None:
+    """Две оплаты подряд — предложение вернуть вторую (задача 14, решение владельца п. 1)."""
+    await messages(ctx).possible_double_payment(CLIENT_ID, NOW + timedelta(days=7))
+
+    [sent] = telegram.sent(SendMessage)
+    assert "две оплаты" in sent.text
+    assert "31.10.2026, 15:00 МСК" in sent.text
+
+
 async def test_client_who_blocked_bot_is_marked_and_nothing_breaks(
     ctx: BotContext,
     telegram: FakeTelegramSession,
@@ -111,3 +132,5 @@ async def test_payment_screens_use_only_required_texts(
     screens.paid(granted(account))
     screens.paid(granted(account, paid=Decimal("75")))
     screens.pending()
+    screens.delayed()
+    screens.double(NOW)

@@ -1,11 +1,14 @@
 """Сообщения клиенту об оплате (задача 13): «✅ Оплачено, подписка до …» и «доступ подключается».
 
+Задача 14: «доступ задерживается» (не выдан за 30 минут) и «получили две оплаты».
+
 Реализует `services.crediting.PaymentMessages`. Оплата к этому моменту уже засчитана,
 поэтому сбой Telegram не бросается дальше, а пишется в лог: подписку клиент всё равно
 увидит в «🚀 Подключиться».
 """
 
 import logging
+from datetime import datetime
 
 from aiogram.exceptions import TelegramAPIError
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
@@ -49,13 +52,22 @@ class PaymentScreens:
 
     def pending(self) -> Screen:
         """Оплата получена, доступ подключается — бот сам пришлёт «✅ Оплачено»."""
+        return self._with_back(self._texts.get("payment.pending"))
+
+    def delayed(self) -> Screen:
+        """Доступ не выдан за 30 минут: «задерживается, разбираемся» (задача 14)."""
+        return self._with_back(self._texts.get("payment.delayed"))
+
+    def double(self, refund_until: datetime) -> Screen:
+        """Две оплаты подряд: дни сложены, вторую можно вернуть до `refund_until`."""
+        return self._with_back(self._texts.get("payment.double", until=format_moscow(refund_until)))
+
+    def _with_back(self, text: str) -> Screen:
         back = InlineKeyboardButton(
             text=self._texts.get("buttons.back"),
             callback_data=MenuCallback(screen=ScreenId.MAIN).pack(),
         )
-        return Screen(
-            self._texts.get("payment.pending"), InlineKeyboardMarkup(inline_keyboard=[[back]])
-        )
+        return Screen(text, InlineKeyboardMarkup(inline_keyboard=[[back]]))
 
 
 class TelegramPaymentMessages:
@@ -70,6 +82,12 @@ class TelegramPaymentMessages:
 
     async def access_pending(self, telegram_id: int) -> None:
         await self._send(telegram_id, self._screens.pending())
+
+    async def access_delayed(self, telegram_id: int) -> None:
+        await self._send(telegram_id, self._screens.delayed())
+
+    async def possible_double_payment(self, telegram_id: int, refund_until: datetime) -> None:
+        await self._send(telegram_id, self._screens.double(refund_until))
 
     async def _send(self, telegram_id: int, screen: Screen) -> None:
         try:

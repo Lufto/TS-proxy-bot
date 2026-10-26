@@ -7,9 +7,15 @@
     uv run python scripts/simulate_payment.py --order 12                 # оплатить по тарифу
     uv run python scripts/simulate_payment.py --order 12 --amount 100    # не на сумму тарифа
     uv run python scripts/simulate_payment.py --order 12 --cancel        # клиент не стал платить
+    uv run python scripts/simulate_payment.py --order 12 --lost          # уведомление потерялось
 
-Бот узнаёт об оплате, когда спрашивает статус платежа: кнопка «Проверить оплату» и фоновая
-проверка — задачи 13–14. Код выхода 0 — сделано; 1 — платёж не найден или его нельзя изменить.
+После «оплаты» или «отмены» скрипт, как настоящая платёжка, шлёт уведомление на адрес
+бота (`http://127.0.0.1:<WEB_PORT>/payments/notification`). Бот не верит уведомлению
+и сам спрашивает статус платежа (задача 14). С `--lost` уведомления нет — оплату найдут
+кнопка «🔄 Проверить оплату», повторное «Купить» или фоновая проверка (раз в 2 минуты).
+Бот не запущен — уведомление не дойдёт, это не ошибка: бот найдёт оплату после запуска.
+
+Код выхода 0 — сделано; 1 — платёж не найден или его нельзя изменить.
 """
 
 import argparse
@@ -18,12 +24,25 @@ import sys
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 
-from tsproxy.config import PaymentsMode, RunMode, load_settings
-from tsproxy.integrations.fake_payments import FakePayment, FakePaymentLedger
+import httpx
+
+from tsproxy.config import PaymentsMode, RunMode, Settings, load_settings
+from tsproxy.integrations.fake_payments import (
+    CANCELED_EVENT,
+    SUCCEEDED_EVENT,
+    FakePayment,
+    FakePaymentLedger,
+    notification_body,
+)
 from tsproxy.integrations.payments_types import PaymentError, PaymentStatus
 from tsproxy.logging_setup import setup_logging
+from tsproxy.web.payments import PAYMENT_NOTIFICATION_PATH
 
 logger = logging.getLogger("simulate_payment")
+
+NOTIFY_TIMEOUT_SECONDS = 10
+# Скрипт и бот работают на одном Mac — уведомление шлём на локальный адрес
+LOCALHOST = "127.0.0.1"
 
 
 def _amount(raw: str) -> Decimal:
@@ -41,6 +60,9 @@ def _parse_args() -> argparse.Namespace:
     target.add_argument("--payment", help="id платежа fake_…")
     parser.add_argument("--amount", type=_amount, help="оплатить эту сумму, а не цену тарифа")
     parser.add_argument("--cancel", action="store_true", help="отменить вместо оплаты")
+    parser.add_argument(
+        "--lost", action="store_true", help="не слать уведомление боту (оно «потерялось»)"
+    )
     return parser.parse_args()
 
 
@@ -57,6 +79,22 @@ def _target(ledger: FakePaymentLedger, args: argparse.Namespace) -> FakePayment 
     payments = ledger.find_by_order(args.order)
     pending = [p for p in payments if p.status is PaymentStatus.PENDING]
     return (pending or payments or [None])[-1]
+
+
+def _notify(settings: Settings, payment: FakePayment) -> None:
+    """Уведомление боту, как от платёжки. Не дошло — только предупреждение."""
+    url = f"http://{LOCALHOST}:{settings.web_port}{PAYMENT_NOTIFICATION_PATH}"
+    event = CANCELED_EVENT if payment.status is PaymentStatus.CANCELED else SUCCEEDED_EVENT
+    try:
+        response = httpx.post(
+            url,
+            content=notification_body(payment.payment_id, event),
+            timeout=NOTIFY_TIMEOUT_SECONDS,
+        )
+    except httpx.HTTPError as error:
+        logger.warning("Уведомление не доставлено (%s): бот найдёт оплату сам", error)
+        return
+    logger.info("Уведомление отправлено на %s — ответ %d", url, response.status_code)
 
 
 def main() -> int:
@@ -84,6 +122,8 @@ def main() -> int:
         logger.error("Не получилось: %s", error)
         return 1
     logger.info("Готово — %s", _describe(changed))
+    if not args.lost:
+        _notify(settings, changed)
     return 0
 
 
