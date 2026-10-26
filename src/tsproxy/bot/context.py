@@ -17,6 +17,7 @@ from tsproxy.services.admin import AdminService
 from tsproxy.services.alerts import Alerter
 from tsproxy.services.client_card import ClientCardService
 from tsproxy.services.clients import ClientProfile, ClientService
+from tsproxy.services.erasure import DataErasureService
 from tsproxy.services.events import EventLog
 from tsproxy.services.link_revoke import LinkRevokeService
 from tsproxy.services.orders import OrderService
@@ -49,6 +50,7 @@ class BotContext:
     admin: AdminService  # поиск клиента и действия администратора (задача 18)
     link_revokes: LinkRevokeService  # клиент сам перевыпускает ссылку (задача 31)
     trial_switch: TrialSwitch  # выключатель пробных (задача 28), тот же, что у `trials`
+    erasure: DataErasureService  # удаление данных клиента по запросу (задача 24)
 
 
 def profile_of(user: User) -> ClientProfile:

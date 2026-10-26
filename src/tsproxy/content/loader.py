@@ -406,6 +406,13 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
         "admin.buttons.confirm_revoke",
         "admin.buttons.cancel",
         "admin.buttons.delete_device",
+        # задача 24: удаление данных клиента
+        "admin.buttons.erase",
+        "admin.buttons.confirm_erase",
+        "admin.erase.ask",
+        "admin.erase.done",
+        "admin.erase.nothing",
+        "admin.erase.topic_failed",
         "admin.extend.preview",
         "admin.extend.no_account",
         "admin.extend.done",
