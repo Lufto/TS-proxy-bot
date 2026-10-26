@@ -6,11 +6,14 @@
   «срок до X» = текущий срок + компенсация. Сервис записывает, кому начислено
   по этому инциденту, поэтому падение на середине рассылки не даст двойной компенсации.
 - Клиент в льготном периоде получает CARRY_OVER: срок в Remnawave и конец
-  льготного не меняются, а компенсация копится у клиента как «перенесённая»
-  (несколько инцидентов складываются). При следующей оплате сервис передаёт эту
-  сумму в `subscription.grant_target_expire_at(carried_compensation=...)`,
-  она добавляется к новому сроку, после чего сервис её обнуляет. Так покупка
-  «от момента оплаты» не затирает компенсацию (аудит §7.5).
+  льготного не меняются, а компенсация копится как «перенесённая» (несколько
+  инцидентов складываются). Хранится она в журнале событий: событие компенсации
+  с видом CARRY_OVER после отметки «льготный начался» (задача 20, без новой колонки).
+  При следующей оплате сервис передаёт эту сумму в
+  `subscription.grant_target_expire_at(carried_compensation=...)`, она добавляется
+  к новому сроку. Обнулять нечего: оплата снимает отметку льготного, а следующий
+  льготный начнётся позже этих событий. Так покупка «от момента оплаты» не затирает
+  компенсацию (аудит §7.5).
 - Пробный, новый, истёкший клиент — NOT_ELIGIBLE: компенсация только оплаченного срока.
 """
 
@@ -21,9 +24,13 @@ from enum import StrEnum
 
 from tsproxy.domain.client_state import ClientSnapshot
 from tsproxy.domain.constants import COMPENSATION_BONUS_DAYS, ONE_HOUR, OUTAGE_MERGE_GAP
+from tsproxy.domain.dates import require_aware
 from tsproxy.domain.subscription import SubscriptionPhase, subscription_phase
 
 COMPENSATION_BONUS = timedelta(days=COMPENSATION_BONUS_DAYS)
+NO_TIME = timedelta(0)
+# Панель хранит срок с миллисекундами: сроки ближе этого считаем одним и тем же
+EXPIRY_MATCH_TOLERANCE = timedelta(seconds=1)
 
 
 @dataclass(frozen=True)
@@ -48,6 +55,30 @@ def merge_outages(outages: Iterable[Outage], max_gap: timedelta = OUTAGE_MERGE_G
         else:
             merged.append(outage)
     return merged
+
+
+def incident_of(
+    outages: Iterable[Outage], target: Outage, max_gap: timedelta = OUTAGE_MERGE_GAP
+) -> Outage:
+    """Инцидент — склеенный простой, в который входит `target` (вместе с соседями по «миганию»).
+
+    Простои разных нод тоже склеиваются: одновременное падение двух нод — один сбой,
+    за одно и то же время компенсация не начисляется дважды.
+    """
+    for incident in merge_outages([*outages, target], max_gap):
+        if incident.started_at <= target.started_at and target.ended_at <= incident.ended_at:
+            return incident
+    raise ValueError("простой не попал ни в один инцидент")  # склейка всегда его содержит
+
+
+def remaining_compensation(incident: Outage, compensated: Iterable[Outage]) -> timedelta:
+    """Сколько ещё начислить по инциденту, если часть его простоев уже компенсирована.
+
+    Весь инцидент стоит `compensation_duration(incident)`; уже начисленное — сумма по
+    компенсированным частям (каждая со своим днём сверху). Ноль — новое уже покрыто.
+    """
+    paid = sum((compensation_duration(part) for part in merge_outages(compensated)), NO_TIME)
+    return max(compensation_duration(incident) - paid, NO_TIME)
 
 
 def compensation_duration(outage: Outage) -> timedelta:
@@ -88,3 +119,22 @@ def plan_compensation(
     if phase is SubscriptionPhase.GRACE:
         return CompensationPlan(CompensationAction.CARRY_OVER, carry_over=amount)
     return CompensationPlan(CompensationAction.NOT_ELIGIBLE)
+
+
+class ResumeAction(StrEnum):
+    """Начисление клиенту записано, а срок в панели — неизвестно, поставлен ли (сбой посреди)."""
+
+    APPLY = "apply"  # срок прежний — поставить
+    ALREADY_APPLIED = "already_applied"  # срок уже новый (панель приняла, ответ потерялся)
+    UNCLEAR = "unclear"  # срок изменился иначе — решает администратор
+
+
+def resume_extension(current: datetime, before: datetime, target: datetime) -> ResumeAction:
+    """Как продолжить прерванное продление «с `before` до `target`», если сейчас срок `current`."""
+    for moment in (current, before, target):
+        require_aware(moment)
+    if abs(current - target) < EXPIRY_MATCH_TOLERANCE:
+        return ResumeAction.ALREADY_APPLIED
+    if abs(current - before) < EXPIRY_MATCH_TOLERANCE:
+        return ResumeAction.APPLY
+    return ResumeAction.UNCLEAR

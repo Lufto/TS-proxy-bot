@@ -61,6 +61,7 @@ class AdminActionKind(StrEnum):
     REFUND_APPROVED = "refund_approved"  # одобрен возврат (задача 21)
     REFUND_REJECTED = "refund_rejected"  # отклонён возврат (задача 21)
     SUBSCRIPTION_TRANSFERRED = "subscription_transferred"  # перенос подписки (задача 21)
+    OUTAGE_COMPENSATION = "outage_compensation"  # компенсация за сбой ноды (задача 20)
 
 
 class ExtensionOutcome(StrEnum):

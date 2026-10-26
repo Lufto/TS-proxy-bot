@@ -7,7 +7,7 @@
 Каждый сбой — строка в таблице `node_outages` (открыта, пока `ended_at` пуст). По ней
 бот не поднимает повторную тревогу ни при повторном вебхуке, ни после перезапуска.
 Кнопку «Компенсировать», склейку «мигания» и начисление делает задача 20 — по этим же
-строкам (`domain/compensation.py`).
+строкам (`services/compensation.py`): закрыв сбой, монитор сообщает о нём `on_closed`.
 
 Выключенные администратором ноды (`is_disabled`) — не сбой: их не открываем и не закрываем.
 """
@@ -15,6 +15,7 @@
 import asyncio
 import logging
 from datetime import datetime, timedelta
+from typing import Protocol
 
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
@@ -50,6 +51,12 @@ def outage_minutes(started_at: datetime, ended_at: datetime) -> int:
     return -(-(ended_at - started_at) // ONE_MINUTE)
 
 
+class OutageListener(Protocol):
+    """Кому сообщить о закончившемся сбое (задача 20: предложить компенсацию)."""
+
+    async def outage_closed(self, outage_id: int) -> None: ...
+
+
 class NodeMonitor:
     """Сверяет связь нод с записями о сбоях и поднимает тревоги при переходах."""
 
@@ -60,12 +67,14 @@ class NodeMonitor:
         alerter: Alerter,
         admin_texts: Texts,
         clock: Clock,
+        on_closed: OutageListener | None = None,
     ) -> None:
         self._remnawave = remnawave
         self._session_factory = session_factory
         self._alerter = alerter
         self._texts = admin_texts
         self._clock = clock
+        self._on_closed = on_closed
         # вебхук и сверка не должны одновременно открыть или закрыть один сбой
         self._lock = asyncio.Lock()
 
@@ -118,11 +127,12 @@ class NodeMonitor:
             outage = await self._find_open(session, node.uuid)
             if outage is None:
                 return
+            outage_id = outage.id
             started_at = outage.started_at
             ended_at = outage_ended_at(node, started_at, now)
             result = await session.execute(
                 update(NodeOutage)
-                .where(NodeOutage.id == outage.id, NodeOutage.ended_at.is_(None))
+                .where(NodeOutage.id == outage_id, NodeOutage.ended_at.is_(None))
                 .values(ended_at=ended_at)
             )
             await session.commit()
@@ -139,3 +149,5 @@ class NodeMonitor:
                 until=format_moscow(ended_at),
             ),
         )
+        if self._on_closed is not None:
+            await self._on_closed.outage_closed(outage_id)
