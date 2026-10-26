@@ -18,3 +18,4 @@ Blocked by: 15, 22, 23
 ## Comments
 
 - Сервер (задача 26): бот работает от `tsproxy`, а `/etc/remnawave-backup/` доступна только root. Положить копию открытого ключа age, читаемую `tsproxy`, в `BACKUP_AGE_RECIPIENTS`; поставить `age`; создать `/var/backups/tsproxy` (владелец `tsproxy`) и добавить в `ReadWritePaths` службы (из задачи 23).
+- Из задачи 22: (1) бот читает журнал и список копий бэкапа панели — дать `tsproxy` чтение `/var/lib/remnawave-backup/backup.log` и списка `/var/backups/remnawave/daily/`; `remnawave-backup.sh` каждый раз ставит `chmod 700` на эти папки — поправить скрипт (например, 750 + общая группа), иначе права сбросятся. (2) UptimeRobot: HTTP-монитор `https://bot.…/health` (200 = «ok», 503 = «проблема»). (3) Решить, в какую тему слать ежедневный отчёт (`REPORTS_THREAD_ID`, пусто — общая).
