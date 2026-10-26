@@ -525,7 +525,12 @@ def _monitoring_jobs(
 def _panel_backup_monitor(
     settings: Settings, alerter: Alerter, content: Content, clock: Clock
 ) -> PanelBackupMonitor | None:
-    """Присмотр за бэкапами панели — если заданы журнал и папка копий."""
+    """Присмотр за бэкапами панели — только на сервере и если заданы журнал и папка копий.
+
+    На Mac (`RUN_MODE=dev`) панели и её копий нет: присмотр давал бы тревогу при каждом запуске.
+    """
+    if settings.run_mode is not RunMode.PROD:
+        return None
     if settings.panel_backup_log is None or settings.panel_backup_dir is None:
         logger.warning(
             "PANEL_BACKUP_LOG или PANEL_BACKUP_DIR не заданы: бэкапы панели без присмотра"

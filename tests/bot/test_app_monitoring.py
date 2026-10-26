@@ -113,7 +113,7 @@ async def test_dev_app_has_health_and_monitoring_jobs(
     tmp_path: Path, content: Content, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     app = build_application(
-        make_settings(tmp_path, panel_backup_dir="", panel_backup_log=""),
+        make_settings(tmp_path),  # пути к бэкапам панели — по умолчанию, серверные
         content,
         telegram_session=FakeTelegramSession(),
     )
@@ -133,7 +133,7 @@ async def test_dev_app_has_health_and_monitoring_jobs(
     assert (response.status_code, response.text) == (200, "ok")
     assert {"watchdog", "daily_report"} <= names
     assert "bot_backup" not in names  # на Mac бэкап базы бота не запускается
-    assert "panel_backup_check" not in names  # присмотр выключен пустыми настройками
+    assert "panel_backup_check" not in names  # на Mac панели нет — присмотр не запускается
 
 
 async def test_prod_app_backs_up_bot_database_and_watches_panel_backups(
