@@ -59,6 +59,13 @@ class AdminDeviceCallback(CallbackData, prefix="admd"):
     ref: Annotated[str, Field(pattern=rf"^[0-9a-f]{{{DEVICE_REF_LENGTH}}}$")]
 
 
+class AdminEraseCallback(CallbackData, prefix="adme"):
+    """«🗑 Удалить данные» (задача 24): `confirm=False` — предпросмотр, `True` — удалить."""
+
+    telegram_id: TelegramId
+    confirm: bool = False
+
+
 def expire_stamp(expire_at: datetime | None) -> int:
     """Срок для кнопки подтверждения — с точностью до секунды."""
     return NO_ACCOUNT_STAMP if expire_at is None else int(expire_at.timestamp())

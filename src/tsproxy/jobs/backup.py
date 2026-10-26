@@ -8,7 +8,7 @@
 4. Копия ложится в `daily/tsproxy-ГГГГ-ММ-ДД.db.gz.age` и `monthly/tsproxy-ГГГГ-ММ.db.gz.age`
    (права 600). Месячная перезаписывается каждый день, поэтому за месяц остаётся последняя.
 5. Файл уходит в тему «💾 Бэкапы».
-6. Ежедневные копии старше двух недель удаляются, месячные хранятся всегда.
+6. Ежедневные копии старше двух недель удаляются, месячные — старше трёх лет.
 
 Дата в имени — по Москве, как у панели. Любой сбой — запись в лог и тревога в «🚨 Тревоги».
 Если не получилась сама копия, `run` бросает исключение дальше (сторож фоновых задач
@@ -37,7 +37,7 @@ from tsproxy.jobs.backup_files import (
     copy_sqlite,
     gzip_file,
     make_private_dir,
-    remove_expired_daily,
+    remove_expired,
     sqlite_database_path,
     store_backup,
 )
@@ -139,7 +139,7 @@ class DatabaseBackup:
         sent = await self._send(stored, day)
 
         try:
-            removed = await asyncio.to_thread(remove_expired_daily, self._backup_dir, day)
+            removed = await asyncio.to_thread(remove_expired, self._backup_dir, day)
         except OSError as error:
             await self._fail(f"Не удалось удалить старые бэкапы базы бота: {error}")
             raise
