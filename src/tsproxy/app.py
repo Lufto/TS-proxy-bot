@@ -10,7 +10,12 @@ Telegram, журнал событий, тревоги, тексты. Остал�
 - веб-сервер FastAPI (uvicorn): вебхук Telegram в боевом режиме, вебхуки Remnawave
   (если задан `REMNAWAVE_WEBHOOK_SECRET`), позже — платёжка и `/health`;
 - фоновые задачи: сводки повторов тревог раз в минуту; сверка с Remnawave раз в 5 минут
-  и сразу при запуске (задача 09); повторы выдачи доступа после оплаты раз в минуту (задача 13).
+  и сразу при запуске (задача 09); повторы выдачи доступа после оплаты раз в минуту (задача 13);
+  сторож фоновых задач раз в минуту, присмотр за бэкапами панели раз в час, бэкап базы бота
+  в 04:30 МСК (только `RUN_MODE=prod`), ежедневный отчёт в 10:00 МСК (задача 22).
+
+Каждый запуск фоновой задачи отмечается в `JobHealth`: по отметкам сторож поднимает тревогу
+о зависшей задаче, а `/health` отвечает «проблема».
 
 `PAYMENTS_MODE=off` (задача 29) — тестовый запуск без платёжки: тарифы видны, купить нельзя;
 при запуске — предупреждение в лог и тревога, чтобы не забыть включить оплату.
@@ -25,7 +30,7 @@ import logging
 import signal
 from collections.abc import Awaitable, Callable, Generator, Sequence
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import time, timedelta
 
 import uvicorn
 from aiogram import Bot, Dispatcher
@@ -52,6 +57,7 @@ from tsproxy.bot.trial import deliver_pending_trials
 from tsproxy.config import PaymentsMode, RunMode, Settings
 from tsproxy.content.loader import Content
 from tsproxy.db.engine import create_engine, create_session_factory
+from tsproxy.domain.monitoring import DAILY_JOB_STALE_AFTER, next_daily_run, periodic_stale_after
 from tsproxy.integrations.fake_payments import FakePaymentLedger, FakePaymentProvider
 from tsproxy.integrations.payments_types import PaymentProvider
 from tsproxy.integrations.remnawave import RemnawaveApiClient, create_http_client
@@ -63,10 +69,11 @@ from tsproxy.services.admin_topics import AdminTopic
 from tsproxy.services.alerts import Alerter
 from tsproxy.services.client_card import ClientCardService
 from tsproxy.services.clients import ClientService
-from tsproxy.services.clock import Clock, system_clock
+from tsproxy.services.clock import Clock, system_clock, utc_now
 from tsproxy.services.crediting import CreditingService
 from tsproxy.services.events import EventLog
 from tsproxy.services.grace import GraceHandler
+from tsproxy.services.job_health import JobHealth
 from tsproxy.services.link_revoke import LinkRevokeService
 from tsproxy.services.locks import KeyedLocks
 from tsproxy.services.nodes import NodeMonitor
@@ -97,6 +104,14 @@ PAYMENT_GRANTS_INTERVAL = timedelta(minutes=1)
 SUPPORT_REMINDERS_INTERVAL = timedelta(minutes=5)
 # Сверка с Remnawave — страховка от потерянных вебхуков (задача 09: «каждые 5–10 минут»)
 RECONCILE_INTERVAL = timedelta(minutes=5)
+# Сторож фоновых задач (задача 22)
+WATCHDOG_INTERVAL = timedelta(minutes=1)
+# Бэкап панели идёт раз в сутки — проверять его чаще раза в час незачем (задача 22)
+PANEL_BACKUP_CHECK_INTERVAL = timedelta(hours=1)
+# Бэкап базы бота — через полчаса после бэкапа панели в 04:00 МСК (задача 23)
+BOT_BACKUP_AT = time(4, 30)
+# Ежедневный отчёт (задача 18 в vpn-bot-rework)
+DAILY_REPORT_AT = time(10, 0)
 STOP_SIGNALS = (signal.SIGINT, signal.SIGTERM)
 
 
@@ -113,14 +128,43 @@ class PeriodicJob:
     run_at_start: bool = False  # выполнить сразу при запуске, не дожидаясь интервала
 
 
+@dataclass(frozen=True)
+class DailyJob:
+    """Фоновая задача «раз в сутки в `at` по Москве» (бэкап, отчёт)."""
+
+    name: str
+    at: time
+    run: Callable[[], Awaitable[None]]
+
+
+type Job = PeriodicJob | DailyJob
+
+
+def stale_after(job: Job) -> timedelta:
+    """Сколько задача может не отрабатывать успешно, пока сторож не поднимет тревогу."""
+    if isinstance(job, DailyJob):
+        return DAILY_JOB_STALE_AFTER
+    return periodic_stale_after(job.interval)
+
+
 class PeriodicJobs:
     """Простой планировщик: каждая задача — свой цикл «подождать, выполнить».
 
-    Точка подключения для следующих задач (сверка с Remnawave, бэкапы, напоминания).
+    Каждый запуск отмечается в `health` (начала, успешно закончила, упала) — по этим
+    отметкам работают сторож фоновых задач и `/health` (задача 22).
     """
 
-    def __init__(self, jobs: Sequence[PeriodicJob]) -> None:
+    def __init__(
+        self,
+        jobs: Sequence[Job],
+        health: JobHealth | None = None,
+        clock: Clock = system_clock,
+    ) -> None:
         self._jobs = tuple(jobs)
+        self._clock = clock
+        self.health = health if health is not None else JobHealth(clock)
+        for job in self._jobs:
+            self.health.watch(job.name, stale_after(job))
         self._tasks: list[asyncio.Task[None]] = []
 
     def start(self) -> None:
@@ -136,20 +180,38 @@ class PeriodicJobs:
                 await task
         self._tasks = []
 
-    async def _loop(self, job: PeriodicJob) -> None:
+    async def _loop(self, job: Job) -> None:
+        if isinstance(job, DailyJob):
+            await self._daily_loop(job)
+            return
         if job.run_at_start:
             await self._run_once(job)
         while True:
             await asyncio.sleep(job.interval.total_seconds())
             await self._run_once(job)
 
-    async def _run_once(self, job: PeriodicJob) -> None:
+    async def _daily_loop(self, job: DailyJob) -> None:
+        target = next_daily_run(utc_now(self._clock), job.at)
+        while True:
+            remaining = (target - utc_now(self._clock)).total_seconds()
+            if remaining > 0:
+                # sleep может проснуться чуть раньше срока — тогда доспать, а не запустить дважды
+                await asyncio.sleep(remaining)
+                continue
+            await self._run_once(job)
+            target = next_daily_run(max(target, utc_now(self._clock)), job.at)
+
+    async def _run_once(self, job: Job) -> None:
+        self.health.started(job.name)
         try:
             await job.run()
         # Одна неудача не должна останавливать задачу навсегда: пишем в лог с трассировкой
-        # и пробуем в следующий раз. Сторож зависших задач — задача 22.
+        # и пробуем в следующий раз. Отметку «упала» видит сторож фоновых задач.
         except Exception:
+            self.health.failed(job.name)
             logger.exception("Фоновая задача %s завершилась ошибкой", job.name)
+            return
+        self.health.succeeded(job.name)
 
 
 # --- Сборка ---
