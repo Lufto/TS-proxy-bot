@@ -16,8 +16,9 @@ from tsproxy.jobs.backup_files import (
     copy_sqlite,
     daily_name,
     expired_daily_names,
+    expired_monthly_names,
     monthly_name,
-    remove_expired_daily,
+    remove_expired,
     sqlite_database_path,
 )
 
@@ -119,22 +120,41 @@ def test_daily_copies_older_than_two_weeks_expire() -> None:
     ]
 
 
-def test_retention_never_touches_monthly(tmp_path: Path) -> None:
+def test_monthly_copies_older_than_three_years_expire() -> None:
+    names = [
+        monthly_name(date(2026, 10, 1)),  # этот месяц
+        monthly_name(date(2023, 11, 1)),  # 35 месяцев назад — 36-я копия, остаётся
+        monthly_name(date(2023, 10, 1)),  # 36 месяцев назад — удаляется
+        monthly_name(date(2020, 1, 1)),
+        daily_name(date(2020, 1, 1)),  # имя ежедневной — не по шаблону месячной
+        "notes.txt",
+        "tsproxy-2020-01.db.gz.age.tmp",
+    ]
+    assert expired_monthly_names(names, TODAY) == [
+        monthly_name(date(2020, 1, 1)),
+        monthly_name(date(2023, 10, 1)),
+    ]
+
+
+def test_retention_keeps_recent_monthly_and_foreign_files(tmp_path: Path) -> None:
     daily_dir = tmp_path / "daily"
     monthly_dir = tmp_path / "monthly"
     daily_dir.mkdir()
     monthly_dir.mkdir()
     old_day = date(2024, 1, 31)
+    ancient = date(2022, 1, 31)
     (daily_dir / daily_name(old_day)).write_bytes(b"old")
     (daily_dir / daily_name(TODAY)).write_bytes(b"new")
-    for name in (monthly_name(old_day), daily_name(old_day), monthly_name(TODAY)):
+    for name in (monthly_name(ancient), monthly_name(old_day), daily_name(old_day)):
         (monthly_dir / name).write_bytes(b"monthly")
 
-    removed = remove_expired_daily(tmp_path, TODAY)
+    removed = remove_expired(tmp_path, TODAY)
 
-    assert removed == [daily_dir / daily_name(old_day)]
+    assert removed == [daily_dir / daily_name(old_day), monthly_dir / monthly_name(ancient)]
     assert sorted(p.name for p in daily_dir.iterdir()) == [daily_name(TODAY)]
-    assert len(list(monthly_dir.iterdir())) == 3
+    assert sorted(p.name for p in monthly_dir.iterdir()) == sorted(
+        [monthly_name(old_day), daily_name(old_day)]
+    )
 
 
 def test_sqlite_url_gives_database_path() -> None:
