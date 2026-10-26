@@ -7,6 +7,9 @@
 на Mac — в JSON-файле, который делят бот и скрипт `scripts/simulate_payment.py`:
 скрипт «оплачивает» платёж в файле, бот видит это, когда спрашивает статус.
 
+Уведомление поддельной платёжки — JSON как у ЮKassa: `{"event": "payment.succeeded",
+"object": {"id": "fake_…"}}` (`notification_body`). Скрипт шлёт его боту после «оплаты».
+
 В боевом режиме (`RUN_MODE=prod`) поддельная платёжка не запускается — это проверяют
 настройки (аудит R23).
 """
@@ -16,7 +19,7 @@ import fcntl
 import json
 import os
 import threading
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime
@@ -25,11 +28,14 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from pydantic import BaseModel, Field, ValidationError
+
 from tsproxy.domain.dates import require_aware
 from tsproxy.domain.payments import payment_link_expires_at
 from tsproxy.integrations.payments_types import (
     RUB,
     CreatedPayment,
+    InvalidNotification,
     PaymentError,
     PaymentNotFound,
     PaymentRejected,
@@ -45,6 +51,11 @@ FAKE_PAYMENT_ID_PREFIX = "fake_"
 # Ссылка ведёт на зарезервированный для примеров домен: оплатить по ней нельзя,
 # «оплату» делает скрипт `simulate_payment.py`
 FAKE_PAYMENT_URL = "https://example.com/tsproxy-fake-payment/{payment_id}"
+# События в уведомлениях — как у ЮKassa
+SUCCEEDED_EVENT = "payment.succeeded"
+CANCELED_EVENT = "payment.canceled"
+# Номер платежа в уведомлении не длиннее, чем помещается в базу (`orders.payment_id`)
+MAX_NOTIFIED_PAYMENT_ID = 128
 
 
 @dataclass(frozen=True)
@@ -80,6 +91,7 @@ class FakePayment:
             order_id=self.order_id,
             test=True,
             paid_at=self.paid_at,
+            refunded=self.refunded,
         )
 
     def to_json(self) -> dict[str, Any]:
@@ -216,6 +228,12 @@ class FakePaymentLedger:
     def find_by_order(self, order_id: int) -> list[FakePayment]:
         return [p for p in self.all() if p.order_id == order_id]
 
+    def created_between(self, since: datetime, until: datetime, now: datetime) -> list[FakePayment]:
+        """Платежи, созданные в `[since, until)`; просроченные неоплаченные — уже отменены."""
+        with self._payments() as payments:
+            found = [p for p in payments.values() if since <= p.created_at < until]
+            return [self._expire(payments, p, now) for p in sorted(found, key=_created)]
+
     # --- Хранение ---
 
     @staticmethod
@@ -249,6 +267,10 @@ class FakePaymentLedger:
                 _write_file(path, payments)
 
 
+def _created(payment: FakePayment) -> datetime:
+    return payment.created_at
+
+
 def _read_file(path: Path) -> Payments:
     if not path.exists():
         return {}
@@ -261,6 +283,22 @@ def _write_file(path: Path, payments: Payments) -> None:
     temporary = path.with_suffix(".tmp")
     temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     os.replace(temporary, path)  # целиком или никак — файл не останется недописанным
+
+
+class _NotificationObject(BaseModel):
+    id: str = Field(min_length=1, max_length=MAX_NOTIFIED_PAYMENT_ID)
+
+
+class _Notification(BaseModel):
+    """Уведомление поддельной платёжки. Из тела берём только номер платежа."""
+
+    event: str
+    object: _NotificationObject
+
+
+def notification_body(payment_id: str, event: str = SUCCEEDED_EVENT) -> bytes:
+    """Тело уведомления поддельной платёжки — для скрипта и тестов."""
+    return json.dumps({"event": event, "object": {"id": payment_id}}).encode()
 
 
 class FakePaymentProvider:
@@ -299,6 +337,22 @@ class FakePaymentProvider:
     async def refund(self, payment_id: str, amount: Decimal, idempotency_key: str) -> Refund:
         done = await self._call(self.ledger.refund, payment_id, amount, idempotency_key)
         return Refund(done.refund_id, payment_id, done.amount, RefundOutcome.SUCCEEDED)
+
+    def parse_notification(self, body: bytes, headers: Mapping[str, str]) -> str:
+        """Подписи у поддельной платёжки нет, как у ЮKassa: правду бот узнаёт перезапросом."""
+        try:
+            return _Notification.model_validate_json(body).object.id
+        except ValidationError as error:
+            raise InvalidNotification(
+                f"уведомление не разобрано: {error.error_count()} ошибок"
+            ) from None
+
+    async def list_payments(self, since: datetime, until: datetime) -> Sequence[PaymentState]:
+        now = require_aware(self._clock())
+        found = await self._call(
+            self.ledger.created_between, require_aware(since), require_aware(until), now
+        )
+        return [payment.state() for payment in found]
 
     async def _call[**P, R](
         self, operation: Callable[P, R], *args: P.args, **kwargs: P.kwargs

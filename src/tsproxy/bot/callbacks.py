@@ -67,6 +67,13 @@ class TariffCallback(CallbackData, prefix="buy"):
     tariff_id: str
 
 
+class PaymentCheckCallback(CallbackData, prefix="paycheck"):
+    """«🔄 Проверить оплату» (задача 14). Номер заказа — не доступ: заказ ищется
+    только среди заказов нажавшего (аудит §4.3, R07)."""
+
+    order_id: int
+
+
 # --- Поддержка (задача 17) ---
 
 
