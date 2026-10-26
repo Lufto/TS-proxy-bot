@@ -43,6 +43,13 @@ class EventKind(StrEnum):
     REFUND_APPROVED = "refund_approved"
     REFUND_REJECTED = "refund_rejected"
     REFUND_COMPLETED = "refund_completed"  # платёжка вернула деньги
+    REFUND_FAILED = "refund_failed"  # платёжка отказала в возврате (задача 21)
+    # задача 21: срок «до X» после возврата — посчитан и записан до запроса к панели
+    REFUND_TERM_PLANNED = "refund_term_planned"
+    REFUND_TERM_SHORTENED = "refund_term_shortened"  # срок укорочен после возврата (задача 21)
+    # Задача 14 (сторож двойных оплат) пишет это событие с `order_id` второй оплаты:
+    # по нему задача 21 разрешает полный возврат этой оплаты в течение 7 дней
+    DOUBLE_PAYMENT_SUSPECTED = "double_payment_suspected"
     COMPENSATION_GRANTED = "compensation_granted"  # компенсация за сбой
     ADMIN_ACTION = "admin_action"  # любое действие администратора
     FAKE_PAYMENT_NOTIFICATION = "fake_payment_notification"  # отклонённое поддельное уведомление

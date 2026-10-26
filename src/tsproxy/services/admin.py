@@ -58,6 +58,9 @@ class AdminActionKind(StrEnum):
     TRIAL_RESET = "trial_reset"  # сброс пробного периода
     DEVICE_DELETED = "device_deleted"  # удалено устройство клиента
     LINK_REVOKED = "link_revoked"  # перевыпущена ссылка подписки
+    REFUND_APPROVED = "refund_approved"  # одобрен возврат (задача 21)
+    REFUND_REJECTED = "refund_rejected"  # отклонён возврат (задача 21)
+    SUBSCRIPTION_TRANSFERRED = "subscription_transferred"  # перенос подписки (задача 21)
 
 
 class ExtensionOutcome(StrEnum):

@@ -11,6 +11,7 @@ from decimal import ROUND_DOWN, Decimal
 from enum import StrEnum
 
 from tsproxy.domain.constants import (
+    DOUBLE_PAYMENT_REFUND_DAYS,
     KOPECK,
     ONE_DAY,
     REFUND_COOLDOWN_MONTHS,
@@ -19,7 +20,19 @@ from tsproxy.domain.constants import (
 from tsproxy.domain.dates import add_months, require_aware
 
 REFUND_WINDOW = timedelta(days=REFUND_WINDOW_DAYS)
+DOUBLE_PAYMENT_REFUND_WINDOW = timedelta(days=DOUBLE_PAYMENT_REFUND_DAYS)
 MICROSECOND = timedelta(microseconds=1)
+# Доступ после возврата выключаем «сейчас»: панель не принимает срок в прошлом,
+# поэтому ставим срок чуть позже текущего момента и выключаем аккаунт (значение — агента)
+REFUND_END_MARGIN = timedelta(minutes=1)
+
+
+class RefundKind(StrEnum):
+    """Какой это возврат."""
+
+    STANDARD = "standard"  # за неиспользованные дни: 30 дней, раз в полгода
+    # случайная вторая оплата: полностью, 7 дней, вне общих правил (решение владельца)
+    DOUBLE_PAYMENT = "double_payment"
 
 
 class RefundReason(StrEnum):
@@ -125,3 +138,63 @@ def decide_refund(request: RefundRequest) -> RefundDecision:
         request.paid_amount, request.period_start, request.period_end, request.now
     )
     return RefundDecision(denial=_denial(request, days), unused_days=days, amount=amount)
+
+
+def decide_double_payment_refund(
+    now: datetime, paid_at: datetime, paid_amount: Decimal, duration: timedelta
+) -> RefundDecision:
+    """Случайная вторая оплата: вся сумма в течение 7 дней с оплаты, без правил
+    «30 дней» и «раз в полгода». Срок укорачивается на полные дни этой оплаты
+    (`duration` — срок, который она дала, `money.paid_duration`)."""
+    require_aware(now)
+    if duration <= timedelta(0):
+        raise ValueError("оплаченный срок должен быть больше нуля")
+    denial = RefundDenial.WINDOW_PASSED if now > paid_at + DOUBLE_PAYMENT_REFUND_WINDOW else None
+    return RefundDecision(denial, duration // ONE_DAY, paid_amount.quantize(KOPECK, ROUND_DOWN))
+
+
+def limit_to_term(decision: RefundDecision, expire_at: datetime, now: datetime) -> RefundDecision:
+    """Не возвращать больше полных дней, чем осталось в сроке клиента.
+
+    Срок мог стать короче дней заказа: перенос подписки на другой аккаунт, администратор.
+    Сумма уменьшается в той же доле, округление вниз до копеек.
+    """
+    require_aware(now)
+    days_left = max(expire_at - now, timedelta(0)) // ONE_DAY
+    if days_left >= decision.unused_days:
+        return decision
+    amount = (decision.amount * days_left / decision.unused_days).quantize(KOPECK, ROUND_DOWN)
+    denial = decision.denial
+    if denial is None and days_left == 0:
+        denial = RefundDenial.NOTHING_UNUSED
+    return RefundDecision(denial, days_left, amount)
+
+
+def next_refund_at(last_refund_at: datetime) -> datetime:
+    """С какого момента клиенту снова можно вернуть деньги (раз в полгода)."""
+    return add_months(last_refund_at, REFUND_COOLDOWN_MONTHS)
+
+
+@dataclass(frozen=True)
+class TermAfterRefund:
+    """Срок после возврата. `end_access` — выключить доступ сразу (срок почти кончился)."""
+
+    expire_at: datetime
+    end_access: bool
+
+
+def term_after_refund(expire_at: datetime, refunded_days: int, now: datetime) -> TermAfterRefund:
+    """Новый срок = текущий срок − возвращённые дни (payment-journeys №8, Г5).
+
+    Не «начало оплаченного периода»: после этого заказа мог быть куплен ещё один, его дни
+    остаются. Если после вычета остаётся меньше суток, доступ выключается сразу: иначе
+    по окончании срока начался бы льготный период — бесплатные дни после возврата.
+    Срок никогда не становится позже нынешнего.
+    """
+    require_aware(now)
+    if refunded_days < 0:
+        raise ValueError("число возвращённых дней не может быть отрицательным")
+    shortened = expire_at - refunded_days * ONE_DAY
+    if shortened - now >= ONE_DAY:
+        return TermAfterRefund(shortened, end_access=False)
+    return TermAfterRefund(min(expire_at, now + REFUND_END_MARGIN), end_access=True)
