@@ -36,7 +36,9 @@ from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from tsproxy.bot.admin import AdminAccess
+from tsproxy.bot.admin_broadcast import TelegramBroadcastSender, create_admin_broadcast_router
 from tsproxy.bot.admin_erasure import TelegramTopicRemover
+from tsproxy.bot.admin_stats import create_admin_stats_router
 from tsproxy.bot.alert_sender import TelegramAlertSender
 from tsproxy.bot.connect import REMNAWAVE_UNAVAILABLE_ALERT
 from tsproxy.bot.context import BotContext
@@ -62,6 +64,7 @@ from tsproxy.services.account_checks import AccountCheckHandler, AccountChecks
 from tsproxy.services.admin import AdminService
 from tsproxy.services.admin_topics import AdminTopic
 from tsproxy.services.alerts import Alerter
+from tsproxy.services.broadcast import BroadcastService
 from tsproxy.services.client_card import ClientCardService
 from tsproxy.services.clients import ClientService
 from tsproxy.services.clock import Clock, system_clock
@@ -77,6 +80,7 @@ from tsproxy.services.profile import ProfileService
 from tsproxy.services.reconciliation import Reconciliation
 from tsproxy.services.reminders import ReminderService
 from tsproxy.services.remnawave_signals import RemnawaveSignals
+from tsproxy.services.stats import StatsService
 from tsproxy.services.support import SupportService
 from tsproxy.services.term_guard import TermLockedHandlers
 from tsproxy.services.trial import TrialService
@@ -170,6 +174,7 @@ class Application:
     web: FastAPI
     alerter: Alerter
     jobs: PeriodicJobs
+    broadcasts: BroadcastService  # рассылка (задача 19): при остановке бота — прервать с отчётом
 
 
 def build_application(
@@ -263,7 +268,18 @@ def build_application(
             session_factory, TelegramTopicRemover(bot, settings.admin_chat_id), events
         ),
     )
-    dispatcher = create_dispatcher(ctx, RateLimiter())
+    # Статистика и рассылка (задача 19)
+    broadcasts = BroadcastService(
+        session_factory, events, clock, TelegramBroadcastSender(bot, delivery)
+    )
+    dispatcher = create_dispatcher(
+        ctx,
+        RateLimiter(),
+        extra_routers=[
+            create_admin_stats_router(ctx.access, StatsService(session_factory, remnawave, clock)),
+            create_admin_broadcast_router(ctx.access, broadcasts),
+        ],
+    )
     # Обработчики проверок прокси-аккаунтов: их вызывают и вебхуки Remnawave, и сверка.
     # Задача 10 — напоминания и продления пробного, задача 11 — льготный период:
     # добавлять в этот список (AccountChecks копирует его при создании).
@@ -305,6 +321,7 @@ def build_application(
         dispatcher=dispatcher,
         web=create_web_app(_telegram_webhook(settings, bot, dispatcher), remnawave_webhook),
         alerter=alerter,
+        broadcasts=broadcasts,
         jobs=PeriodicJobs(
             [
                 PeriodicJob("alerts_flush", ALERT_FLUSH_INTERVAL, alerter.flush_repeats),
@@ -499,6 +516,8 @@ async def run_application(app: Application) -> None:
             loop.remove_signal_handler(stop_signal)
         await app.jobs.stop()
         await _stop_polling(app.dispatcher, polling)
+        # после polling: новых нажатий «Отправить» уже не будет; отчёт уйдёт, пока бот открыт
+        await app.broadcasts.shutdown()
         server.should_exit = True
         results = await asyncio.gather(*tasks, return_exceptions=True)
         await close_application(app)
