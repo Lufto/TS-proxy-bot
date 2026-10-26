@@ -293,6 +293,9 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         "notices.trial_farewell",
         "notices.trial_traffic_warning",
         "notices.trial_traffic_used_up",
+        # задача 20: извинение после сбоя
+        "compensation.extended",
+        "compensation.carried",
     }
 )
 REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
@@ -444,6 +447,25 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
         "admin.trials.unchanged",
         "admin.trials.disable_button",
         "admin.trials.enable_button",
+        # задача 20: компенсация при сбое ноды
+        "alerts.compensation_failed",
+        "admin.compensation.offer",
+        "admin.compensation.button",
+        "admin.compensation.confirm",
+        "admin.compensation.confirm_button",
+        "admin.compensation.resume_button",
+        "admin.compensation.in_progress",
+        "admin.compensation.started",
+        "admin.compensation.progress",
+        "admin.compensation.finished",
+        "admin.compensation.unfinished",
+        "admin.compensation.manual",
+        "admin.compensation.nothing",
+        "admin.compensation.launched",
+        "admin.compensation.resumed",
+        "admin.compensation.running",
+        "admin.compensation.not_found",
+        "admin.compensation.still_open",
     }
 )
 

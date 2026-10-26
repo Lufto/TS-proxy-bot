@@ -18,6 +18,7 @@ from tsproxy.content.loader import ADMIN_TEXTS_FILE, load_texts
 from tsproxy.db.engine import create_session_factory
 from tsproxy.db.enums import OrderStatus
 from tsproxy.db.models import Client, Event, Order
+from tsproxy.domain.compensation import CompensationAction
 from tsproxy.domain.constants import (
     BYTES_PER_GB,
     GRANT_FAST_RETRIES,
@@ -342,6 +343,61 @@ async def test_purchase_in_grace_counts_from_payment_and_ends_grace(
 
     assert (await s.remnawave.get_account(TELEGRAM_ID)).expire_at == paid_at + MONTH
     assert (await load_client(s, client.id)).grace_started_at is None
+
+
+async def record_carry_over(s: Setup, mask: Masker, client_id: int, amount: timedelta) -> None:
+    """Компенсация за сбой, начисленная в льготный период (как пишет её задача 20)."""
+    async with s.session_factory() as session:
+        await EventLog(s.clock, mask).record(
+            session,
+            EventKind.COMPENSATION_GRANTED,
+            client_id=client_id,
+            details={
+                "run_id": 1,
+                "action": CompensationAction.CARRY_OVER,
+                "amount_seconds": int(amount.total_seconds()),
+            },
+        )
+        await session.commit()
+
+
+async def test_purchase_in_grace_adds_compensation_carried_from_grace(
+    s: Setup, client: Client, session: AsyncSession, mask: Masker
+) -> None:
+    # задача 20: компенсация в льготный период не пропадает при оплате «от момента оплаты»
+    client.grace_started_at = s.clock() - timedelta(days=1)
+    await session.commit()
+    await existing_account(s, expire_at=s.clock() + timedelta(days=3))
+    carried = timedelta(days=1, hours=3)
+    await record_carry_over(s, mask, client.id, carried)
+    order_id, payment = await paid_order(s, client)
+    paid_at = s.clock()
+
+    await s.service.credit(order_id, payment)
+
+    assert (await s.remnawave.get_account(TELEGRAM_ID)).expire_at == paid_at + MONTH + carried
+    # следующая оплата — уже без льготного: перенесённое второй раз не добавляется
+    s.clock.advance(timedelta(days=1))
+    expire_at = (await s.remnawave.get_account(TELEGRAM_ID)).expire_at
+    second_id, second = await paid_order(s, client)
+    await s.service.credit(second_id, second)
+    assert (await s.remnawave.get_account(TELEGRAM_ID)).expire_at == expire_at + MONTH
+
+
+async def test_compensation_before_grace_is_not_carried(
+    s: Setup, client: Client, session: AsyncSession, mask: Masker
+) -> None:
+    await record_carry_over(s, mask, client.id, timedelta(days=1))  # прошлый льготный период
+    s.clock.advance(timedelta(days=40))
+    client.grace_started_at = s.clock() - timedelta(days=1)
+    await session.commit()
+    await existing_account(s, expire_at=s.clock() + timedelta(days=3))
+    order_id, payment = await paid_order(s, client)
+    paid_at = s.clock()
+
+    await s.service.credit(order_id, payment)
+
+    assert (await s.remnawave.get_account(TELEGRAM_ID)).expire_at == paid_at + MONTH
 
 
 async def test_access_disabled_after_grace_is_switched_back_on(

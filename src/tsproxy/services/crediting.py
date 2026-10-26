@@ -61,6 +61,7 @@ from tsproxy.integrations.remnawave_types import (
 from tsproxy.services.admin_topics import AdminTopic
 from tsproxy.services.alerts import Alerter
 from tsproxy.services.clock import Clock, utc_now
+from tsproxy.services.compensation import carried_compensation
 from tsproxy.services.events import EventKind, EventLog
 from tsproxy.services.grace import client_snapshot
 from tsproxy.services.locks import KeyedLocks
@@ -406,14 +407,15 @@ class CreditingService:
         async with self._session_factory() as session:
             client = await session.get_one(Client, order.client_id)
             grace_started_at = client.grace_started_at or await _grace_at_payment(session, order.id)
+            # компенсация за сбой, полученная в этот льготный период (задача 20)
+            carried = await carried_compensation(session, client.id, grace_started_at)
         account = await self._find_account(telegram_id)
         if account is None:
             snapshot = ClientSnapshot(None, False, grace_started_at, access_disabled=False)
         else:
             snapshot = replace(client_snapshot(client, account), grace_started_at=grace_started_at)
-        # Компенсация, перенесённая из льготного периода (задача 20), пока не хранится в базе
         target = grant_target_expire_at(
-            snapshot, now, paid_duration(order.days, order.price, order.paid_amount)
+            snapshot, now, paid_duration(order.days, order.price, order.paid_amount), carried
         )
         async with self._session_factory() as session:
             await session.execute(
@@ -423,7 +425,12 @@ class CreditingService:
             )
             await session.commit()
         order.grant_target_expire_at = target
-        logger.info("Заказ %s: продлить до %s", order.id, target.isoformat())
+        logger.info(
+            "Заказ %s: продлить до %s (перенесённая компенсация %s)",
+            order.id,
+            target.isoformat(),
+            carried,
+        )
         return target
 
     async def _find_account(self, telegram_id: int) -> ProxyAccount | None:
