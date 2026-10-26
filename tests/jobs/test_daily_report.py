@@ -2,7 +2,7 @@
 
 import os
 from collections.abc import AsyncIterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -11,10 +11,13 @@ import pytest
 from backup_helpers import CHAT_ID, REPO_CONTENT
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from tsproxy.config import RunMode
 from tsproxy.content.loader import Texts, load_content
 from tsproxy.db.engine import create_engine, create_session_factory
 from tsproxy.db.enums import OrderStatus, TicketStatus
 from tsproxy.db.models import Base, Client, Event, Order, SupportTicket
+from tsproxy.integrations.fakes import FakeRemnawave
+from tsproxy.integrations.remnawave_types import RemnawaveUnavailable
 from tsproxy.jobs.backup import BackupResult
 from tsproxy.jobs.backup_files import StoredBackup
 from tsproxy.jobs.daily_report import BotBackupJob, DailyReport, ReportDestination
@@ -24,6 +27,7 @@ from tsproxy.services.events import EventKind
 from tsproxy.services.fakes import FakeAlertSender, FakeClock
 from tsproxy.services.job_health import JobHealth
 from tsproxy.services.panel_backups import PanelBackupMonitor
+from tsproxy.services.stats import StatsService
 
 # Отчёт уходит в 10:00 МСК 25.10 и рассказывает про 24.10 (по Москве)
 REPORT_AT = datetime(2026, 10, 25, 7, 0, tzinfo=UTC)
@@ -32,14 +36,6 @@ IN_DAY = DAY_START + timedelta(hours=10)
 BEFORE_DAY = DAY_START - timedelta(minutes=30)
 AFTER_DAY = DAY_START + timedelta(days=1, minutes=30)
 REPORT_THREAD_ID = 7
-
-
-@dataclass
-class StubSupport:
-    overdue: list[object] = field(default_factory=list)
-
-    async def overdue_tickets(self) -> list[object]:
-        return self.overdue
 
 
 @dataclass
@@ -137,16 +133,20 @@ def make_report(
     texts: Texts,
     clock: FakeClock,
     bot_backup_job: BotBackupJob | None,
+    remnawave: FakeRemnawave | None = None,
+    *,
+    watch_panel: bool = True,
 ) -> DailyReport:
     panel = PanelBackupMonitor(
         tmp_path / "panel" / "backup.log", tmp_path / "panel" / "daily", alerter, texts, clock
     )
+    panel_remnawave = remnawave if remnawave is not None else FakeRemnawave(RunMode.PROD)
     return DailyReport(
         session_factory,
-        StubSupport([object()]),
+        StatsService(session_factory, panel_remnawave, clock),
         alerter,
         jobs,
-        panel,
+        panel if watch_panel else None,
         tmp_path / "bot",
         bot_backup_job,
         sender,
@@ -210,9 +210,11 @@ async def test_report_on_test_data(
         "📊 <b>Отчёт за 24.10.2026</b>",
         "👤 Новых клиентов: 2",
         "🎁 Пробных выдано: 2",
-        "💰 Оплат: 2 на 555.50 ₽",
+        "💰 Оплат: 2 на 555,50 ₽",
         "⚠️ Оплачено, но доступ не выдан: 1 — проверьте «💰 Оплаты» и «🚨 Тревоги»",
-        "💬 Открытых обращений: 2, ждут ответа дольше часа: 1",
+        "🔑 Подписки сейчас: оплаченных — 0, в льготном периоде — 0, пробных — 0",
+        "💬 Обращения: открыто — 2, ждут первого ответа — 2; с 1-го числа — 3",
+        "👥 Клиентов бота: 4, заблокировали бота: 0",
         "🚨 Тревог: 2",
         "💾 База бота: копия 25.10.2026, 04:30 МСК, 3.0 КБ, в Telegram отправлена",
         "💾 Панель: копия 25.10.2026, 04:00 МСК, 208.0 КБ, ошибок отправки в Telegram нет",
@@ -233,10 +235,15 @@ async def test_quiet_day_with_problems(
     jobs = JobHealth(clock)
     sender = FakeAlertSender()
 
-    report = make_report(tmp_path, session_factory, alerter, jobs, sender, texts, clock, None)
+    remnawave = FakeRemnawave(RunMode.PROD)
+    remnawave.fail_next(RemnawaveUnavailable("нет связи"))
+    report = make_report(
+        tmp_path, session_factory, alerter, jobs, sender, texts, clock, None, remnawave
+    )
     text = await report.build()
 
-    assert "💰 Оплат: 0 на 0.00 ₽" in text
+    assert "💰 Оплат: 0 на 0 ₽" in text
+    assert "🔑 Подписки сейчас: панель Remnawave не ответила — неизвестно" in text
     assert "Оплачено, но доступ не выдан" not in text
     assert "🚨 Тревог: 0 (считаем с запуска бота 24.10.2026, 10:00 МСК)" in text
     assert "💾 База бота: бэкап не запускается (режим dev)" in text
@@ -275,3 +282,25 @@ async def test_bot_copy_made_before_restart_and_old_panel_copy(
 
     assert "💾 База бота: копия 25.10.2026, 05:00 МСК, 3.0 КБ\n" in text
     assert "💾 Панель: ⚠️ нет копии моложе 26 часов (последняя — 24.10.2026, 04:00 МСК)" in text
+
+
+async def test_panel_watch_off(
+    tmp_path: Path,
+    session_factory: async_sessionmaker[AsyncSession],
+    alerter: Alerter,
+    texts: Texts,
+    clock: FakeClock,
+) -> None:
+    clock.now = REPORT_AT
+    report = make_report(
+        tmp_path,
+        session_factory,
+        alerter,
+        JobHealth(clock),
+        FakeAlertSender(),
+        texts,
+        clock,
+        None,
+        watch_panel=False,
+    )
+    assert "💾 Панель: присмотр выключен" in await report.build()

@@ -2,8 +2,9 @@
 задача 22).
 
 За вчерашний день по Москве: новые клиенты, пробные, оплаты и выручка, тревоги. На сейчас:
-оплаченные заказы без выданного доступа, открытые обращения, бэкапы базы бота и панели,
-зависшие фоновые задачи. Тексты — `report.*` в `content/admin_texts.yaml`.
+оплаченные заказы без выданного доступа, подписки, обращения и клиенты (как в `/stats`,
+задача 19), бэкапы базы бота и панели, зависшие фоновые задачи. Тексты — `report.*`
+и `admin.stats.*` в `content/admin_texts.yaml`.
 
 Тревоги считаются в памяти с запуска бота: если бот перезапускался вчера, в отчёте
 сказано, с какого момента идёт счёт. Сбой отправки отчёта летит дальше — его увидит
@@ -12,7 +13,6 @@
 
 import asyncio
 import logging
-from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from tsproxy.content.loader import Texts
 from tsproxy.domain.dates import format_moscow
+from tsproxy.domain.money import format_rubles
 from tsproxy.domain.monitoring import DAILY_JOB_STALE_AFTER, ReportDay, previous_moscow_day
 from tsproxy.domain.panel_backup import PanelBackupProblem
 from tsproxy.jobs.backup import BackupResult, format_size
@@ -31,6 +32,7 @@ from tsproxy.services.clock import Clock, utc_now
 from tsproxy.services.job_health import JobHealth
 from tsproxy.services.panel_backups import PanelBackupMonitor, PanelBackupUnreadableError
 from tsproxy.services.report_stats import day_stats
+from tsproxy.services.stats import Stats
 
 logger = logging.getLogger(__name__)
 
@@ -38,10 +40,10 @@ BOT_COPY_PATTERN = f"{BACKUP_NAME_PREFIX}*{BACKUP_SUFFIX}"
 REPORT_DATE_FORMAT = "%d.%m.%Y"
 
 
-class OverdueTickets(Protocol):
-    """Обращения, где клиент ждёт ответа дольше часа (`SupportService`)."""
+class StatsSource(Protocol):
+    """Текущая статистика админки (`services.stats.StatsService`, задача 19)."""
 
-    async def overdue_tickets(self) -> Sequence[object]: ...
+    async def collect(self) -> Stats: ...
 
 
 class Backup(Protocol):
@@ -73,10 +75,10 @@ class DailyReport:
     def __init__(
         self,
         session_factory: async_sessionmaker[AsyncSession],
-        support: OverdueTickets,
+        stats: StatsSource,
         alerter: Alerter,
         jobs: JobHealth,
-        panel_backups: PanelBackupMonitor,
+        panel_backups: PanelBackupMonitor | None,
         bot_backup_dir: Path,
         bot_backup_job: BotBackupJob | None,
         sender: AlertSender,
@@ -84,9 +86,10 @@ class DailyReport:
         admin_texts: Texts,
         clock: Clock,
     ) -> None:
-        """`bot_backup_job` — `None`, если бэкап базы бота не запускается (режим dev)."""
+        """`bot_backup_job` — `None`, если бэкап базы бота не запускается (режим dev);
+        `panel_backups` — `None`, если присмотр за бэкапами панели выключен в настройках."""
         self._session_factory = session_factory
-        self._support = support
+        self._stats = stats
         self._alerter = alerter
         self._jobs = jobs
         self._panel_backups = panel_backups
@@ -105,7 +108,8 @@ class DailyReport:
     async def build(self) -> str:
         day = previous_moscow_day(utc_now(self._clock))
         lines = [
-            *await self._sales_lines(day),
+            *await self._day_lines(day),
+            *await self._now_lines(),
             self._alerts_line(day),
             await self._bot_backup_line(),
             await self._panel_backup_line(),
@@ -113,21 +117,47 @@ class DailyReport:
         ]
         return "\n".join(lines)
 
-    async def _sales_lines(self, day: ReportDay) -> list[str]:
+    async def _day_lines(self, day: ReportDay) -> list[str]:
         stats = await day_stats(self._session_factory, day)
-        overdue = await self._support.overdue_tickets()
+        sales = stats.sales
         lines = [
             self._texts.get("report.title", day=day.date.strftime(REPORT_DATE_FORMAT)),
             self._texts.get("report.new_clients", count=stats.new_clients),
             self._texts.get("report.trials", count=stats.trials),
-            self._texts.get("report.payments", count=stats.payments, amount=stats.revenue),
+            self._texts.get(
+                "report.payments", count=sales.count, amount=format_rubles(sales.amount)
+            ),
         ]
         if stats.unfinished_orders:
             lines.append(self._texts.get("report.unfinished_orders", count=stats.unfinished_orders))
-        lines.append(
-            self._texts.get("report.tickets", open=stats.open_tickets, overdue=len(overdue))
-        )
         return lines
+
+    async def _now_lines(self) -> list[str]:
+        """Подписки, обращения и клиенты сейчас — теми же строками, что в `/stats`."""
+        stats = await self._stats.collect()
+        subscriptions = stats.subscriptions
+        if subscriptions is None:
+            subscriptions_line = self._texts.get("admin.stats.subscriptions_unknown")
+        else:
+            subscriptions_line = self._texts.get(
+                "admin.stats.subscriptions",
+                paid=subscriptions.paid,
+                grace=subscriptions.grace,
+                trial=subscriptions.trial,
+            )
+        support = stats.support
+        return [
+            subscriptions_line,
+            self._texts.get(
+                "admin.stats.support",
+                open_now=support.open_now,
+                waiting=support.waiting_first_reply,
+                opened=support.opened_month,
+            ),
+            self._texts.get(
+                "admin.stats.clients", total=stats.clients.total, blocked=stats.clients.blocked
+            ),
+        ]
 
     def _alerts_line(self, day: ReportDay) -> str:
         count = self._alerter.raised_on(day.date)
@@ -162,6 +192,8 @@ class DailyReport:
         return "report.bot_backup_sent" if last.sent_to_telegram else "report.bot_backup_not_sent"
 
     async def _panel_backup_line(self) -> str:
+        if self._panel_backups is None:
+            return self._texts.get("report.panel_backup_off")
         try:
             status = await self._panel_backups.status()
         except PanelBackupUnreadableError as error:
