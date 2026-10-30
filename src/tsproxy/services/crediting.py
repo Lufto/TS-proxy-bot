@@ -37,6 +37,7 @@
 
 import asyncio
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -85,6 +86,8 @@ CREDIT_WRITE_RETRY_DELAY = timedelta(seconds=1)
 GRACE_DETAIL = "grace_started_at"
 # Поле события «оплата получена»: номер заказа, с которым эта оплата похожа на двойную
 DOUBLE_DETAIL = "possible_double_of"
+# Поле события «оплата получена»: сколько звёзд заплачено (задача 33); нет — платили рублями
+STARS_DETAIL = "stars"
 # Сколько клиентов фоновая задача повторов берёт за один проход
 GRANT_BATCH_SIZE = 50
 
@@ -181,6 +184,7 @@ class _CreditedPayment:
     paid_amount: Decimal
     paid_at: datetime
     double_of: int | None  # заказ, с которым эта оплата похожа на случайную двойную
+    stars: int | None  # оплачено звёздами Telegram (задача 33)
 
 
 class CreditingService:
@@ -304,6 +308,7 @@ class CreditingService:
                         None if grace_started_at is None else grace_started_at.isoformat()
                     ),
                     DOUBLE_DETAIL: double_of,
+                    STARS_DETAIL: payment.stars,
                 },
             )
             credited = _CreditedPayment(
@@ -318,6 +323,7 @@ class CreditingService:
                 paid_amount=payment.amount,
                 paid_at=now,
                 double_of=double_of,
+                stars=payment.stars,
             )
             await session.commit()
         return credited
@@ -340,6 +346,9 @@ class CreditingService:
             username=username,
             telegram_id=credited.telegram_id,
         )
+        if credited.stars is not None:
+            # задача 33: оплата звёздами — пометка ⭐, сумма выше — рубли заказа
+            text += "\n" + self._admin_texts.get("payments.stars", stars=credited.stars)
         if credited.double_of is not None:
             text += "\n" + self._admin_texts.get(
                 "payments.possible_double",
@@ -650,3 +659,22 @@ async def _grace_at_payment(session: AsyncSession, order_id: int) -> datetime | 
     )
     raw = None if details is None else details.get(GRACE_DETAIL)
     return None if raw is None else require_aware(datetime.fromisoformat(raw))
+
+
+async def paid_stars(session: AsyncSession, order_ids: Sequence[int]) -> dict[int, int]:
+    """Сколько звёзд заплачено за заказы (задача 33) — из событий «оплата получена».
+
+    Заказов, оплаченных рублями, в ответе нет.
+    """
+    if not order_ids:
+        return {}
+    rows = await session.execute(
+        select(Event.order_id, Event.details).where(
+            Event.order_id.in_(order_ids), Event.kind == EventKind.PAYMENT_RECEIVED.value
+        )
+    )
+    return {
+        order_id: int(details[STARS_DETAIL])
+        for order_id, details in rows
+        if order_id is not None and details is not None and details.get(STARS_DETAIL) is not None
+    }

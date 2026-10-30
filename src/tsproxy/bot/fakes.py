@@ -20,6 +20,7 @@ from aiogram.methods import (
     EditMessageText,
     GetMe,
     GetUpdates,
+    SendInvoice,
     SendMessage,
     TelegramMethod,
 )
@@ -108,6 +109,9 @@ class FakeTelegramSession(BaseSession):
         if isinstance(method, SendMessage):
             self._next_message_id += 1
             return self._message(method.chat_id, self._next_message_id, method.text)
+        if isinstance(method, SendInvoice):
+            self._next_message_id += 1
+            return self._message(method.chat_id, self._next_message_id, method.title)
         if isinstance(method, CopyMessage):
             self._next_message_id += 1
             return MessageId(message_id=self._next_message_id)

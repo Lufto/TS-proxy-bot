@@ -23,21 +23,26 @@ from tsproxy.domain.refund import REFUND_END_MARGIN
 from tsproxy.integrations.fake_payments import FakePaymentProvider
 from tsproxy.integrations.fakes import FakeRemnawave
 from tsproxy.integrations.payments_types import (
+    PaidPayment,
+    PaymentRefunds,
     PaymentRejected,
     PaymentRequest,
     PaymentUnavailable,
+    Refund,
     RefundOutcome,
 )
+from tsproxy.integrations.refunds import ProviderRefunds, RefundRouter
 from tsproxy.integrations.remnawave_types import (
     AccountNotFound,
     AccountStatus,
     ProxyAccount,
     RemnawaveUnavailable,
 )
+from tsproxy.integrations.telegram_stars import STARS_PROVIDER
 from tsproxy.services.admin import AdminActionKind
 from tsproxy.services.admin_topics import AdminTopic
 from tsproxy.services.alerts import Alerter
-from tsproxy.services.crediting import DOUBLE_DETAIL
+from tsproxy.services.crediting import DOUBLE_DETAIL, STARS_DETAIL
 from tsproxy.services.events import EventKind, EventLog
 from tsproxy.services.fakes import FakeAlertSender, FakeClock
 from tsproxy.services.locks import KeyedLocks
@@ -89,11 +94,13 @@ class FlakyRemnawave(FakeRemnawave):
 @dataclass
 class FakeRefundMessages:
     completed: list[tuple[int, Decimal, datetime | None]] = field(default_factory=list)
+    stars: list[int | None] = field(default_factory=list)  # задача 33: чем платили
 
     async def refund_completed(
-        self, telegram_id: int, amount: Decimal, expire_at: datetime | None
+        self, telegram_id: int, amount: Decimal, expire_at: datetime | None, *, stars: int | None
     ) -> None:
         self.completed.append((telegram_id, amount, expire_at))
+        self.stars.append(stars)
 
 
 @dataclass
@@ -117,6 +124,7 @@ def build(
     mask: Masker,
     *,
     payments_on: bool = True,
+    stars: PaymentRefunds | None = None,  # задача 33: возврат звёзд
 ) -> Setup:
     remnawave = FlakyRemnawave(clock)
     payments = FakePaymentProvider(clock)
@@ -127,7 +135,10 @@ def build(
     service = RefundService(
         session_factory,
         remnawave,
-        payments if payments_on else None,
+        RefundRouter(
+            ({payments.name: ProviderRefunds(payments)} if payments_on else {})
+            | ({} if stars is None else {STARS_PROVIDER: stars})
+        ),
         EventLog(clock, mask),
         Alerter(alerts, admin_texts, ADMIN_CHAT_ID, ALERTS_THREAD_ID, clock, mask),
         AdminTopic(topic, ADMIN_CHAT_ID, PAYMENTS_THREAD_ID),
@@ -680,3 +691,66 @@ async def test_keep_after_refund_is_refused(setup: Setup, client: Client) -> Non
     result = await setup.service.keep_double_payment(TELEGRAM_ID, second.id)
 
     assert result == RefundRefused(RefundRefusal.ALREADY_REFUNDED)
+
+
+# --- Оплата звёздами Telegram (задача 33): возвращаются звёзды через refundStarPayment ---
+
+STARS = 100
+CHARGE = "stxCharge-1"
+
+
+@dataclass
+class FakeStarsRefunds:
+    refunded: list[PaidPayment] = field(default_factory=list)
+
+    async def refund(self, payment: PaidPayment, amount: Decimal, idempotency_key: str) -> Refund:
+        self.refunded.append(payment)
+        return Refund(payment.payment_id, payment.payment_id, amount, RefundOutcome.SUCCEEDED)
+
+
+async def paid_with_stars(setup: Setup, client: Client, order: Order) -> None:
+    """Сделать заказ оплаченным звёздами — как его оставляет `services.stars`."""
+    async with setup.session_factory() as session:
+        stored = await session.get_one(Order, order.id)
+        stored.payment_provider = STARS_PROVIDER
+        stored.payment_id = CHARGE
+        session.add(
+            Event(
+                kind=EventKind.PAYMENT_RECEIVED.value,
+                client_id=client.id,
+                order_id=order.id,
+                occurred_at=setup.clock(),
+                details={STARS_DETAIL: STARS},
+            )
+        )
+        await session.commit()
+
+
+async def test_stars_payment_is_refunded_in_stars(
+    engine: AsyncEngine, clock: FakeClock, mask: Masker, client: Client
+) -> None:
+    stars = FakeStarsRefunds()
+    setup = build(create_session_factory(engine), clock, mask, stars=stars)
+    order = await paid_order(setup, client, paid_at=clock(), expire_at=clock() + MONTH)
+    await paid_with_stars(setup, client, order)
+
+    [listed] = await setup.service.refundable_payments(TELEGRAM_ID) or []
+    result = await refund(setup, order)
+
+    assert (listed.stars, listed.blocker) == (STARS, None)
+    assert stars.refunded == [PaidPayment(STARS_PROVIDER, CHARGE, TELEGRAM_ID)]
+    assert setup.payments.ledger.find_by_order(order.id)[0].refunded == 0  # СБП не трогали
+    assert (result.progress, result.stars) == (RefundProgress.COMPLETED, STARS)
+    assert setup.messages.stars == [STARS]
+    assert f"{STARS} ⭐" in setup.topic_texts()[0]
+
+
+async def test_stars_payment_without_stars_route_is_not_refunded(
+    setup: Setup, client: Client, clock: FakeClock
+) -> None:
+    order = await paid_order(setup, client, paid_at=clock(), expire_at=clock() + MONTH)
+    await paid_with_stars(setup, client, order)
+
+    result = await setup.service.refund_by_admin(ADMIN, TELEGRAM_ID, order.id)
+
+    assert result == RefundRefused(RefundRefusal.PAYMENTS_OFF)

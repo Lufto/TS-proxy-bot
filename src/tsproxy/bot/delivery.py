@@ -7,10 +7,11 @@
 
 import logging
 from collections.abc import Awaitable
+from dataclasses import dataclass
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, LabeledPrice, Message
 
 from tsproxy.bot.screens import Screen
 from tsproxy.services.clients import ClientService
@@ -23,6 +24,19 @@ MESSAGE_NOT_EDITABLE = (
     "message can't be edited",  # сообщение слишком старое
     "message to edit not found",  # клиент удалил сообщение
 )
+
+
+@dataclass(frozen=True)
+class Invoice:
+    """Счёт Telegram: заголовок до 32 символов, описание до 255, сумма — в единицах валюты
+    (у звёзд — целые звёзды)."""
+
+    title: str
+    description: str
+    payload: str
+    currency: str
+    label: str
+    amount: int
 
 
 class ClientDelivery:
@@ -47,6 +61,25 @@ class ClientDelivery:
         return await self.call(
             telegram_id,
             self._bot.send_message(telegram_id, screen.text, reply_markup=screen.markup),
+        )
+
+    async def invoice(self, telegram_id: int, invoice: Invoice) -> Message | None:
+        """Счёт в звёздах Telegram (задача 33): сообщение с кнопкой оплаты.
+
+        `provider_token` пустой — так Telegram требует для звёзд. `None` — клиент
+        заблокировал бота.
+        """
+        return await self.call(
+            telegram_id,
+            self._bot.send_invoice(
+                telegram_id,
+                title=invoice.title,
+                description=invoice.description,
+                payload=invoice.payload,
+                currency=invoice.currency,
+                prices=[LabeledPrice(label=invoice.label, amount=invoice.amount)],
+                provider_token="",
+            ),
         )
 
     async def show(self, callback: CallbackQuery, screen: Screen) -> None:

@@ -18,11 +18,13 @@ from tsproxy.db.enums import OrderStatus, TicketStatus
 from tsproxy.db.models import Base, Client, Event, Order, SupportTicket
 from tsproxy.integrations.fakes import FakeRemnawave
 from tsproxy.integrations.remnawave_types import RemnawaveUnavailable
+from tsproxy.integrations.telegram_stars import STARS_PROVIDER
 from tsproxy.jobs.backup import BackupResult
 from tsproxy.jobs.backup_files import StoredBackup
 from tsproxy.jobs.daily_report import BotBackupJob, DailyReport, ReportDestination
 from tsproxy.logging_setup import MaskingFilter
 from tsproxy.services.alerts import Alerter
+from tsproxy.services.crediting import STARS_DETAIL
 from tsproxy.services.events import EventKind
 from tsproxy.services.fakes import FakeAlertSender, FakeClock
 from tsproxy.services.job_health import JobHealth
@@ -30,6 +32,7 @@ from tsproxy.services.panel_backups import PanelBackupMonitor
 from tsproxy.services.stats import StatsService
 
 # Отчёт уходит в 10:00 МСК 25.10 и рассказывает про 24.10 (по Москве)
+STARS_RATE = Decimal("1.5")  # курс звезды, задача 33
 REPORT_AT = datetime(2026, 10, 25, 7, 0, tzinfo=UTC)
 DAY_START = datetime(2026, 10, 23, 21, 0, tzinfo=UTC)  # 00:00 МСК 24.10
 IN_DAY = DAY_START + timedelta(hours=10)
@@ -121,6 +124,21 @@ async def seed(session_factory: async_sessionmaker[AsyncSession]) -> None:
                 SupportTicket(client_id=first, status=TicketStatus.CLOSED),
             ]
         )
+        # задача 33: оплата звёздами вчера — в рубли не входит, отдельная строка
+        stars = order(IN_DAY, "150.00", OrderStatus.ACCESS_GRANTED)
+        stars.payment_provider = STARS_PROVIDER
+        stars.payment_id = "stxCharge-1"
+        session.add(stars)
+        await session.flush()
+        session.add(
+            Event(
+                kind=EventKind.PAYMENT_RECEIVED.value,
+                occurred_at=IN_DAY,
+                client_id=first,
+                order_id=stars.id,
+                details={STARS_DETAIL: 100},
+            )
+        )
         await session.commit()
 
 
@@ -143,7 +161,7 @@ def make_report(
     panel_remnawave = remnawave if remnawave is not None else FakeRemnawave(RunMode.PROD)
     return DailyReport(
         session_factory,
-        StatsService(session_factory, panel_remnawave, clock),
+        StatsService(session_factory, panel_remnawave, clock, STARS_RATE),
         alerter,
         jobs,
         panel if watch_panel else None,
@@ -211,6 +229,7 @@ async def test_report_on_test_data(
         "👤 Новых клиентов: 2",
         "🎁 Пробных выдано: 2",
         "💰 Оплат: 2 на 555,50 ₽",
+        "⭐ Звёздами: 1 на 100 ⭐ ≈ 150 ₽",
         "⚠️ Оплачено, но доступ не выдан: 1 — проверьте «💰 Оплаты» и «🚨 Тревоги»",
         "🔑 Подписки сейчас: оплаченных — 0, в льготном периоде — 0, пробных — 0",
         "💬 Обращения: открыто — 2, ждут первого ответа — 2; с 1-го числа — 3",

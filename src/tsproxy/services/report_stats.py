@@ -8,6 +8,7 @@
 
 from dataclasses import dataclass
 from datetime import timedelta
+from decimal import Decimal
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -32,12 +33,17 @@ _JUST_BEFORE = timedelta(microseconds=1)
 class DayStats:
     new_clients: int  # впервые написали боту за сутки
     trials: int  # выдано пробных (включая повторные после сброса администратором)
-    sales: SalesTotal  # оплаченные за сутки заказы и сумма, ₽
+    sales: SalesTotal  # оплаченные за сутки заказы и сумма, ₽ (звёзды — в `sales.stars`)
     unfinished_orders: int  # сейчас: оплачены, а доступ не выдан
 
 
-async def day_stats(session_factory: async_sessionmaker[AsyncSession], day: ReportDay) -> DayStats:
-    """Цифры за сутки `day` (по Москве) и заказы, которые висят сейчас."""
+async def day_stats(
+    session_factory: async_sessionmaker[AsyncSession], day: ReportDay, stars_rate: Decimal
+) -> DayStats:
+    """Цифры за сутки `day` (по Москве) и заказы, которые висят сейчас.
+
+    `stars_rate` — курс звезды: оплаты звёздами «примерно в рублях» (задача 33).
+    """
     async with session_factory() as session:
         new_clients = await session.scalar(
             select(func.count(Client.id)).where(
@@ -51,7 +57,7 @@ async def day_stats(session_factory: async_sessionmaker[AsyncSession], day: Repo
                 Event.occurred_at < day.end,
             )
         )
-        sales = await sales_between(session, day.start, day.end - _JUST_BEFORE)
+        sales = await sales_between(session, day.start, day.end - _JUST_BEFORE, stars_rate)
         unfinished = await session.scalar(
             select(func.count(Order.id)).where(Order.status.in_(UNFINISHED_ORDER_STATUSES))
         )

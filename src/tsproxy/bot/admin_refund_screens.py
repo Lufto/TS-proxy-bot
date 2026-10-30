@@ -12,10 +12,10 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from tsproxy.bot.admin_callbacks import AdminAction, AdminClientCallback, AdminRefundCallback
 from tsproxy.bot.admin_screens import AdminScreen
 from tsproxy.bot.context import BotContext
+from tsproxy.content.amounts import paid_text
 from tsproxy.content.loader import Texts
 from tsproxy.domain.constants import ONE_DAY
 from tsproxy.domain.dates import format_moscow
-from tsproxy.domain.money import format_rubles
 from tsproxy.services.refunds import (
     RefundablePayment,
     RefundProgress,
@@ -53,7 +53,7 @@ class RefundAdminScreens:
                     text=self._texts.get(
                         "refunds.buttons.order",
                         order_id=payment.order_id,
-                        amount=format_rubles(payment.amount),
+                        amount=paid_text(self._texts, payment.amount, payment.stars),
                     ),
                     callback_data=AdminRefundCallback(
                         telegram_id=telegram_id, order_id=payment.order_id
@@ -73,7 +73,7 @@ class RefundAdminScreens:
             paid_at=format_moscow(payment.paid_at),
             tariff_id=payment.tariff_id,
             days=payment.days,
-            amount=format_rubles(payment.amount),
+            amount=paid_text(self._texts, payment.amount, payment.stars),
             state=self._state(payment),
         )
 
@@ -93,7 +93,7 @@ class RefundAdminScreens:
 
     def ask(self, telegram_id: int, payment: RefundablePayment) -> AdminScreen:
         """«Вернуть … ₽? Со срока снимется …» — «✅ Да, вернуть» и «Отмена»."""
-        amount = format_rubles(payment.amount)
+        amount = paid_text(self._texts, payment.amount, payment.stars)
         text = self._texts.get(
             "refunds.ask",
             telegram_id=telegram_id,
@@ -131,7 +131,7 @@ class RefundAdminScreens:
             key = "refunds.result.completed_access_ended"
         values: dict[str, object] = {
             "request_id": result.request_id,
-            "amount": format_rubles(result.amount),
+            "amount": paid_text(self._texts, result.amount, result.stars),
             "telegram_id": result.telegram_id,
         }
         if result.expire_at is not None:

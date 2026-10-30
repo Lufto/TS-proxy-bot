@@ -36,6 +36,18 @@ def _sales(texts: Texts, key: str, sales: SalesTotal) -> str:
     return texts.get(key, count=sales.count, amount=format_rubles(sales.amount))
 
 
+def _stars(texts: Texts, key: str, sales: SalesTotal) -> str:
+    """Оплаты звёздами Telegram отдельной строкой (задача 33)."""
+    stars = sales.stars
+    return texts.get(
+        key,
+        count=stars.count,
+        stars=stars.stars,
+        rubles=format_rubles(stars.rubles),
+        refunds=stars.refunds,
+    )
+
+
 def stats_text(texts: Texts, stats: Stats) -> str:
     """Статистика одним сообщением (HTML)."""
     lines = [
@@ -49,6 +61,8 @@ def stats_text(texts: Texts, stats: Stats) -> str:
             month_count=stats.sales_month.refunds.count,
             month_amount=format_rubles(stats.sales_month.refunds.amount),
         ),
+        _stars(texts, "admin.stats.stars_today", stats.sales_today),
+        _stars(texts, "admin.stats.stars_month", stats.sales_month),
     ]
     subscriptions = stats.subscriptions
     if subscriptions is None:

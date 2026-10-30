@@ -17,7 +17,8 @@ from tsproxy.bot.fallback import create_fallback_router
 from tsproxy.bot.menu import create_menu_router
 from tsproxy.bot.profile import PROFILE_COMMAND, create_profile_router
 from tsproxy.bot.refunds import create_refunds_router
-from tsproxy.bot.support import SUPPORT_COMMAND, create_support_router
+from tsproxy.bot.stars import create_stars_router
+from tsproxy.bot.support import PAYSUPPORT_COMMAND, SUPPORT_COMMAND, create_support_router
 from tsproxy.bot.tariffs import BUY_COMMAND, create_tariffs_router
 from tsproxy.bot.throttling import RateLimiter, ThrottlingMiddleware
 from tsproxy.bot.trial import create_trial_router
@@ -46,6 +47,7 @@ def create_dispatcher(
         create_trial_router(),
         create_profile_router(),
         create_tariffs_router(),
+        create_stars_router(),  # задача 33: раньше поддержки — она берёт все сообщения
         create_refunds_router(),  # задача 21: случайная вторая оплата
         create_admin_router(ctx.access),  # задача 18
         create_admin_trials_router(ctx.access),  # задача 28
@@ -60,5 +62,5 @@ def create_dispatcher(
 
 def bot_commands(texts: Texts) -> list[BotCommand]:
     """Команды в меню Telegram (кнопка «/» рядом с полем ввода)."""
-    names = ["start", PROFILE_COMMAND, BUY_COMMAND, SUPPORT_COMMAND]
+    names = ["start", PROFILE_COMMAND, BUY_COMMAND, SUPPORT_COMMAND, PAYSUPPORT_COMMAND]
     return [BotCommand(command=name, description=texts.get(f"commands.{name}")) for name in names]

@@ -22,11 +22,14 @@ from tsproxy.domain.constants import (
 from tsproxy.domain.stats import ResponseTimes, SubscriptionCounts
 from tsproxy.integrations.fakes import FakeRemnawave
 from tsproxy.integrations.remnawave_types import AccountStatus, RemnawaveUnavailable
+from tsproxy.integrations.telegram_stars import STARS_PROVIDER
+from tsproxy.services.crediting import STARS_DETAIL
 from tsproxy.services.events import EventKind
 from tsproxy.services.fakes import FakeClock
-from tsproxy.services.stats import RefundsTotal, SalesTotal, StatsService
+from tsproxy.services.stats import RefundsTotal, SalesTotal, StarsSales, StatsService
 
 # NOW = 24.10.2026 12:00 UTC = 15:00 МСК; день по Москве начался 23.10 в 21:00 UTC
+STARS_RATE = Decimal("1.5")  # курс звезды, задача 33
 TODAY_EARLY = NOW - timedelta(hours=14)  # 24.10 01:00 МСК — сегодня
 YESTERDAY = NOW - timedelta(hours=16)  # 23.10 23:00 МСК — вчера, но в этом месяце
 LAST_MONTH = NOW - timedelta(days=30)  # 24.09 — прошлый месяц
@@ -47,7 +50,7 @@ def remnawave(clock: FakeClock) -> FakeRemnawave:
 def stats(
     session_factory: async_sessionmaker[AsyncSession], remnawave: FakeRemnawave, clock: FakeClock
 ) -> StatsService:
-    return StatsService(session_factory, remnawave, clock)
+    return StatsService(session_factory, remnawave, clock, STARS_RATE)
 
 
 async def add_client(session: AsyncSession, telegram_id: int, **fields: object) -> Client:
@@ -303,3 +306,70 @@ async def test_refunds_are_subtracted_by_time_of_refund(
     assert result.sales_month == SalesTotal(
         count=1, amount=Decimal("-299.50"), refunds=RefundsTotal(2, Decimal("449.50"))
     )
+
+
+# --- Оплаты звёздами Telegram (задача 33) ---
+
+
+async def add_stars_order(
+    session: AsyncSession, client: Client, paid_at: object, stars: int, price: str = "150"
+) -> Order:
+    """Заказ, оплаченный звёздами, — как его оставляет `services.stars`."""
+    order = Order(
+        client_id=client.id,
+        tariff_id="m1",
+        price=Decimal(price),
+        days=30,
+        status=OrderStatus.ACCESS_GRANTED,
+        created_at=LAST_MONTH,
+        paid_at=paid_at,
+        paid_amount=Decimal(price),
+        payment_provider=STARS_PROVIDER,
+        payment_id=f"stx-{stars}-{paid_at}",
+    )
+    session.add(order)
+    await session.flush()
+    session.add(
+        Event(
+            occurred_at=paid_at,
+            kind=EventKind.PAYMENT_RECEIVED.value,
+            client_id=client.id,
+            order_id=order.id,
+            details={STARS_DETAIL: stars},
+        )
+    )
+    await session.commit()
+    return order
+
+
+async def test_stars_are_counted_apart_from_rubles(
+    stats: StatsService, session: AsyncSession
+) -> None:
+    client = await add_client(session, 111)
+    await add_paid_order(session, client, TODAY_EARLY, price="150")
+    await add_stars_order(session, client, TODAY_EARLY, stars=270, price="405")
+    await add_stars_order(session, client, YESTERDAY, stars=100)
+    returned = await add_stars_order(session, client, LAST_MONTH, stars=960, price="1440")
+    # возврат звёздами сегодня — вычитается из сегодняшних звёзд, а не из рублей
+    session.add(
+        Event(
+            occurred_at=TODAY_EARLY,
+            kind=EventKind.REFUND_COMPLETED.value,
+            client_id=client.id,
+            order_id=returned.id,
+            details={"request_id": 1, "amount": "1440"},
+        )
+    )
+    await session.commit()
+
+    result = await stats.collect()
+
+    assert result.sales_today == SalesTotal(
+        count=1,
+        amount=Decimal("150"),
+        stars=StarsSales(count=1, stars=270 - 960, refunds=1, rubles=Decimal("-1035.00")),
+    )
+    assert result.sales_month.stars == StarsSales(
+        count=2, stars=370 - 960, refunds=1, rubles=Decimal("-885.00")
+    )
+    assert result.stars_rate == STARS_RATE

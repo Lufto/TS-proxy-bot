@@ -109,6 +109,7 @@ class PaymentSetup:
     admin_texts: Texts
     session_factory: async_sessionmaker[AsyncSession]
     clock: FakeClock
+    alerter: Alerter
 
     async def order(
         self,
@@ -216,4 +217,5 @@ def build_payment_setup(
         admin_texts,
         session_factory,
         clock,
+        alerter,
     )

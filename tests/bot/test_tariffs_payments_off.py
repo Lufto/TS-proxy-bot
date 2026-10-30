@@ -8,7 +8,13 @@ from bot_updates import ADMIN_ID, CLIENT_ID, NOW, callback, message, user
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from tsproxy.bot.callbacks import MenuCallback, ScreenId, TariffCallback
+from tsproxy.bot.callbacks import (
+    MenuCallback,
+    ScreenId,
+    StarsCallback,
+    TariffCallback,
+    TariffScreenCallback,
+)
 from tsproxy.bot.fakes import FakeTelegramSession
 from tsproxy.bot.tariffs import TariffScreens
 from tsproxy.content.loader import REQUIRED_TEXTS, Content, Texts
@@ -82,6 +88,7 @@ async def test_buy_command_shows_payments_off_screen(
 
 
 @pytest.mark.parametrize("tariff_id", ["m1", "test15", "gone"])
+@pytest.mark.parametrize("button", [TariffCallback, TariffScreenCallback, StarsCallback])
 async def test_old_tariff_button_creates_no_order(
     dispatcher: Dispatcher,
     bot: Bot,
@@ -89,9 +96,10 @@ async def test_old_tariff_button_creates_no_order(
     content: Content,
     session_factory: async_sessionmaker[AsyncSession],
     tariff_id: str,
+    button: type[TariffCallback | TariffScreenCallback | StarsCallback],
 ) -> None:
-    """«Готово, когда» задачи 29: «Купить» не создаёт заказ и платёж."""
-    data = TariffCallback(tariff_id=tariff_id).pack()
+    """«Готово, когда» задачи 29: «Купить» не создаёт заказ и платёж — и звёздами (задача 33)."""
+    data = button(tariff_id=tariff_id).pack()
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), data))
 
