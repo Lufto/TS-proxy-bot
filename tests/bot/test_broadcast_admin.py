@@ -12,7 +12,7 @@ from itertools import count
 import pytest
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
-from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter
 from aiogram.methods import AnswerCallbackQuery, CopyMessage, EditMessageReplyMarkup, SendMessage
 from aiogram.types import (
     CallbackQuery,
@@ -538,6 +538,21 @@ async def test_album_is_refused_with_explanation(
     assert telegram.sent(CopyMessage) == []
     [sent] = telegram.sent(SendMessage)
     assert sent.text == content.admin_texts.get("admin.broadcast.album")
+
+
+@pytest.mark.usefixtures("audience")
+async def test_copy_refused_by_telegram_reports_error_and_offers_nothing(
+    admin_dispatcher: Dispatcher, bot: Bot, telegram: FakeTelegramSession, content: Content
+) -> None:
+    telegram.fail_next(CopyMessage, TelegramBadRequest, "Bad Request: message to copy not found")
+
+    await admin_dispatcher.feed_update(bot, broadcast_reply(photo_message()))
+
+    [sent] = telegram.sent(SendMessage)
+    assert sent.text == content.admin_texts.get(
+        "admin.broadcast.preview_failed", error="Bad Request: message to copy not found"
+    )
+    assert sent.reply_markup is None  # отправлять нечего — кнопок нет
 
 
 async def test_reply_with_text_too_is_refused(
