@@ -5,7 +5,7 @@
 """
 
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from datetime import datetime
 from enum import StrEnum
 from typing import Protocol
@@ -24,6 +24,13 @@ PROD_USERNAME_RE = re.compile(r"^tg_\d+$")
 DEV_USERNAME_RE = re.compile(r"^dev_\d+$")
 
 UNLIMITED_TRAFFIC = 0  # в Remnawave лимит трафика 0 значит «без лимита»
+
+# Заголовок ответа подписки, из которого Happ и v2RayTun берут объявление (задача 35).
+# Панель хранит имена своих заголовков маленькими буквами
+ANNOUNCE_HEADER = "announce"
+# Значение заголовка HTTP: видимые символы ASCII и пробел. Русские буквы или перевод строки
+# панель отдать не сможет — сломается ответ подписки у всех клиентов
+HEADER_VALUE_RE = re.compile(r"[\x20-\x7e]+")
 
 
 class AccountStatus(StrEnum):
@@ -165,6 +172,26 @@ class AccountGuard:
             )
 
 
+# --- Свои заголовки ответа подписки (настройки подписки панели) ---
+
+
+def check_header_value(value: str) -> str:
+    """Вернуть значение как есть или упасть, если его нельзя отдать заголовком HTTP."""
+    if HEADER_VALUE_RE.fullmatch(value) is None:
+        raise ValueError("Значение заголовка — только латиница, цифры, знаки и пробел")
+    return value
+
+
+def find_header(headers: Mapping[str, str], name: str) -> str | None:
+    """Значение заголовка без учёта регистра имени. `None` — такого нет."""
+    return next((v for k, v in headers.items() if k.lower() == name), None)
+
+
+def without_header(headers: Mapping[str, str], name: str) -> dict[str, str]:
+    """Те же заголовки без `name` (в любом регистре). Остальные не меняются."""
+    return {k: v for k, v in headers.items() if k.lower() != name}
+
+
 # --- Интерфейс ---
 
 
@@ -230,4 +257,22 @@ class RemnawaveClient(Protocol):
 
     async def delete_account(self, telegram_id: int) -> None:
         """Удаляет аккаунт. Только в режиме разработки: в боевом аккаунты не удаляем."""
+        ...
+
+    # Объявление (задача 35) — заголовок `announce` в общих настройках подписки панели.
+    # Настройки одни на всю панель: объявление видят все клиенты, и нынешние тоже
+
+    async def get_announce(self) -> str | None:
+        """Значение заголовка `announce`, как оно записано в панели. `None` — не задан."""
+        ...
+
+    async def set_announce(self, value: str) -> str | None:
+        """Ставит `announce`, остальные заголовки не трогает. Возвращает прежнее значение.
+
+        `value` — готовое значение заголовка (ASCII); иначе ValueError до записи в панель.
+        """
+        ...
+
+    async def clear_announce(self) -> str | None:
+        """Убирает `announce`, остальные заголовки не трогает. Снятое значение; `None` — не было."""
         ...

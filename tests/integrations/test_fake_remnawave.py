@@ -200,3 +200,71 @@ async def test_delete_only_in_dev() -> None:
     await dev.delete_account(100)
     with pytest.raises(AccountNotFound):
         await dev.get_account(100)
+
+
+# --- Объявление в приложении (задача 35): заголовок `announce` в настройках подписки ---
+
+PROFILE_HEADERS = {"profile-title": "TS Proxy", "support-url": "https://t.me/ts_proxy_support"}
+
+
+async def test_announce_is_empty_at_start() -> None:
+    assert await make_fake().get_announce() is None
+
+
+async def test_set_announce_keeps_other_headers() -> None:
+    fake = make_fake()
+    fake.subscription_headers.update(PROFILE_HEADERS)
+
+    previous = await fake.set_announce("base64:0J/RgNC40LLQtdGC")
+
+    assert previous is None
+    assert fake.subscription_headers == {**PROFILE_HEADERS, "announce": "base64:0J/RgNC40LLQtdGC"}
+    assert await fake.get_announce() == "base64:0J/RgNC40LLQtdGC"
+    assert fake.writes == [("set_announce", "subscription-settings")]
+
+
+async def test_set_announce_replaces_previous_in_any_case() -> None:
+    fake = make_fake()
+    fake.subscription_headers["Announce"] = "old"
+
+    previous = await fake.set_announce("new")
+
+    assert previous == "old"
+    assert fake.subscription_headers == {"announce": "new"}
+
+
+async def test_clear_announce_keeps_other_headers() -> None:
+    fake = make_fake()
+    fake.subscription_headers.update({**PROFILE_HEADERS, "announce": "text"})
+
+    assert await fake.clear_announce() == "text"
+
+    assert fake.subscription_headers == PROFILE_HEADERS
+    assert await fake.get_announce() is None
+
+
+async def test_clear_without_announce_writes_nothing() -> None:
+    fake = make_fake()
+    fake.subscription_headers.update(PROFILE_HEADERS)
+
+    assert await fake.clear_announce() is None
+
+    assert fake.writes == []
+    assert fake.subscription_headers == PROFILE_HEADERS
+
+
+@pytest.mark.parametrize("value", ["", "Работы", "two\nlines"])
+async def test_value_unfit_for_http_header_is_refused(value: str) -> None:
+    # Русские буквы и перевод строки в заголовке HTTP сломали бы подписку всем клиентам
+    fake = make_fake()
+    with pytest.raises(ValueError):
+        await fake.set_announce(value)
+    assert fake.subscription_headers == {}
+
+
+async def test_announce_outage() -> None:
+    fake = make_fake()
+    fake.fail_next(RemnawaveUnavailable("panel down"))
+    with pytest.raises(RemnawaveUnavailable):
+        await fake.set_announce("text")
+    assert fake.subscription_headers == {}

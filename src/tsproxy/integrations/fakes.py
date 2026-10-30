@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 
 from tsproxy.config import RunMode
 from tsproxy.integrations.remnawave_types import (
+    ANNOUNCE_HEADER,
     DEV_SQUAD_NAME,
     AccountGuard,
     AccountNotFound,
@@ -21,11 +22,16 @@ from tsproxy.integrations.remnawave_types import (
     ProxyAccount,
     RemnawaveError,
     RemnawaveRejected,
+    check_header_value,
+    find_header,
+    without_header,
 )
 
 FAKE_SUBSCRIPTION_BASE = "https://sub.ts-proxy.com/"
 FAKE_PANEL_VERSION = "3.4.5"
 SHORT_UUID_BYTES = 12
+# Что меняли в журнале `writes`, когда менялись настройки подписки, а не аккаунт
+SUBSCRIPTION_SETTINGS = "subscription-settings"
 
 
 def _new_short_uuid() -> str:
@@ -69,7 +75,8 @@ class FakeRemnawave:
     """Подделка `RemnawaveClient` в памяти.
 
     Помощники для тестов: `add_foreign_account`, `simulate_connection`, `simulate_device`,
-    `set_traffic_used`, `fail_next`; журнал изменений — `writes`.
+    `set_traffic_used`, `fail_next`; журнал изменений — `writes`; свои заголовки ответа
+    подписки (настройки подписки панели) — `subscription_headers`.
     """
 
     def __init__(
@@ -87,6 +94,7 @@ class FakeRemnawave:
         self.version = version
         self.accounts: dict[str, _StoredAccount] = {}
         self.nodes: list[Node] = []
+        self.subscription_headers: dict[str, str] = {}
         self.writes: list[tuple[str, str]] = []  # (действие, username) — что меняли
         self._next_id = 1
         self._pending_error: RemnawaveError | None = None
@@ -295,3 +303,24 @@ class FakeRemnawave:
         stored = self._own(telegram_id)
         del self.accounts[stored.username]
         self.writes.append(("delete", stored.username))
+
+    async def get_announce(self) -> str | None:
+        self._raise_pending()
+        return find_header(self.subscription_headers, ANNOUNCE_HEADER)
+
+    async def set_announce(self, value: str) -> str | None:
+        check_header_value(value)
+        previous = await self.get_announce()
+        headers = without_header(self.subscription_headers, ANNOUNCE_HEADER)
+        # Панель весь словарь заменяет присланным, имена — маленькими буквами
+        self.subscription_headers = {**headers, ANNOUNCE_HEADER: value}
+        self.writes.append(("set_announce", SUBSCRIPTION_SETTINGS))
+        return previous
+
+    async def clear_announce(self) -> str | None:
+        previous = await self.get_announce()
+        if previous is None:
+            return None
+        self.subscription_headers = without_header(self.subscription_headers, ANNOUNCE_HEADER)
+        self.writes.append(("clear_announce", SUBSCRIPTION_SETTINGS))
+        return previous

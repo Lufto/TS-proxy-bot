@@ -3,6 +3,7 @@
 Форма ответов — по контракту панели 3.4.5 (см. `panel_responses.py`).
 """
 
+import json
 from collections.abc import Callable
 from datetime import UTC, datetime
 
@@ -11,12 +12,14 @@ import pytest
 from mock_panel import TOKEN, MockPanel, fail, ok
 from panel_responses import (
     DEFAULT_SQUAD_UUID,
+    SETTINGS_UUID,
     TEST_SQUAD_UUID,
     device,
     error,
     metadata,
     node,
     squads,
+    subscription_settings,
     user,
 )
 
@@ -358,3 +361,106 @@ async def test_unexpected_response_shape(panel: MockPanel, make_client: MakeClie
     panel.on("GET", USER_PATH, ok(broken))
     with pytest.raises(RemnawaveResponseError):
         await make_client(RunMode.PROD).get_account(100)
+
+
+# --- Объявление в приложении (задача 35): настройки подписки панели ---
+
+SETTINGS_PATH = "/api/subscription-settings"
+PROFILE_HEADERS = {"profile-title": "TS Proxy", "support-url": "https://t.me/ts_proxy_support"}
+
+
+def echo_settings(request: httpx.Request) -> httpx.Response:
+    """PATCH отвечает настройками с теми заголовками, что прислали."""
+    sent = json.loads(request.content)
+    return ok(subscription_settings(sent["customResponseHeaders"]))
+
+
+async def test_get_announce_reads_subscription_settings(
+    panel: MockPanel, make_client: MakeClient
+) -> None:
+    panel.on("GET", SETTINGS_PATH, ok(subscription_settings({**PROFILE_HEADERS, "announce": "a"})))
+    assert await make_client(RunMode.PROD).get_announce() == "a"
+
+
+async def test_get_announce_without_custom_headers(
+    panel: MockPanel, make_client: MakeClient
+) -> None:
+    panel.on("GET", SETTINGS_PATH, ok(subscription_settings(None)))
+    assert await make_client(RunMode.PROD).get_announce() is None
+
+
+async def test_set_announce_sends_all_headers_and_nothing_else(
+    panel: MockPanel, make_client: MakeClient
+) -> None:
+    panel.on("GET", SETTINGS_PATH, ok(subscription_settings({**PROFILE_HEADERS, "Announce": "a"})))
+    panel.on("PATCH", SETTINGS_PATH, echo_settings)
+
+    previous = await make_client(RunMode.PROD).set_announce("base64:0J/RgNC40LLQtdGC")
+
+    assert previous == "a"
+    # Панель заменяет словарь заголовков целиком — остальные заголовки шлём как были;
+    # другие настройки подписки не шлём совсем, чтобы их не задеть
+    assert panel.body() == {
+        "uuid": SETTINGS_UUID,
+        "customResponseHeaders": {**PROFILE_HEADERS, "announce": "base64:0J/RgNC40LLQtdGC"},
+    }
+
+
+async def test_set_announce_when_headers_are_null(
+    panel: MockPanel, make_client: MakeClient
+) -> None:
+    panel.on("GET", SETTINGS_PATH, ok(subscription_settings(None)))
+    panel.on("PATCH", SETTINGS_PATH, echo_settings)
+
+    assert await make_client(RunMode.DEV).set_announce("text") is None
+
+    assert panel.body()["customResponseHeaders"] == {"announce": "text"}
+
+
+async def test_clear_announce_keeps_other_headers(
+    panel: MockPanel, make_client: MakeClient
+) -> None:
+    panel.on("GET", SETTINGS_PATH, ok(subscription_settings({**PROFILE_HEADERS, "announce": "a"})))
+    panel.on("PATCH", SETTINGS_PATH, echo_settings)
+
+    assert await make_client(RunMode.PROD).clear_announce() == "a"
+
+    assert panel.body() == {"uuid": SETTINGS_UUID, "customResponseHeaders": PROFILE_HEADERS}
+
+
+async def test_clear_without_announce_writes_nothing(
+    panel: MockPanel, make_client: MakeClient
+) -> None:
+    panel.on("GET", SETTINGS_PATH, ok(subscription_settings(PROFILE_HEADERS)))
+
+    assert await make_client(RunMode.PROD).clear_announce() is None
+
+    assert panel.writes == []
+
+
+async def test_unsafe_header_value_is_refused_before_any_request(
+    panel: MockPanel, make_client: MakeClient
+) -> None:
+    with pytest.raises(ValueError):
+        await make_client(RunMode.PROD).set_announce("Работы на сервере")
+    assert panel.requests == []
+
+
+async def test_announce_write_retried_after_server_error(
+    panel: MockPanel, make_client: MakeClient, sleeps: list[float]
+) -> None:
+    # Записываются все заголовки целиком (абсолютное значение) — повтор безопасен
+    panel.on("GET", SETTINGS_PATH, ok(subscription_settings(PROFILE_HEADERS)))
+    panel.on("PATCH", SETTINGS_PATH, fail(502, {}), echo_settings)
+
+    await make_client(RunMode.PROD).set_announce("text")
+
+    assert len(panel.writes) == 2
+    assert panel.body(0) == panel.body(1)
+    assert len(sleeps) == 1
+
+
+async def test_token_without_settings_rights(panel: MockPanel, make_client: MakeClient) -> None:
+    panel.on("GET", SETTINGS_PATH, fail(403, error("A001", "Forbidden", SETTINGS_PATH)))
+    with pytest.raises(RemnawaveAuthError):
+        await make_client(RunMode.PROD).get_announce()

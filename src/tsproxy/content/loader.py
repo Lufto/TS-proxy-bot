@@ -616,6 +616,20 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
                 "crashed",
             )
         ),
+        # задача 35: объявление клиентам в приложении
+        *(
+            f"admin.announce.{key}"
+            for key in (
+                "usage",
+                "none",
+                "current",
+                "published",
+                "cleared",
+                "already_off",
+                "too_long",
+                "no_rights",
+            )
+        ),
     }
 )
 
