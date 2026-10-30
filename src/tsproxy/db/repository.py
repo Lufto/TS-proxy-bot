@@ -17,6 +17,13 @@ from tsproxy.db.models import Client, NodeOutage, Notification, Order
 # Заказы, оплату которых ещё можно засчитать. Отменённый (ссылка истекла) — тоже:
 # подтверждённая оплата засчитывается всегда, даже по просроченной ссылке (задача 04 п. 4)
 CREDITABLE_ORDER_STATUSES = (OrderStatus.CREATED, OrderStatus.CANCELED)
+# Заказы, оплата которых уже засчитана (доступ выдан, выдаётся или ждёт администратора)
+CREDITED_ORDER_STATUSES = (
+    OrderStatus.PAID,
+    OrderStatus.ACCESS_GRANTED,
+    OrderStatus.ACCESS_FAILED,
+    OrderStatus.MANUAL_REVIEW,
+)
 
 
 async def claim_trial(session: AsyncSession, client_id: int, now: datetime) -> bool:

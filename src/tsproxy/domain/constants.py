@@ -40,6 +40,21 @@ PRORATION_BONUS_HOURS = 2  # сверх пропорционального ср�
 KOPECK = Decimal("0.01")
 PAYMENT_LINK_LIFETIME = timedelta(hours=1)  # ссылка на оплату живёт час (правило 3)
 
+# --- Проверка оплат (задача 14; решения владельца 2026-10-25) ---
+# «Купить» сначала спрашивает платёжку о прошлых незасчитанных заказах клиента:
+# за последние сутки, не больше трёх самых свежих (уязвимость 1 карты оплаты)
+RECENT_PAYMENTS_WINDOW = ONE_DAY
+RECENT_PAYMENTS_LIMIT = 3
+# Фоновая проверка в два темпа: заказы младше 2 часов — часто, от 2 до 72 часов — реже,
+# включая отменённые (поздняя оплата засчитывается как обычная)
+FRESH_ORDER_AGE = timedelta(hours=2)
+STALE_ORDER_AGE = timedelta(hours=72)
+# Случайная вторая оплата: полный возврат в течение 7 дней вне общих правил возврата
+DOUBLE_PAYMENT_REFUND_WINDOW = timedelta(days=7)
+# Ежедневная сверка с платёжкой: платежи за сутки; самые свежие ещё могут быть в пути
+PAYMENTS_RECONCILE_WINDOW = ONE_DAY
+PAYMENTS_RECONCILE_MARGIN = timedelta(minutes=30)
+
 # --- Выдача доступа после оплаты (задача 04 п. 6, задача 21 п. 7) ---
 GRANT_FAST_RETRY_INTERVAL = timedelta(minutes=1)  # первые полчаса — каждую минуту
 GRANT_FAST_RETRIES = 30  # ≈ 30 минут повторов раз в минуту, потом тревога

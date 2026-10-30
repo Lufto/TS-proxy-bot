@@ -13,6 +13,15 @@
 
 Засчитывает оплату задача 13, уведомления и «Проверить оплату» — задача 14.
 
+Двойная оплата (задача 14, уязвимость 1 карты оплаты): прежде чем дать ссылку — новую
+или ту же, — бот спрашивает платёжку о незасчитанных заказах клиента за сутки
+(`EarlierPayments.find_paid`). Нашлась оплата — она засчитывается, ссылки нет
+(`EarlierPaymentFound`). Платёжка не ответила — ссылки тоже нет (`PaymentUnavailable`):
+иначе клиент, у которого просто потерялось уведомление, заплатил бы второй раз.
+
+Порядок замков: замок заказов клиента (здесь) → замок срока (`term_locks`, его берёт зачёт
+внутри `find_paid`). Обратного порядка нет: зачёт и выдача замок заказов не берут.
+
 Оплата выключена (`PAYMENTS_MODE=off`, задача 29) — платёжки нет: витрина та же,
 но `checkout` отказывает до любых записей в базу и запросов к платёжке.
 """
@@ -21,6 +30,7 @@ import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Protocol
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -55,6 +65,25 @@ class PaymentsDisabled(Exception):
     """Оплата выключена (`PAYMENTS_MODE=off`): заказы и платежи не создаются."""
 
 
+class EarlierPaymentFound(Exception):
+    """У клиента нашлась незасчитанная оплата прошлого заказа — засчитана, ссылки нет."""
+
+    def __init__(self, order_id: int) -> None:
+        super().__init__(f"нашлась оплата заказа {order_id}")
+        self.order_id = order_id
+
+
+class EarlierPayments(Protocol):
+    """Проверка прошлых оплат клиента перед новой ссылкой. Настоящая — `PaymentChecks`."""
+
+    async def find_paid(self, client_id: int) -> int | None:
+        """Засчитать оплату прошлого заказа, если она есть; вернуть номер этого заказа.
+
+        Платёжка не ответила — `PaymentUnavailable`.
+        """
+        ...
+
+
 @dataclass(frozen=True)
 class TariffOffer:
     """Тариф на витрине: скидка — от цены месяца, её бот считает сам."""
@@ -85,9 +114,11 @@ class OrderService:
         admin_ids: frozenset[int],
         clock: Clock,
         locks: KeyedLocks,
+        earlier_payments: EarlierPayments,
     ) -> None:
         self._session_factory = session_factory
         self._payments = payments
+        self._earlier_payments = earlier_payments
         self._events = events
         self._texts = texts
         self._tariffs = tuple(tariffs)
@@ -133,12 +164,16 @@ class OrderService:
 
         Ошибки платёжки (`PaymentError`) не глотаются: экран решает, что сказать клиенту.
         Оплата выключена — `PaymentsDisabled` раньше всего остального: ни заказа, ни платежа.
+        Нашлась оплата прошлого заказа — `EarlierPaymentFound`: она засчитана, ссылки нет.
         """
         payments = self._payments
         if payments is None:
             raise PaymentsDisabled(f"оплата выключена, клиент {client.telegram_id}")
         tariff = self._tariff_for(client.telegram_id, tariff_id)
         async with self._locks.hold(client.id):
+            paid_order_id = await self._earlier_payments.find_paid(client.id)
+            if paid_order_id is not None:
+                raise EarlierPaymentFound(paid_order_id)
             now = utc_now(self._clock)
             async with self._session_factory() as session:
                 order = await self._open_order(session, client.id, tariff)

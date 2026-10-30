@@ -6,8 +6,12 @@
 
 Правило для всех реализаций: платёжке не доверяем на слово. `get_payment` — источник правды
 о платеже, а уведомления платёжки — только повод его спросить (аудит §4.1).
+
+Формат уведомления у каждой платёжки свой, поэтому разбирает его сама реализация
+(`parse_notification`): наружу выходит только номер платежа (задача 14).
 """
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -49,6 +53,10 @@ class PaymentRejected(PaymentError):
     """Платёжка отказала: неверный запрос, платёж нельзя оплатить или вернуть."""
 
 
+class InvalidNotification(PaymentError):
+    """Уведомление не разобрано: не тот формат или неверная подпись. Скорее всего, подделка."""
+
+
 @dataclass(frozen=True)
 class PaymentRequest:
     """Что просим у платёжки. Сумма — из заказа (то есть из `tariffs.yaml`), а не из кнопки."""
@@ -77,6 +85,7 @@ class PaymentState:
     order_id: int | None  # номер заказа, который мы передали платёжке
     test: bool  # тестовый платёж (поддельная платёжка, тестовый магазин)
     paid_at: datetime | None
+    refunded: Decimal  # сколько уже вернули клиенту по этому платежу (задача 14: сверка)
 
 
 @dataclass(frozen=True)
@@ -105,4 +114,15 @@ class PaymentProvider(Protocol):
 
     async def refund(self, payment_id: str, amount: Decimal, idempotency_key: str) -> Refund:
         """Вернуть клиенту `amount` рублей по оплаченному платежу. Чек аннулирует платёжка."""
+        ...
+
+    def parse_notification(self, body: bytes, headers: Mapping[str, str]) -> str:
+        """Номер платежа из уведомления платёжки (задача 14). Остальному в теле не верим.
+
+        Не тот формат или неверная подпись — `InvalidNotification`. Сеть не трогает.
+        """
+        ...
+
+    async def list_payments(self, since: datetime, until: datetime) -> Sequence[PaymentState]:
+        """Платежи, созданные с `since` (включительно) до `until` — для ежедневной сверки."""
         ...

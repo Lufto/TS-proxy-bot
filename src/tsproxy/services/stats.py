@@ -163,6 +163,11 @@ def _snapshot(account: ProxyAccount, client: Client | None) -> ClientSnapshot:
     )
 
 
+async def sales_between(session: AsyncSession, since: datetime, until: datetime) -> SalesTotal:
+    """Оплаты с `since` по `until` включительно — для ежедневного отчёта (задача 22)."""
+    return await _sales(session, since, until)
+
+
 async def _sales(session: AsyncSession, since: datetime, until: datetime) -> SalesTotal:
     rows = await session.execute(
         select(Order.paid_amount, Order.price).where(

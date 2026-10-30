@@ -19,15 +19,20 @@
 Тексты тревог проходят через маскировщик (секреты, ссылки подписки) и экранируются для HTML.
 Сбой отправки не роняет вызывающий код: он пишется в лог как ошибка, а окно склейки всё равно
 открывается, чтобы поток тревог не бил по недоступному Telegram.
+
+Для ежедневного отчёта (задача 22) тревоги считаются по дням (по Москве), вместе
+со склеенными повторами. Счёт тоже в памяти — с запуска бота (`counting_since`).
 """
 
 import html
 import logging
+from collections import Counter
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Protocol
 
 from tsproxy.content.loader import Texts
+from tsproxy.domain.dates import MOSCOW
 from tsproxy.services.clock import Clock, utc_now
 from tsproxy.services.masking import Masker
 
@@ -35,6 +40,8 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_ALERT_GLUE_WINDOW = timedelta(minutes=10)
 SECONDS_PER_MINUTE = 60
+# Сколько дней помнить счёт тревог: отчёту нужен только вчерашний
+ALERT_COUNT_KEEP_DAYS = 7
 
 
 class AlertSender(Protocol):
@@ -75,11 +82,23 @@ class Alerter:
         self._mask = mask
         self._glue_window = glue_window
         self._windows: dict[str, _GluedAlert] = {}
+        self._counting_since = utc_now(clock)
+        self._daily_counts: Counter[date] = Counter()
+
+    @property
+    def counting_since(self) -> datetime:
+        """С какого момента считаются тревоги (запуск бота)."""
+        return self._counting_since
+
+    def raised_on(self, day: date) -> int:
+        """Сколько тревог (с повторами) поднято за день по Москве."""
+        return self._daily_counts[day]
 
     async def raise_alert(self, key: str, text: str) -> None:
         """Поднять тревогу. `key` — что считать одинаковым (например, `remnawave_unavailable`),
         `text` — обычный текст без разметки. Никогда не бросает исключение из-за отправки."""
         now = utc_now(self._clock)
+        self._count(now)
         window = self._windows.get(key)
         if window is not None and not self._is_closed(window, now):
             window.repeats += 1
@@ -97,6 +116,13 @@ class Alerter:
         closed = [(k, w) for k, w in self._windows.items() if self._is_closed(w, now)]
         for key, window in closed:
             await self._close(key, window)
+
+    def _count(self, now: datetime) -> None:
+        today = now.astimezone(MOSCOW).date()
+        self._daily_counts[today] += 1
+        oldest_kept = today - timedelta(days=ALERT_COUNT_KEEP_DAYS)
+        for day in [day for day in self._daily_counts if day < oldest_kept]:
+            del self._daily_counts[day]
 
     def _is_closed(self, window: _GluedAlert, now: datetime) -> bool:
         return now >= window.opened_at + self._glue_window

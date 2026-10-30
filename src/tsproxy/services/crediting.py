@@ -24,6 +24,14 @@
 
 Заказы одного клиента выдаются строго по очереди: следующий ждёт, пока выдан предыдущий,
 иначе оба посчитали бы новый срок от одного и того же старого.
+
+Задача 14 (решения владельца 2026-10-25):
+- **Случайная двойная оплата** — другой заказ клиента засчитан уже после создания этого
+  (`domain.payments.possible_double_payment`): дни складываются как обычно, в «💰 Оплаты» —
+  пометка, клиенту — предложение вернуть вторую оплату полностью в течение 7 дней.
+  Сам возврат — задача 21; номер первого заказа — в событии оплаты (`possible_double_of`).
+- **Доступ не выдан за 30 минут** — вместе с тревогой клиенту второе сообщение
+  «оплата получена, доступ задерживается, разбираемся».
 """
 
 import asyncio
@@ -41,11 +49,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from tsproxy.content.loader import Texts
 from tsproxy.db.enums import OrderStatus
 from tsproxy.db.models import Client, Event, Order
-from tsproxy.db.repository import claim_order_payment
+from tsproxy.db.repository import CREDITED_ORDER_STATUSES, claim_order_payment
 from tsproxy.domain.client_state import ClientSnapshot
-from tsproxy.domain.dates import require_aware
+from tsproxy.domain.constants import DOUBLE_PAYMENT_REFUND_WINDOW
+from tsproxy.domain.dates import format_moscow, require_aware
 from tsproxy.domain.grant import plan_grant_retry
 from tsproxy.domain.money import format_rubles, paid_duration
+from tsproxy.domain.payments import possible_double_payment
 from tsproxy.domain.subscription import grant_target_expire_at
 from tsproxy.domain.trial import paid_access_limits
 from tsproxy.integrations.payments_types import RUB, PaymentState, PaymentStatus
@@ -73,6 +83,8 @@ CREDIT_WRITE_ATTEMPTS = 3
 CREDIT_WRITE_RETRY_DELAY = timedelta(seconds=1)
 # Поле события «оплата получена»: отметка льготного периода на момент оплаты
 GRACE_DETAIL = "grace_started_at"
+# Поле события «оплата получена»: номер заказа, с которым эта оплата похожа на двойную
+DOUBLE_DETAIL = "possible_double_of"
 # Сколько клиентов фоновая задача повторов берёт за один проход
 GRANT_BATCH_SIZE = 50
 
@@ -142,6 +154,14 @@ class PaymentMessages(Protocol):
         """«Оплата получена, доступ подключается» — когда сразу выдать не вышло."""
         ...
 
+    async def access_delayed(self, telegram_id: int) -> None:
+        """«Доступ задерживается, разбираемся» — доступ не выдан за 30 минут (задача 14)."""
+        ...
+
+    async def possible_double_payment(self, telegram_id: int, refund_until: datetime) -> None:
+        """«Получили две оплаты, дни сложены; вторую можем вернуть до …» (задача 14)."""
+        ...
+
 
 @dataclass(frozen=True)
 class _CreditedPayment:
@@ -156,6 +176,8 @@ class _CreditedPayment:
     days: int
     price: Decimal
     paid_amount: Decimal
+    paid_at: datetime
+    double_of: int | None  # заказ, с которым эта оплата похожа на случайную двойную
 
 
 class CreditingService:
@@ -207,6 +229,10 @@ class CreditingService:
         outcome = await self._outcome(order_id)
         if outcome is not PaymentOutcome.GRANTED:
             await self._messages.access_pending(credited.telegram_id)
+        if credited.double_of is not None:
+            await self._messages.possible_double_payment(
+                credited.telegram_id, credited.paid_at + DOUBLE_PAYMENT_REFUND_WINDOW
+            )
         return CreditResult(order_id, outcome)
 
     async def _record_payment(
@@ -249,6 +275,7 @@ class CreditingService:
             if not claimed:
                 return None
             client = await session.get_one(Client, order.client_id)
+            double_of = await _double_payment_of(session, order)
             grace_started_at = client.grace_started_at
             # Оплатил — льготный период кончился сразу: без напоминаний «продлите» и без
             # выключения доступа, пока выдаётся доступ. Отметку храним в событии: по ней
@@ -271,6 +298,7 @@ class CreditingService:
                     GRACE_DETAIL: (
                         None if grace_started_at is None else grace_started_at.isoformat()
                     ),
+                    DOUBLE_DETAIL: double_of,
                 },
             )
             credited = _CreditedPayment(
@@ -283,6 +311,8 @@ class CreditingService:
                 days=order.days,
                 price=order.price,
                 paid_amount=payment.amount,
+                paid_at=now,
+                double_of=double_of,
             )
             await session.commit()
         return credited
@@ -294,19 +324,24 @@ class CreditingService:
         """
         prorated = credited.paid_amount != credited.price
         username = credited.username or self._admin_texts.get("payments.no_username")
-        await self._payments_topic.post(
-            self._admin_texts.get(
-                "payments.received_prorated" if prorated else "payments.received",
-                order_id=credited.order_id,
-                amount=format_rubles(credited.paid_amount),
-                price=format_rubles(credited.price),
-                tariff_id=credited.tariff_id,
-                days=credited.days,
-                name=credited.name or "",
-                username=username,
-                telegram_id=credited.telegram_id,
-            )
+        text = self._admin_texts.get(
+            "payments.received_prorated" if prorated else "payments.received",
+            order_id=credited.order_id,
+            amount=format_rubles(credited.paid_amount),
+            price=format_rubles(credited.price),
+            tariff_id=credited.tariff_id,
+            days=credited.days,
+            name=credited.name or "",
+            username=username,
+            telegram_id=credited.telegram_id,
         )
+        if credited.double_of is not None:
+            text += "\n" + self._admin_texts.get(
+                "payments.possible_double",
+                other_order_id=credited.double_of,
+                refund_until=format_moscow(credited.paid_at + DOUBLE_PAYMENT_REFUND_WINDOW),
+            )
+        await self._payments_topic.post(text)
         if prorated:
             logger.warning(
                 "Заказ %s: оплачено %s вместо %s",
@@ -521,6 +556,7 @@ class CreditingService:
             await session.commit()
         if plan.escalate:
             await self._alert_order("grant_delayed", telegram_id, order, error)
+            await self._messages.access_delayed(telegram_id)
         if gave_up:
             await self._alert_order("grant_failed", telegram_id, order, error)
             return PaymentOutcome.ACCESS_FAILED
@@ -586,6 +622,25 @@ def _check_payment(order: Order, payment: PaymentState) -> None:
         problems.append(f"сумма {payment.amount}")
     if problems:
         raise PaymentMismatch(f"заказ {order.id}: " + ", ".join(problems))
+
+
+async def _double_payment_of(session: AsyncSession, order: Order) -> int | None:
+    """Другой засчитанный заказ клиента, с которым эта оплата похожа на случайную двойную."""
+    other = (
+        await session.execute(
+            select(Order.id, Order.paid_at)
+            .where(
+                Order.client_id == order.client_id,
+                Order.id != order.id,
+                Order.status.in_(CREDITED_ORDER_STATUSES),
+            )
+            .order_by(Order.paid_at.desc(), Order.id.desc())
+            .limit(1)
+        )
+    ).first()
+    if other is None or not possible_double_payment(order.created_at, other.paid_at):
+        return None
+    return other.id
 
 
 async def _grace_at_payment(session: AsyncSession, order_id: int) -> datetime | None:

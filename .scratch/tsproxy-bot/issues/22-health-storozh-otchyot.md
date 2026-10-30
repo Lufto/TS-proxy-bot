@@ -1,7 +1,7 @@
 # /health, сторож, отчёт, доказательство услуги
 
 Type: task
-Status: ready-for-agent
+Status: resolved
 Blocked by: 04, 09, 13
 
 ## Что сделать
@@ -15,3 +15,16 @@ Blocked by: 04, 09, 13
 Решения: задачи 18, 22 (в `../vpn-bot-rework/issues/`). Спецификация — `../spec.md`.
 
 ## Comments
+
+**2026-10-26, сделано.**
+
+- **Сторож фоновых задач.** Планировщик (`app.PeriodicJobs`) отмечает каждый запуск в `services/job_health.py` (начала / успех / упала). `services/watchdog.py` раз в минуту: задача без успеха дольше срока (3 интервала, не меньше 5 мин; задачи «раз в сутки» — 26 ч) → тревога «зависла» (если выполняется) или «падает»; один раз на эпизод, потом «снова работает». Правила — `domain/monitoring.py`.
+- **Задачи «раз в сутки по Москве»** — `DailyJob` в `app.py`: бэкап базы бота 04:30 МСК (только `RUN_MODE=prod`, настоящая отправка файла — `bot/documents.py`), отчёт 10:00 МСК.
+- **`/health`** (`web/health.py`, `services/health.py`): база (`SELECT 1`), Remnawave (версия панели), ни одной зависшей задачи. Наружу только `ok` (200) / `проблема` (503), GET и HEAD, `Cache-Control: no-store`. Результат помнится 30 с, одновременные запросы ждут одну проверку, каждая часть — не дольше 5 с; подробности — в лог.
+- **Бэкапы панели** (`services/panel_backups.py`, `domain/panel_backup.py`): раз в час и при запуске читает папку копий (`PANEL_BACKUP_DIR`, по умолчанию `/var/backups/remnawave/daily`) и хвост журнала (`PANEL_BACKUP_LOG`, по умолчанию `/var/lib/remnawave-backup/backup.log`). Нет копии моложе 26 ч → тревога; после последней копии «telegram: файл не отправлен» → тревога; нет прав прочитать → тревога. Пустые значения в `.env` — присмотр выключен (для Mac).
+- **Ежедневный отчёт** (`jobs/daily_report.py`, тексты `report.*`): за вчера по Москве — новые клиенты, пробные, оплаты и сумма (запрос `/stats` из задачи 19), тревоги (счёт в памяти `Alerter`, с пометкой, если бот перезапускался); сейчас — оплачено без выданного доступа, подписки / обращения / клиенты (строки `/stats`), бэкап базы бота (свежесть, размер, ушёл ли в Telegram), бэкап панели, зависшие задачи. Тема — `REPORTS_THREAD_ID` (пусто — общая).
+- **Доказательство оказания услуги**: `/proof 123` в группе администраторов → файл `proof-order-123.txt`: заказ, оплата, клиент, срок по заказу, прокси-аккаунт (первое подключение, трафик), устройства, журнал событий заказа и клиента с момента заказа (до 500). Панель не ответила — файл всё равно собирается, с пометкой.
+
+**Для сервера (задача 26):** боту (`tsproxy`) нужно право читать `/var/lib/remnawave-backup/backup.log` и список файлов `/var/backups/remnawave/daily/` (содержимое копий и `/etc/remnawave-backup/` — не нужно). Скрипт `remnawave-backup.sh` при каждом запуске делает `chmod 700` на эти папки — простой ACL/группу он сотрёт, поэтому нужна правка скрипта (например, `chmod 750` + группа с `tsproxy` на `$DEST`, `$DEST/daily`, `$STATE`). Без этого бот поднимет тревогу «не может прочитать». UptimeRobot — на `https://bot.…/health` (HTTP-монитор, ответ 200).
+
+Тесты: `tests/domain/test_monitoring_rules.py`, `test_panel_backup_log.py`, `tests/services/test_job_watchdog.py` (сторож замечает зависшую и падающую задачу), `test_health_check.py`, `test_panel_backup_monitor.py`, `test_alert_counts.py`, `test_service_proof.py`, `tests/jobs/test_daily_report.py` (отчёт на тестовых данных), `tests/web/test_health_endpoint.py`, `tests/bot/test_app_monitoring.py`, `test_proof_admin.py`, `tests/test_config_monitoring.py`.

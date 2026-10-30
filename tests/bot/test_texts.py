@@ -53,6 +53,8 @@ TEXT_PLACEHOLDERS: dict[str, set[str]] = {
     # задача 13: оплата засчитана
     "payment.paid": {"expire_at", "device_limit"},
     "payment.paid_prorated": {"expire_at", "device_limit", "amount", "price"},
+    # задача 14: две оплаты подряд — до какого времени можно вернуть вторую
+    "payment.double": {"until"},
     # задача 08: профиль и устройства
     "buttons.delete_device": {"number"},
     "profile.status_trial": {"expire_at", "left"},

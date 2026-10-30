@@ -3,6 +3,10 @@
 Кнопка тарифа несёт только его id. Цену, доступность скрытого тарифа и «та же ссылка
 или новая» решает `OrderService`; клиент — всегда `from_user.id` нажавшего.
 
+Задача 14: на экране оплаты — «🔄 Проверить оплату» (бот сам спрашивает платёжку).
+«Купить» сначала ищет оплату прошлых заказов: нашлась — она засчитана, вместо ссылки —
+«Мы нашли вашу оплату», а «✅ Оплачено» приходит отдельным сообщением ниже.
+
 Оплата выключена (`PAYMENTS_MODE=off`, задача 29) — вместо кнопок тарифов их список текстом
 и «Оплата скоро появится» (+ «🎁 Попробовать бесплатно», если пробный доступен). Старая
 кнопка тарифа показывает тот же экран: заказ не создаётся, к платёжке запросов нет.
@@ -15,7 +19,7 @@ from aiogram.enums import ChatType
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
-from tsproxy.bot.callbacks import MenuCallback, ScreenId, TariffCallback
+from tsproxy.bot.callbacks import MenuCallback, PaymentCheckCallback, ScreenId, TariffCallback
 from tsproxy.bot.context import BotContext, profile_of
 from tsproxy.bot.screens import Screen
 from tsproxy.content.loader import Texts
@@ -25,11 +29,13 @@ from tsproxy.domain.money import format_rubles
 from tsproxy.integrations.payments_types import PaymentUnavailable
 from tsproxy.services.orders import (
     Checkout,
+    EarlierPaymentFound,
     PaymentsDisabled,
     TariffOffer,
     TariffUnavailable,
     TooManyPayments,
 )
+from tsproxy.services.payment_checks import CheckOutcome
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +43,15 @@ BUY_COMMAND = "buy"
 # Ключ склейки тревоги «платёжка не отвечает» — общий для всего бота
 PAYMENTS_UNAVAILABLE_ALERT = "payments_unavailable"
 PARAGRAPH = "\n\n"
+# Ответ на «🔄 Проверить оплату» — текст экрана и нужна ли кнопка «проверить ещё раз»
+CHECK_RESULTS: dict[CheckOutcome, tuple[str, bool]] = {
+    CheckOutcome.CREDITED: ("payment.found", False),
+    CheckOutcome.ALREADY_CREDITED: ("payment.check_already", False),
+    CheckOutcome.NOT_PAID: ("payment.check_not_paid", True),
+    CheckOutcome.CANCELED: ("payment.check_canceled", False),
+    CheckOutcome.NOT_FOUND: ("payment.check_not_found", False),
+    CheckOutcome.REJECTED: ("payment.check_problem", False),
+}
 
 
 class TariffScreens:
@@ -106,18 +121,32 @@ class TariffScreens:
                     text=self._texts.get("buttons.pay", price=price), url=checkout.payment_url
                 )
             ],
+            self._check_button(checkout.order_id),
             self._menu_button("buttons.tariffs_back", ScreenId.TARIFFS),
             self._menu_button("buttons.back", ScreenId.MAIN),
         ]
         return Screen(text, InlineKeyboardMarkup(inline_keyboard=rows))
 
-    def notice(self, key: str) -> Screen:
-        """Оплатить сейчас не получится (`payment.too_many`, `payment.unavailable`)."""
-        rows = [
-            self._menu_button("buttons.tariffs_back", ScreenId.TARIFFS),
-            self._menu_button("buttons.back", ScreenId.MAIN),
-        ]
+    def notice(self, key: str, *, check_order_id: int | None = None) -> Screen:
+        """Сообщение вместо ссылки (`payment.too_many`, `payment.unavailable`, `payment.found`,
+        ответы на «Проверить оплату»). `check_order_id` — с кнопкой «проверить ещё раз»."""
+        rows = [] if check_order_id is None else [self._check_button(check_order_id)]
+        rows.append(self._menu_button("buttons.tariffs_back", ScreenId.TARIFFS))
+        rows.append(self._menu_button("buttons.back", ScreenId.MAIN))
         return Screen(self._texts.get(key), InlineKeyboardMarkup(inline_keyboard=rows))
+
+    def check_result(self, outcome: CheckOutcome, order_id: int) -> Screen:
+        """Ответ на «🔄 Проверить оплату»."""
+        key, check_again = CHECK_RESULTS[outcome]
+        return self.notice(key, check_order_id=order_id if check_again else None)
+
+    def _check_button(self, order_id: int) -> list[InlineKeyboardButton]:
+        return [
+            InlineKeyboardButton(
+                text=self._texts.get("buttons.check_payment"),
+                callback_data=PaymentCheckCallback(order_id=order_id).pack(),
+            )
+        ]
 
 
 def create_tariffs_router() -> Router:
@@ -127,6 +156,7 @@ def create_tariffs_router() -> Router:
     router.message.register(on_buy_command, Command(BUY_COMMAND))
     router.callback_query.register(on_tariffs, MenuCallback.filter(F.screen == ScreenId.TARIFFS))
     router.callback_query.register(on_tariff, TariffCallback.filter())
+    router.callback_query.register(on_payment_check, PaymentCheckCallback.filter())
     return router
 
 
@@ -179,6 +209,10 @@ async def on_tariff(
     except TariffUnavailable:
         logger.info("Клиент %s: тариф %r недоступен", telegram_id, callback_data.tariff_id)
         screen = await _tariffs_screen(ctx, client)
+    except EarlierPaymentFound as found:
+        # оплата прошлого заказа засчитана, «✅ Оплачено» ушло отдельным сообщением
+        logger.info("Клиент %s: нашлась оплата заказа %s", telegram_id, found.order_id)
+        screen = screens.notice("payment.found")
     except TooManyPayments:
         screen = screens.notice("payment.too_many")
     except PaymentUnavailable as error:
@@ -189,4 +223,30 @@ async def on_tariff(
         screen = screens.notice("payment.unavailable")
     else:
         screen = screens.payment(checkout)
+    await ctx.delivery.show(callback, screen)
+
+
+async def on_payment_check(
+    callback: CallbackQuery, callback_data: PaymentCheckCallback, ctx: BotContext
+) -> None:
+    """«🔄 Проверить оплату»: бот спрашивает платёжку о заказе нажавшего (задача 14)."""
+    # Отвечаем на нажатие сразу: платёжка может думать несколько секунд
+    await callback.answer()
+    client = await ctx.clients.resolve(profile_of(callback.from_user))
+    screens = TariffScreens(ctx.texts)
+    order_id = callback_data.order_id
+    try:
+        outcome = await ctx.payment_checks.check_order(client.id, order_id)
+    except PaymentsDisabled:
+        # старая кнопка, а оплата выключена (задача 29): проверить не у кого
+        screen = await _tariffs_screen(ctx, client)
+    except PaymentUnavailable as error:
+        logger.warning("Платёжка не ответила на проверку заказа %s: %s", order_id, error)
+        await ctx.alerter.raise_alert(
+            PAYMENTS_UNAVAILABLE_ALERT, ctx.admin_texts.get("alerts.payments_unavailable")
+        )
+        screen = screens.notice("payment.check_unavailable", check_order_id=order_id)
+    else:
+        logger.info("Клиент %s проверил заказ %s: %s", client.telegram_id, order_id, outcome)
+        screen = screens.check_result(outcome, order_id)
     await ctx.delivery.show(callback, screen)
