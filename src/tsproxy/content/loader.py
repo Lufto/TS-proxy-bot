@@ -307,6 +307,24 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         # задача 20: извинение после сбоя
         "compensation.extended",
         "compensation.carried",
+        # задача 21: случайная вторая оплата, сообщение о возврате, перенос подписки
+        "buttons.refund_double_payment",
+        "buttons.keep_double_payment",
+        "buttons.confirm_refund_double_payment",
+        "refund.double_ask",
+        "refund.duration_hours",
+        "refund.double_kept",
+        *(
+            f"refund.double_progress.{key}"
+            for key in ("completed", "term_pending", "in_review", "provider_pending", "failed")
+        ),
+        *(
+            f"refund.double_refused.{key}"
+            for key in ("window_passed", "kept", "already_refunded", "other")
+        ),
+        "refund.completed",
+        "refund.completed_access_ended",
+        "transfer.received",
     }
 )
 REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
@@ -351,7 +369,7 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
         ),
         *(
             f"support.buttons.{key}"
-            for key in ("extend", "devices", "take", "close", "quick_replies", "hide")
+            for key in ("extend", "devices", "refund", "take", "close", "quick_replies", "hide")
         ),
         "support.taken",
         "support.closed",
@@ -526,6 +544,91 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
                 "credited_not_paid",
                 "missing_at_provider",
                 "refunded_outside_bot",
+            )
+        ),
+        # задача 21: возвраты через поддержку и перенос подписки
+        "alerts.refund_provider_unavailable",
+        "alerts.refund_provider_rejected",
+        "alerts.refund_term_pending",
+        "alerts.refund_term_changed",
+        "alerts.transfer_source_not_ended",
+        "refunds.button",
+        "refunds.list.title",
+        "refunds.list.empty",
+        "refunds.list.item",
+        "refunds.buttons.order",
+        "refunds.buttons.confirm",
+        "refunds.ask",
+        "refunds.duration",
+        "refunds.duration_hours",
+        *(
+            f"refunds.state.{key}"
+            for key in (
+                "available",
+                "approved",
+                "in_review",
+                "refunded",
+                "completed",
+                "not_granted",
+                "transferred",
+                "payments_off",
+            )
+        ),
+        *(
+            f"refunds.result.{key}"
+            for key in (
+                "completed",
+                "completed_access_ended",
+                "term_pending",
+                "in_review",
+                "provider_pending",
+                "failed",
+            )
+        ),
+        *(
+            f"refunds.refused.{key}"
+            for key in (
+                "payments_off",
+                "client_not_found",
+                "order_not_found",
+                "not_granted",
+                "window_passed",
+                "already_refunded",
+                "transferred",
+                "not_double_payment",
+                "kept",
+            )
+        ),
+        *(
+            f"refunds.topic.{key}"
+            for key in (
+                "header",
+                "by_admin",
+                "by_client",
+                "completed",
+                "term_pending",
+                "in_review",
+                "provider_pending",
+                "failed",
+                "double_kept",
+            )
+        ),
+        *(
+            f"admin.transfer.{key}"
+            for key in (
+                "usage",
+                "preview",
+                "no_subscription",
+                "left",
+                "confirm",
+                "same_client",
+                "source_not_found",
+                "target_not_found",
+                "payment_not_found",
+                "nothing_to_transfer",
+                "refund_open",
+                "changed",
+                "done",
             )
         ),
         # задача 28: выключатель пробных и автовыключение при спаме

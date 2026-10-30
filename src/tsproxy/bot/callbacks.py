@@ -26,7 +26,6 @@ class ScreenId(StrEnum):
     PROFILE = "profile"  # «👤 Мой профиль» — задача 08
     DEVICES = "devices"  # «📱 Мои устройства» — задача 08
     REVOKE_LINK = "revoke_link"  # «🔄 Перевыпустить ссылку»: предупреждение — задача 31
-    REFUND = "refund"  # «↩️ Вернуть деньги»: условия и сумма — задача 21
     INSTRUCTIONS = "instructions"
     SUPPORT = "support"  # «💬 Поддержка» — задачи 16–17
     ABOUT = "about"
@@ -62,20 +61,20 @@ class RevokeLinkCallback(CallbackData, prefix="relink"):
     """«✅ Да, перевыпустить» (задача 31). Без данных: чью ссылку — решает `from_user.id`."""
 
 
-class RefundRequestCallback(CallbackData, prefix="refund"):
-    """«✅ Отправить запрос» на возврат (задача 21). Без данных: за какую оплату и сколько —
-    сервис считает заново по нажавшему."""
+class DoublePaymentAction(StrEnum):
+    """Кнопки под сообщением «мы получили две оплаты» (задача 21)."""
+
+    ASK = "ask"  # «↩️ Вернуть вторую оплату» — сумма и вопрос «точно?»
+    CONFIRM = "confirm"  # «✅ Да, вернуть»
+    KEEP = "keep"  # «Оставить — продлить подписку»
 
 
-class DoublePaymentRefundCallback(CallbackData, prefix="refund2"):
-    """«↩️ Вернуть вторую оплату» (задача 21): `confirm=False` — сумма, `True` — запрос.
+class DoublePaymentCallback(CallbackData, prefix="dbl"):
+    """Случайная вторая оплата (задача 21). Номер заказа — не доступ: сервис ищет его
+    только среди заказов нажавшего и только с отметкой «двойная оплата» (задача 14)."""
 
-    Номер заказа — не доступ: сервис ищет его только среди заказов нажавшего и только
-    с отметкой «случайная вторая оплата» (её ставит задача 14).
-    """
-
+    action: DoublePaymentAction
     order_id: Annotated[int, Field(gt=0)]
-    confirm: bool = False
 
 
 class TariffCallback(CallbackData, prefix="buy"):
@@ -117,6 +116,7 @@ class TicketAction(StrEnum):
     HIDE = "hide"  # «✖️ Скрыть» меню заготовок
     EXTEND = "extend"  # «➕ Продлить на N дней» — задача 18
     DEVICES = "devices"  # «📱 Устройства» — задача 18
+    REFUND = "refund"  # «↩️ Вернуть» — оплаты клиента за 30 дней, задача 21
 
 
 class TicketCallback(CallbackData, prefix="ticket"):

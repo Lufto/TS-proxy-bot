@@ -115,10 +115,10 @@ async def test_preview_then_transfer_moves_remaining_time(
     )
 
     done = await service.transfer(
-        ADMIN_ID, FROM_ID, TO_ID, order.id, expected_from=expire_at, expected_to=None
+        ADMIN_ID, order.id, TO_ID, expected_from=expire_at, expected_to=None
     )
 
-    assert done == TransferDone(expire_at)
+    assert done == TransferDone(FROM_ID, expire_at)
     target = await remnawave.get_account(TO_ID)
     source = await remnawave.get_account(FROM_ID)
     assert (target.expire_at, target.device_limit) == (expire_at, PAID_DEVICE_LIMIT)
@@ -137,12 +137,10 @@ async def test_second_confirm_does_nothing(
 ) -> None:
     expire_at = clock() + timedelta(days=20)
     await paid_account(remnawave, FROM_ID, expire_at)
-    await service.transfer(
-        ADMIN_ID, FROM_ID, TO_ID, order.id, expected_from=expire_at, expected_to=None
-    )
+    await service.transfer(ADMIN_ID, order.id, TO_ID, expected_from=expire_at, expected_to=None)
 
     again = await service.transfer(
-        ADMIN_ID, FROM_ID, TO_ID, order.id, expected_from=expire_at, expected_to=None
+        ADMIN_ID, order.id, TO_ID, expected_from=expire_at, expected_to=None
     )
 
     assert isinstance(again, TransferRefused)
@@ -164,9 +162,8 @@ async def test_trial_target_gets_paid_limits_and_days_added(
     assert isinstance(preview, TransferPreview)
     await service.transfer(
         ADMIN_ID,
-        FROM_ID,
-        TO_ID,
         order.id,
+        TO_ID,
         expected_from=preview.from_expire_at,
         expected_to=preview.to_expire_at,
     )
@@ -228,9 +225,9 @@ async def test_not_while_refund_is_open(
         RefundRequest(
             order_id=order.id,
             client_id=client.id,
-            unused_days=20,
-            amount=Decimal(100),
-            status=RefundStatus.REQUESTED,
+            unused_days=30,
+            amount=Decimal(150),
+            status=RefundStatus.IN_REVIEW,
         )
     )
     await session.commit()

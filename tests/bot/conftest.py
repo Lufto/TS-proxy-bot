@@ -15,6 +15,7 @@ from tsproxy.bot.delivery import ClientDelivery
 from tsproxy.bot.dispatcher import create_dispatcher
 from tsproxy.bot.fakes import FakeTelegramSession
 from tsproxy.bot.payments import PaymentScreens, TelegramPaymentMessages
+from tsproxy.bot.refunds import RefundScreens, TelegramRefundMessages
 from tsproxy.bot.screens import Screens
 from tsproxy.bot.support_guard import SupportGuard, support_rate_limiter
 from tsproxy.bot.throttling import RateLimiter
@@ -39,6 +40,7 @@ from tsproxy.services.locks import KeyedLocks
 from tsproxy.services.orders import OrderService
 from tsproxy.services.payment_checks import PaymentChecks
 from tsproxy.services.profile import ProfileService
+from tsproxy.services.refunds import RefundService
 from tsproxy.services.support import SupportService
 from tsproxy.services.trial import TrialService
 from tsproxy.services.trial_switch import TrialSwitch
@@ -153,6 +155,18 @@ def ctx(
         clock,
         test_payments=True,
     )
+    refunds = RefundService(
+        session_factory,
+        remnawave,
+        payments,
+        events,
+        alerter,
+        AdminTopic(alert_sender, ADMIN_CHAT_ID, PAYMENTS_THREAD_ID),
+        content.admin_texts,
+        TelegramRefundMessages(delivery, RefundScreens(content.texts)),
+        clock,
+        KeyedLocks(),
+    )
     return BotContext(
         texts=content.texts,
         admin_texts=content.admin_texts,
@@ -193,6 +207,7 @@ def ctx(
             session_factory, TelegramTopicRemover(bot, ADMIN_CHAT_ID), events
         ),
         payment_checks=payment_checks,
+        refunds=refunds,
     )
 
 

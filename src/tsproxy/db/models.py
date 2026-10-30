@@ -216,7 +216,13 @@ class TicketMessage(Base):
 
 
 class RefundRequest(Base):
-    """Запрос на возврат за неиспользованные дни. Решает администратор."""
+    """Возврат одной оплаты (задача 21). Строка — когда возврат уже решён: администратором
+    по обращению или клиентом (случайная вторая оплата). Возвращается вся сумма оплаты.
+
+    `unused_days` — сколько полных дней снято со срока (срок, который дала оплата);
+    `decided_by_admin_id` пусто — вернул сам клиент; `decision_reason` — вид возврата
+    (`services.refunds.RefundKind`).
+    """
 
     __tablename__ = "refund_requests"
     __table_args__ = (
@@ -231,7 +237,7 @@ class RefundRequest(Base):
     unused_days: Mapped[int]
     amount: Mapped[Decimal]
     status: Mapped[RefundStatus] = mapped_column(
-        enum_column(RefundStatus), default=RefundStatus.REQUESTED, index=True
+        enum_column(RefundStatus), default=RefundStatus.APPROVED, index=True
     )
     decided_by_admin_id: Mapped[int | None] = mapped_column(BigInteger)
     decision_reason: Mapped[str | None] = mapped_column(Text)

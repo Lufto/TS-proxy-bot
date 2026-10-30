@@ -786,7 +786,7 @@ async def test_two_links_paid_at_once_are_marked_as_possible_double(
     assert result.outcome is PaymentOutcome.GRANTED
     account = await s.remnawave.get_account(TELEGRAM_ID)
     assert account.expire_at == first_paid_at + 2 * MONTH  # дни сложены
-    assert s.messages.doubles == [(TELEGRAM_ID, s.clock() + timedelta(days=7))]
+    assert s.messages.doubles == [(TELEGRAM_ID, second_id, s.clock() + timedelta(days=7))]
     assert (await payment_event(s, second_id))["possible_double_of"] == first_id
     assert (await payment_event(s, first_id))["possible_double_of"] is None
     first_notice, second_notice = s.topic.sent

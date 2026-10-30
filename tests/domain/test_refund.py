@@ -1,164 +1,93 @@
+"""Возвраты через поддержку (задача 21, решение владельца 2026-10-30): какие оплаты можно
+вернуть, случайная вторая оплата и новый срок после возврата."""
+
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
 
 import pytest
 
 from tsproxy.domain.refund import (
-    RefundDenial,
-    RefundReason,
-    RefundRequest,
-    decide_refund,
-    refund_amount,
-    unused_full_days,
+    REFUND_END_MARGIN,
+    double_payment_refund_open,
+    refund_list_since,
+    refund_window_open,
+    term_after_refund,
 )
 
 PAID_AT = datetime(2026, 11, 1, 12, 0, tzinfo=UTC)
-DAYS_30 = timedelta(days=30)
+MONTH = timedelta(days=30)
 
 
-def request(
-    now: datetime,
-    *,
-    reason: RefundReason = RefundReason.SERVICE_FAULT,
-    paid_amount: Decimal = Decimal("150"),
-    period_start: datetime = PAID_AT,
-    period_end: datetime = PAID_AT + DAYS_30,
-    last_refund_at: datetime | None = None,
-) -> RefundRequest:
-    return RefundRequest(
-        now=now,
-        reason=reason,
-        paid_at=PAID_AT,
-        paid_amount=paid_amount,
-        period_start=period_start,
-        period_end=period_end,
-        last_refund_at=last_refund_at,
-    )
+# --- Оплаты за последние 30 дней ---
 
 
-# --- Неиспользованные полные дни и сумма ---
+def test_payment_exactly_30_days_old_can_be_refunded() -> None:
+    assert refund_window_open(PAID_AT, PAID_AT + timedelta(days=30))
 
 
-def test_unused_full_days_drops_partial_day() -> None:
-    now = PAID_AT + timedelta(days=10, hours=12)
-    assert unused_full_days(PAID_AT, PAID_AT + DAYS_30, now) == 19
+def test_payment_older_than_30_days_cannot_be_refunded() -> None:
+    assert not refund_window_open(PAID_AT, PAID_AT + timedelta(days=30, seconds=1))
 
 
-def test_unused_days_of_period_that_has_not_started_yet() -> None:
-    # Купил при активной подписке: оплаченный срок начнётся позже, все дни не использованы
-    start = PAID_AT + timedelta(days=5)
-    assert unused_full_days(start, start + DAYS_30, PAID_AT) == 30
+def test_refund_list_starts_30_days_ago() -> None:
+    now = PAID_AT + timedelta(days=45)
+    assert refund_list_since(now) == now - timedelta(days=30)
 
 
-def test_unused_days_after_period_end_is_zero() -> None:
-    assert unused_full_days(PAID_AT, PAID_AT + DAYS_30, PAID_AT + timedelta(days=31)) == 0
-
-
-def test_amount_for_unused_days() -> None:
-    now = PAID_AT + timedelta(days=10, hours=12)
-    assert refund_amount(Decimal("150"), PAID_AT, PAID_AT + DAYS_30, now) == Decimal("95.00")
-
-
-def test_amount_three_month_tariff() -> None:
-    now = PAID_AT + timedelta(days=7, hours=1)
-    end = PAID_AT + timedelta(days=90)
-    assert refund_amount(Decimal("405"), PAID_AT, end, now) == Decimal("369.00")
-
-
-def test_amount_rounds_down_to_kopecks() -> None:
-    # Срок после пропорционального пересчёта: 482 часа = 20,083 дня, не использовано 20
-    end = PAID_AT + timedelta(hours=482)
-    assert refund_amount(Decimal("100"), PAID_AT, end, PAID_AT) == Decimal("99.58")
-
-
-def test_amount_full_when_nothing_used() -> None:
-    assert refund_amount(Decimal("150"), PAID_AT, PAID_AT + DAYS_30, PAID_AT) == Decimal("150.00")
-
-
-def test_amount_never_exceeds_paid() -> None:
-    start = PAID_AT + timedelta(days=5)
-    amount = refund_amount(Decimal("150"), start, start + DAYS_30, PAID_AT)
-    assert amount <= Decimal("150")
-
-
-def test_amount_is_decimal_with_two_places() -> None:
-    amount = refund_amount(Decimal("150"), PAID_AT, PAID_AT + DAYS_30, PAID_AT + timedelta(days=3))
-    assert isinstance(amount, Decimal)
-    assert amount == Decimal("135.00")
-    assert amount.as_tuple().exponent == -2
-
-
-def test_period_must_be_positive() -> None:
+def test_refund_window_rejects_naive_time() -> None:
     with pytest.raises(ValueError):
-        unused_full_days(PAID_AT, PAID_AT, PAID_AT)
+        refund_window_open(PAID_AT, datetime(2026, 11, 2))  # noqa: DTZ001
 
 
-# --- Можно ли вернуть (задача 12) ---
+# --- Случайная вторая оплата: клиент сам, 7 дней ---
 
 
-def test_refund_allowed_for_service_fault() -> None:
-    decision = decide_refund(request(PAID_AT + timedelta(days=3)))
-    assert decision.allowed
-    assert decision.denial is None
-    assert decision.unused_days == 27
-    assert decision.amount == Decimal("135.00")
+def test_double_payment_can_be_refunded_by_client_for_seven_days() -> None:
+    assert double_payment_refund_open(PAID_AT, PAID_AT + timedelta(days=7))
 
 
-@pytest.mark.parametrize(
-    ("reason", "denial"),
-    [
-        (RefundReason.PROVIDER_BLOCK, RefundDenial.BLOCKED_BY_PROVIDER),
-        (RefundReason.STATE_BLOCK, RefundDenial.BLOCKED_BY_STATE),
-        (RefundReason.CHANGED_MIND, RefundDenial.CHANGED_MIND),
-    ],
-)
-def test_no_refund_for_reasons_outside_our_fault(
-    reason: RefundReason, denial: RefundDenial
-) -> None:
-    decision = decide_refund(request(PAID_AT + timedelta(days=1), reason=reason))
-    assert not decision.allowed
-    assert decision.denial is denial
+def test_double_payment_refund_closes_after_seven_days() -> None:
+    assert not double_payment_refund_open(PAID_AT, PAID_AT + timedelta(days=7, seconds=1))
 
 
-def test_refund_at_exactly_30_days_is_allowed() -> None:
-    end = PAID_AT + timedelta(days=90)
-    decision = decide_refund(request(PAID_AT + timedelta(days=30), period_end=end))
-    assert decision.allowed
-    assert decision.unused_days == 60
+# --- Срок после возврата: минус всё, что дала эта оплата ---
 
 
-def test_refund_one_second_after_30_days_is_denied() -> None:
-    end = PAID_AT + timedelta(days=90)
-    now = PAID_AT + timedelta(days=30, seconds=1)
-    decision = decide_refund(request(now, period_end=end))
-    assert decision.denial is RefundDenial.WINDOW_PASSED
+def test_term_loses_exactly_what_the_refunded_payment_gave() -> None:
+    # после этой оплаты куплена ещё одна: её дни остаются
+    after = term_after_refund(PAID_AT + timedelta(days=60), MONTH, PAID_AT)
+    assert after.expire_at == PAID_AT + timedelta(days=30)
+    assert not after.end_access
 
 
-def test_second_refund_within_six_months_denied() -> None:
-    last = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
-    decision = decide_refund(request(PAID_AT + timedelta(days=1), last_refund_at=last))
-    assert decision.denial is RefundDenial.TOO_FREQUENT
+def test_prorated_payment_takes_back_its_hours_too() -> None:
+    # оплачено не на сумму тарифа: оплата дала 15 дней 2 часа — столько и снимаем
+    given = timedelta(days=15, hours=2)
+    after = term_after_refund(PAID_AT + timedelta(days=40), given, PAID_AT)
+    assert after.expire_at == PAID_AT + timedelta(days=24, hours=22)
 
 
-def test_refund_exactly_six_months_after_previous_is_allowed() -> None:
-    last = datetime(2026, 5, 2, 12, 0, tzinfo=UTC)
-    now = datetime(2026, 11, 2, 12, 0, tzinfo=UTC)
-    assert decide_refund(request(now, last_refund_at=last)).allowed
+def test_used_days_of_refunded_payment_end_access_now() -> None:
+    # клиент пользовался 10 дней из 30 и вернул всю сумму: доступ кончается сразу
+    now = PAID_AT + timedelta(days=10)
+    after = term_after_refund(PAID_AT + MONTH, MONTH, now)
+    assert after.end_access
+    assert after.expire_at == now + REFUND_END_MARGIN
 
 
-def test_refund_one_second_before_six_months_is_denied() -> None:
-    last = datetime(2026, 5, 2, 12, 0, tzinfo=UTC)
-    now = datetime(2026, 11, 2, 11, 59, 59, tzinfo=UTC)
-    assert decide_refund(request(now, last_refund_at=last)).denial is RefundDenial.TOO_FREQUENT
+def test_access_ends_now_when_less_than_a_day_would_remain() -> None:
+    # остался бы неполный день — иначе по окончании начался бы льготный период
+    after = term_after_refund(PAID_AT + timedelta(days=30, hours=5), MONTH, PAID_AT)
+    assert after.end_access
+    assert after.expire_at == PAID_AT + REFUND_END_MARGIN
 
 
-def test_nothing_left_to_refund() -> None:
-    end = PAID_AT + timedelta(hours=20)
-    decision = decide_refund(request(PAID_AT + timedelta(hours=1), period_end=end))
-    assert decision.denial is RefundDenial.NOTHING_UNUSED
-    assert decision.amount == Decimal("0.00")
+def test_term_end_never_moves_later() -> None:
+    expire_at = PAID_AT + timedelta(seconds=10)
+    after = term_after_refund(expire_at, timedelta(0), PAID_AT)
+    assert after.end_access
+    assert after.expire_at == expire_at
 
 
-def test_refund_rejects_naive_now() -> None:
+def test_negative_duration_is_a_bug() -> None:
     with pytest.raises(ValueError):
-        decide_refund(request(datetime(2026, 11, 2)))  # noqa: DTZ001
+        term_after_refund(PAID_AT, timedelta(days=-1), PAID_AT)

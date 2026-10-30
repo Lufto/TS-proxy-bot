@@ -9,9 +9,9 @@
 Оба срока меняются под блокировками срока обоих клиентов (по порядку id — без взаимной
 блокировки), аккаунты перечитываются уже под ними.
 
-Заказы остаются у старого аккаунта: возврат по ним ограничен остатком его срока
-(`refund.limit_to_term`), а он после переноса пуст — деньги за перенесённые дни
-вернуть нельзя ни старому, ни новому аккаунту.
+Заказы остаются у старого аккаунта. Вернуть через бота оплату, сделанную до переноса,
+нельзя (`services.refunds`, отказ «подписку перенесли»): её дни уже у нового аккаунта.
+Пока идёт возврат оплаты старого аккаунта, перенос не делается.
 """
 
 import logging
@@ -53,7 +53,7 @@ class TransferRefusal(StrEnum):
     TARGET_NOT_FOUND = "target_not_found"
     PAYMENT_NOT_FOUND = "payment_not_found"  # платёж не подтверждает оплату старого аккаунта
     NOTHING_TO_TRANSFER = "nothing_to_transfer"  # нет идущей оплаченной подписки
-    REFUND_OPEN = "refund_open"  # незаконченная заявка на возврат
+    REFUND_OPEN = "refund_open"  # идёт возврат оплаты этого клиента
     CHANGED = "changed"  # сроки уже не те, что в предпросмотре
 
 
@@ -76,6 +76,7 @@ class TransferPreview:
 
 @dataclass(frozen=True)
 class TransferDone:
+    from_telegram_id: int
     to_expire_at: datetime
 
 
@@ -122,14 +123,20 @@ class TransferService:
     async def transfer(
         self,
         admin_id: int,
-        from_telegram_id: int,
-        to_telegram_id: int,
         order_id: int,
+        to_telegram_id: int,
         *,
         expected_from: datetime,
         expected_to: datetime | None,
     ) -> TransferDone | TransferRefused:
-        """Перенести — после подтверждения, если сроки обоих аккаунтов не изменились."""
+        """Перенести — после подтверждения, если сроки обоих аккаунтов не изменились.
+
+        Откуда — клиент подтверждённого заказа `order_id` (так кнопка подтверждения
+        укладывается в 64 байта Telegram).
+        """
+        from_telegram_id = await self.order_owner(order_id)
+        if from_telegram_id is None:
+            return TransferRefused(TransferRefusal.PAYMENT_NOT_FOUND)
         ids = await self._client_ids(from_telegram_id, to_telegram_id)
         if ids is None:
             refused = await self._prepare(from_telegram_id, to_telegram_id, order_id=order_id)
@@ -158,7 +165,14 @@ class TransferService:
             prepared.source.id,
             prepared.target.id,
         )
-        return TransferDone(target_account.expire_at)
+        return TransferDone(from_telegram_id, target_account.expire_at)
+
+    async def order_owner(self, order_id: int) -> int | None:
+        """Telegram ID клиента заказа. `None` — такого заказа нет."""
+        async with self._session_factory() as session:
+            return await session.scalar(
+                select(Client.telegram_id).join(Order).where(Order.id == order_id)
+            )
 
     async def _client_ids(self, from_id: int, to_id: int) -> tuple[int, int] | None:
         async with self._session_factory() as session:

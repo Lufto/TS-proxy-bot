@@ -305,7 +305,9 @@ class FakePaymentProvider:
     """Поддельная платёжка за интерфейсом `PaymentProvider`.
 
     Для тестов: `fail_next(PaymentUnavailable(...))` — следующий запрос упадёт этой ошибкой;
-    `ledger.pay(...)` / `ledger.cancel(...)` — «клиент оплатил» / «не стал платить».
+    `ledger.pay(...)` / `ledger.cancel(...)` — «клиент оплатил» / «не стал платить»;
+    `review_next_refund()` — следующий возврат уйдёт «на проверку» (как `manualControlRequired`
+    у Platega, задача 21).
     """
 
     def __init__(
@@ -314,6 +316,7 @@ class FakePaymentProvider:
         self._clock = clock
         self.ledger = ledger if ledger is not None else FakePaymentLedger()
         self._next_error: PaymentError | None = None
+        self._review_next_refund = False
 
     @property
     def name(self) -> str:
@@ -321,6 +324,9 @@ class FakePaymentProvider:
 
     def fail_next(self, error: PaymentError) -> None:
         self._next_error = error
+
+    def review_next_refund(self) -> None:
+        self._review_next_refund = True
 
     async def create_payment(self, request: PaymentRequest) -> CreatedPayment:
         payment = await self._call(self.ledger.create, request, require_aware(self._clock()))
@@ -336,7 +342,9 @@ class FakePaymentProvider:
 
     async def refund(self, payment_id: str, amount: Decimal, idempotency_key: str) -> Refund:
         done = await self._call(self.ledger.refund, payment_id, amount, idempotency_key)
-        return Refund(done.refund_id, payment_id, done.amount, RefundOutcome.SUCCEEDED)
+        outcome = RefundOutcome.IN_REVIEW if self._review_next_refund else RefundOutcome.SUCCEEDED
+        self._review_next_refund = False
+        return Refund(done.refund_id, payment_id, done.amount, outcome)
 
     def parse_notification(self, body: bytes, headers: Mapping[str, str]) -> str:
         """Подписи у поддельной платёжки нет, как у ЮKassa: правду бот узнаёт перезапросом."""

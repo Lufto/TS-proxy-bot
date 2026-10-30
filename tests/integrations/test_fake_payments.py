@@ -129,6 +129,21 @@ async def test_refund_part_then_rest(provider: FakePaymentProvider, clock: FakeC
         await provider.refund(created.payment_id, Decimal("1"), "r3")
 
 
+async def test_refund_can_be_sent_to_review(
+    provider: FakePaymentProvider, clock: FakeClock
+) -> None:
+    """Как Platega с `manualControlRequired`: возврат принят, но ушёл на проверку (задача 21)."""
+    created = await provider.create_payment(request())
+    provider.ledger.pay(created.payment_id, now=clock())
+    provider.review_next_refund()
+
+    refund = await provider.refund(created.payment_id, Decimal("400"), "r1")
+    next_one = await provider.refund(created.payment_id, Decimal("0.01"), "r2")
+
+    assert refund.outcome is RefundOutcome.IN_REVIEW
+    assert next_one.outcome is RefundOutcome.SUCCEEDED
+
+
 async def test_refund_of_unpaid_is_rejected(provider: FakePaymentProvider) -> None:
     created = await provider.create_payment(request())
     with pytest.raises(PaymentRejected):

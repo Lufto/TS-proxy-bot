@@ -23,6 +23,7 @@ from tsproxy.services.link_revoke import LinkRevokeService
 from tsproxy.services.orders import OrderService
 from tsproxy.services.payment_checks import PaymentChecks
 from tsproxy.services.profile import ProfileService
+from tsproxy.services.refunds import RefundService
 from tsproxy.services.support import SupportService
 from tsproxy.services.trial import TrialService
 from tsproxy.services.trial_switch import TrialSwitch
@@ -53,6 +54,7 @@ class BotContext:
     trial_switch: TrialSwitch  # выключатель пробных (задача 28), тот же, что у `trials`
     erasure: DataErasureService  # удаление данных клиента по запросу (задача 24)
     payment_checks: PaymentChecks  # «🔄 Проверить оплату» (задача 14), тот же, что у `orders`
+    refunds: RefundService  # «↩️ Вернуть» и случайная вторая оплата (задача 21)
 
 
 def profile_of(user: User) -> ClientProfile:

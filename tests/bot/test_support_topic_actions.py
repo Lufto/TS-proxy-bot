@@ -156,6 +156,7 @@ async def test_topic_starts_with_client_card_and_buttons(
         for action in (
             TicketAction.EXTEND,
             TicketAction.DEVICES,
+            TicketAction.REFUND,
             TicketAction.TAKE,
             TicketAction.CLOSE,
             TicketAction.QUICK_REPLIES,

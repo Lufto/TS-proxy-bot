@@ -41,7 +41,7 @@ class FakePaymentMessages:
     granted: list[GrantedAccess] = field(default_factory=list)
     pending: list[int] = field(default_factory=list)
     delayed: list[int] = field(default_factory=list)
-    doubles: list[tuple[int, datetime]] = field(default_factory=list)
+    doubles: list[tuple[int, int, datetime]] = field(default_factory=list)
 
     async def access_granted(self, granted: GrantedAccess) -> None:
         self.granted.append(granted)
@@ -52,8 +52,10 @@ class FakePaymentMessages:
     async def access_delayed(self, telegram_id: int) -> None:
         self.delayed.append(telegram_id)
 
-    async def possible_double_payment(self, telegram_id: int, refund_until: datetime) -> None:
-        self.doubles.append((telegram_id, refund_until))
+    async def possible_double_payment(
+        self, telegram_id: int, order_id: int, refund_until: datetime
+    ) -> None:
+        self.doubles.append((telegram_id, order_id, refund_until))
 
 
 def flaky_commits(

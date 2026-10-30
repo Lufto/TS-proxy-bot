@@ -8,6 +8,7 @@ from aiogram.types import BotCommand
 from tsproxy.bot.admin import ForeignChatFilter
 from tsproxy.bot.admin_clients import AdminCardClientActions, create_admin_router
 from tsproxy.bot.admin_erasure import create_admin_erasure_router
+from tsproxy.bot.admin_refunds import create_admin_refunds_router
 from tsproxy.bot.admin_trials import create_admin_trials_router
 from tsproxy.bot.chats import create_chats_router
 from tsproxy.bot.connect import create_connect_router
@@ -16,6 +17,7 @@ from tsproxy.bot.errors import on_error
 from tsproxy.bot.fallback import create_fallback_router
 from tsproxy.bot.menu import create_menu_router
 from tsproxy.bot.profile import PROFILE_COMMAND, create_profile_router
+from tsproxy.bot.refunds import create_refunds_router
 from tsproxy.bot.support import SUPPORT_COMMAND, create_support_router
 from tsproxy.bot.tariffs import BUY_COMMAND, create_tariffs_router
 from tsproxy.bot.throttling import RateLimiter, ThrottlingMiddleware
@@ -45,9 +47,11 @@ def create_dispatcher(
         create_trial_router(),
         create_profile_router(),
         create_tariffs_router(),
+        create_refunds_router(),  # задача 21: случайная вторая оплата
         create_admin_router(ctx.access),  # задача 18
         create_admin_trials_router(ctx.access),  # задача 28
         create_admin_erasure_router(ctx.access),  # задача 24
+        create_admin_refunds_router(ctx.access),  # задача 21
         *extra_routers,
         create_support_router(ctx.access, client_actions=AdminCardClientActions()),
         create_fallback_router(),

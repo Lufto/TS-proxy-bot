@@ -1,37 +1,40 @@
-"""Возвраты денег (задача 21; решения задачи 12 и владельца 2026-10-25 «Карта оплаты»).
+"""Возвраты денег (задача 21; решение владельца 2026-10-30).
 
-Путь: клиент жмёт «↩️ Вернуть деньги» → бот считает сумму (`domain.refund`) → заявка
-в базе и карточка в теме «↩️ Возвраты» → администратор одобряет или отклоняет →
-платёжка возвращает деньги → бот укорачивает подписку.
+**Через поддержку.** У клиента кнопки «вернуть деньги» нет: он пишет в поддержку,
+администратор решает сам и нажимает «↩️ Вернуть» в карточке клиента (тема обращения или
+`/client`). В списке — оплаты за последние 30 дней (`domain.refund`). Бот возвращает **всю
+сумму** оплаты через платёжку и снимает со срока всё, что эта оплата дала (`paid_duration`).
 
-Возвраты — только через бота (решение владельца, п. 4). Защиты (payment-journeys §4 №8):
+**Случайная вторая оплата** (задача 14 отмечает её полем `possible_double_of` в событии
+оплаты): клиент сам, без администратора, может вернуть её кнопкой в течение 7 дней или
+нажать «Оставить». Оставил или 7 дней прошли — только через поддержку. Администраторам —
+сообщение в «💰 Оплаты» в обоих случаях.
 
-- **Двойное «Одобрить»** (два администратора, двойное нажатие): заявка переходит
-  «запрошен → одобрен» одним `UPDATE … WHERE статус «запрошен»`. Изменилась 0 строк —
-  решение уже принято, деньги второй раз не возвращаются. Ключ идемпотентности у
-  платёжки — номер заявки, так что и повтор после сбоя не вернёт деньги дважды.
-- **Деньги вернулись, а срок не укорочен** (панель не ответила): заявка остаётся
-  «деньги возвращены», тревога, фоновая задача повторяет каждую минуту. Бесплатного
-  доступа молча не остаётся.
-- **Срок укорачивается на неиспользованные дни этого заказа** от текущего срока, а не
-  до «начала периода»: дни следующих заказов остаются (Г5). Срок «до X» считается один
-  раз и записывается в журнал до запроса к панели: повтор не укоротит дважды.
+Защиты:
+
+- **Одна оплата — один возврат.** Возврат начинается одним `UPDATE заказ «доступ выдан» →
+  «возвращён»`: изменилась 0 строк — оплату уже возвращают, второй раз деньги не уйдут
+  (двойное нажатие, два администратора). Ключ идемпотентности у платёжки — номер возврата:
+  повтор после сбоя тоже не вернёт дважды. Платёжка отказала — заказ снова «доступ выдан».
+- **Платёжка не ответила** — возврат остаётся «начат», фоновая задача повторяет раз в минуту.
+- **Платёжка отправила возврат на проверку** (у Platega — `manualControlRequired`) —
+  «на проверке у платёжки»; дни не снимаем, пока деньги не вернулись. Итог приходит позже
+  (`settle_review`, вызовет уведомление платёжки — задача 15).
+- **Деньги вернулись, а срок не укорочен** (панель не ответила) — «деньги возвращены»,
+  тревога, фоновая задача повторяет. Срок «до X» считается один раз и записывается в журнал
+  до запроса к панели: повтор не укоротит дважды.
 - Каждое изменение срока — под общей блокировкой срока клиента (`term_locks`), аккаунт
   перечитывается из панели уже под ней.
+- **Подписку перенесли на другой аккаунт** после этой оплаты — её дни уже не здесь:
+  возврат через бота не делаем, иначе ушли бы и деньги, и дни (решение агента).
 
-Случайная вторая оплата (решение владельца, п. 1): задача 14 замечает её и пишет событие
-`DOUBLE_PAYMENT_SUSPECTED` с номером второго заказа. По такому заказу клиент может
-попросить полный возврат в течение 7 дней, вне правил «30 дней» и «раз в полгода»;
-такой возврат и не считается «прошлым возвратом» для правила «раз в полгода».
-Решает всё равно администратор.
-
-При `PAYMENTS_MODE=off` платёжки нет — вернуть деньги через бота нельзя, клиент видит
-это честно (`RefundRefusal.PAYMENTS_OFF`).
+Возвраты, решённые раньше 2026-10-30 по старому замыслу (запрос клиента), в базе не встречаются:
+бот ещё не запускался.
 """
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from enum import StrEnum
 from typing import Any, Protocol
@@ -43,24 +46,20 @@ from tsproxy.content.loader import Texts
 from tsproxy.db.enums import OrderStatus, RefundStatus
 from tsproxy.db.models import Client, Event, Order, RefundRequest
 from tsproxy.db.repository import affected_rows
+from tsproxy.domain.constants import ONE_DAY
 from tsproxy.domain.money import format_rubles, paid_duration
 from tsproxy.domain.refund import (
     REFUND_END_MARGIN,
-    RefundDecision,
-    RefundDenial,
-    RefundKind,
-    RefundReason,
-    decide_double_payment_refund,
-    decide_refund,
-    limit_to_term,
-    next_refund_at,
+    double_payment_refund_open,
+    refund_list_since,
+    refund_window_open,
     term_after_refund,
 )
-from tsproxy.domain.refund import RefundRequest as RefundFacts
 from tsproxy.integrations.payments_types import (
     PaymentError,
     PaymentProvider,
     PaymentUnavailable,
+    Refund,
     RefundOutcome,
 )
 from tsproxy.integrations.remnawave_types import (
@@ -71,148 +70,117 @@ from tsproxy.integrations.remnawave_types import (
     RemnawaveError,
 )
 from tsproxy.services.admin import AdminActionKind, same_second
+from tsproxy.services.admin_topics import AdminTopic
 from tsproxy.services.alerts import Alerter
 from tsproxy.services.clock import Clock, utc_now
+from tsproxy.services.crediting import DOUBLE_DETAIL
 from tsproxy.services.events import EventKind, EventLog
 from tsproxy.services.locks import KeyedLocks
 
 logger = logging.getLogger(__name__)
 
-# Заявка ещё не закончена: второй запрос клиента не принимаем
-OPEN_STATUSES = (RefundStatus.REQUESTED, RefundStatus.APPROVED, RefundStatus.REFUNDED)
-# Деньги вернули (или возвращают): такой возврат считается «прошлым» для правила полугода
-APPROVED_STATUSES = (RefundStatus.APPROVED, RefundStatus.REFUNDED, RefundStatus.COMPLETED)
-# Фоновая задача доделывает: «одобрен» — вернуть деньги, «деньги возвращены» — укоротить срок
+# Возврат начат и не закончен: оплату нельзя вернуть второй раз, подписку — перенести
+OPEN_STATUSES = (RefundStatus.APPROVED, RefundStatus.IN_REVIEW, RefundStatus.REFUNDED)
+# Фоновая задача доделывает: «начат» — вернуть деньги, «деньги возвращены» — укоротить срок
 UNFINISHED_STATUSES = (RefundStatus.APPROVED, RefundStatus.REFUNDED)
-# Поля подробностей событий возврата
+# Из этих состояний платёжка может сообщить итог: деньги возвращены или отказ
+AWAITING_PROVIDER = (RefundStatus.APPROVED, RefundStatus.IN_REVIEW)
+# Поле подробностей событий возврата — номер возврата
 REQUEST_DETAIL = "request_id"
-KIND_DETAIL = "kind"
-# Сколько незаконченных заявок фоновая задача берёт за проход
+# Сколько незаконченных возвратов фоновая задача берёт за проход
 RETRY_BATCH_SIZE = 20
 
 
+class RefundKind(StrEnum):
+    """Кто решил вернуть. Пишется в `decision_reason` и в подробности событий."""
+
+    SUPPORT = "support"  # администратор по обращению в поддержку
+    DOUBLE_PAYMENT = "double_payment"  # клиент сам — случайная вторая оплата
+
+
 class RefundRefusal(StrEnum):
-    """Почему клиенту нельзя запросить возврат."""
+    """Почему эту оплату нельзя вернуть через бота сейчас."""
 
     PAYMENTS_OFF = "payments_off"  # платёжка не подключена (`PAYMENTS_MODE=off`)
-    NO_PAID_ORDER = "no_paid_order"  # нет оплаты с выданным доступом
-    ALREADY_REQUESTED = "already_requested"  # прошлая заявка ещё не закончена
-    NOT_DOUBLE_PAYMENT = "not_double_payment"  # заказ не отмечен как случайная вторая оплата
-    WINDOW_PASSED = "window_passed"
-    TOO_FREQUENT = "too_frequent"
-    NOTHING_UNUSED = "nothing_unused"
+    CLIENT_NOT_FOUND = "client_not_found"  # не клиент бота
+    ORDER_NOT_FOUND = "order_not_found"  # нет такой оплаты у этого клиента
+    NOT_GRANTED = "not_granted"  # доступ по оплате ещё не выдан (выдача идёт или сбой)
+    WINDOW_PASSED = "window_passed"  # старше 30 дней (у клиента — 7 дней)
+    ALREADY_REFUNDED = "already_refunded"  # уже возвращена или возвращается
+    TRANSFERRED = "transferred"  # подписку перенесли на другой аккаунт после этой оплаты
+    NOT_DOUBLE_PAYMENT = "not_double_payment"  # клиент сам — только случайную вторую
+    KEPT = "kept"  # клиент нажал «Оставить» — теперь только через поддержку
 
 
-_DENIAL_REFUSALS = {
-    RefundDenial.WINDOW_PASSED: RefundRefusal.WINDOW_PASSED,
-    RefundDenial.TOO_FREQUENT: RefundRefusal.TOO_FREQUENT,
-    RefundDenial.NOTHING_UNUSED: RefundRefusal.NOTHING_UNUSED,
-}
-
-
-class RefundRejection(StrEnum):
-    """Почему администратор отклонил возврат. Пишется в `decision_reason`, клиент
-    получает объяснение по этой причине (тексты `refund.rejected.*`)."""
-
-    PROVIDER_BLOCK = "provider_block"  # доступ ограничил интернет-провайдер
-    STATE_BLOCK = "state_block"  # доступ ограничил государственный орган
-    CHANGED_MIND = "changed_mind"  # просто передумал — для этого есть пробный
-    OTHER = "other"  # другое — подробности клиенту пишет поддержка
-
-
-class ApprovalOutcome(StrEnum):
-    """Чем кончилось «✅ Одобрить»."""
+class RefundProgress(StrEnum):
+    """Докуда дошёл возврат."""
 
     COMPLETED = "completed"  # деньги возвращены, срок укорочен
     TERM_PENDING = "term_pending"  # деньги возвращены, срок укоротится повтором (тревога)
+    IN_REVIEW = "in_review"  # платёжка проверяет возврат — итог придёт позже
     PROVIDER_PENDING = "provider_pending"  # платёжка не ответила — повторим сами
-    PROVIDER_REJECTED = "provider_rejected"  # платёжка отказала — тревога, вручную
-    ALREADY_DECIDED = "already_decided"  # решение уже принято (второе нажатие)
-    PAYMENTS_OFF = "payments_off"  # платёжки нет — вернуть нельзя
-    NOT_FOUND = "not_found"
+    FAILED = "failed"  # платёжка отказала — тревога, вручную
 
 
-_STATUS_OUTCOMES = {
-    RefundStatus.COMPLETED: ApprovalOutcome.COMPLETED,
-    RefundStatus.REFUNDED: ApprovalOutcome.TERM_PENDING,
-    RefundStatus.APPROVED: ApprovalOutcome.PROVIDER_PENDING,
-    RefundStatus.FAILED: ApprovalOutcome.PROVIDER_REJECTED,
+_STATUS_PROGRESS = {
+    RefundStatus.COMPLETED: RefundProgress.COMPLETED,
+    RefundStatus.REFUNDED: RefundProgress.TERM_PENDING,
+    RefundStatus.IN_REVIEW: RefundProgress.IN_REVIEW,
+    RefundStatus.APPROVED: RefundProgress.PROVIDER_PENDING,
+    RefundStatus.FAILED: RefundProgress.FAILED,
 }
 
 
-class RejectionOutcome(StrEnum):
-    REJECTED = "rejected"
-    ALREADY_DECIDED = "already_decided"
-    NOT_FOUND = "not_found"
+@dataclass(frozen=True)
+class AdminRef:
+    """Кто из администраторов вернул: Telegram ID и имя — для журнала и темы."""
+
+    telegram_id: int
+    name: str
 
 
 @dataclass(frozen=True)
-class RefundQuote:
-    """Сколько клиенту вернут за эту оплату — показать до отправки заявки."""
+class RefundablePayment:
+    """Оплата в списке «↩️ Вернуть». `blocker` — почему вернуть нельзя (None — можно);
+    `refund_status` — что с последним возвратом этой оплаты (None — не возвращали)."""
 
     order_id: int
-    kind: RefundKind
+    tariff_id: str
+    days: int
     paid_at: datetime
-    paid_amount: Decimal
-    unused_days: int
     amount: Decimal
+    duration: timedelta  # сколько срока дала оплата — столько и снимется
+    refund_status: RefundStatus | None
+    blocker: RefundRefusal | None
 
 
 @dataclass(frozen=True)
 class RefundRefused:
-    """Возврат запросить нельзя. `available_at` — когда можно снова (раз в полгода)."""
-
     refusal: RefundRefusal
-    available_at: datetime | None = None
 
 
 @dataclass(frozen=True)
-class RefundCard:
-    """Заявка для администраторов: карточка в теме «↩️ Возвраты»."""
+class RefundResult:
+    """Итог нажатия. `expire_at` — срок после возврата (None — доступ выключен или срок
+    ещё не укорочен: смотреть `progress`)."""
 
     request_id: int
-    status: RefundStatus
-    kind: RefundKind
-    telegram_id: int
-    name: str | None
-    username: str | None
     order_id: int
-    tariff_id: str
-    paid_at: datetime
-    paid_amount: Decimal
-    unused_days: int
+    telegram_id: int
     amount: Decimal
-
-
-@dataclass(frozen=True)
-class ApprovalResult:
-    outcome: ApprovalOutcome
-    card: RefundCard | None = None
-    expire_at: datetime | None = None  # срок после укорачивания; None — доступ выключен
-
-
-@dataclass(frozen=True)
-class RejectionResult:
-    outcome: RejectionOutcome
-    card: RefundCard | None = None
-
-
-class RefundBoard(Protocol):
-    """Карточка новой заявки в теме «↩️ Возвраты» (в боте — `bot.refunds`)."""
-
-    async def request_created(self, card: RefundCard) -> None: ...
+    progress: RefundProgress
+    expire_at: datetime | None
 
 
 class RefundMessages(Protocol):
-    """Сообщения клиенту о решении (в боте — `bot.refunds`). Ошибки Telegram — внутри."""
+    """Сообщение клиенту о законченном возврате (в боте — `bot.refunds`). Ошибки Telegram
+    реализация разбирает сама: возврат к этому моменту уже сделан."""
 
     async def refund_completed(
         self, telegram_id: int, amount: Decimal, expire_at: datetime | None
     ) -> None:
         """Деньги возвращены, срок укорочен. `expire_at=None` — доступ выключен."""
         ...
-
-    async def refund_rejected(self, telegram_id: int, reason: RefundRejection) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -225,17 +193,17 @@ class _PlannedTerm:
 
 
 class RefundService:
-    """Заявки на возврат: расчёт, заявка, решение администратора, возврат и новый срок."""
+    """Возврат оплаты: решение (администратор или клиент), деньги через платёжку, новый срок."""
 
     def __init__(
         self,
         session_factory: async_sessionmaker[AsyncSession],
         remnawave: RemnawaveClient,
-        payments: PaymentProvider | None,
+        payments: PaymentProvider | None,  # None — оплата выключена (задача 29)
         events: EventLog,
         alerter: Alerter,
+        payments_topic: AdminTopic,  # «💰 Оплаты»
         admin_texts: Texts,
-        board: RefundBoard,
         messages: RefundMessages,
         clock: Clock,
         term_locks: KeyedLocks,
@@ -245,227 +213,116 @@ class RefundService:
         self._payments = payments
         self._events = events
         self._alerter = alerter
+        self._payments_topic = payments_topic
         self._admin_texts = admin_texts
-        self._board = board
         self._messages = messages
         self._clock = clock
         # общая блокировка срока клиента (зачёт оплаты, ручная выдача, льготный)
         self._term_locks = term_locks
-        # своя очередь: заявки одного клиента и обработка одной заявки — по одной
+        # своя очередь: начало возврата одной оплаты и обработка одного возврата — по одному
         self._locks = KeyedLocks()
 
-    # --- Клиент: расчёт и заявка ---
+    # --- Администратор: «↩️ Вернуть» ---
 
-    async def quote(self, client: Client) -> RefundQuote | RefundRefused:
-        """Обычный возврат за последнюю оплату: сумма или причина отказа. Ничего не меняет.
-
-        Срок читается из панели — `RemnawaveUnavailable` уходит вызывающему.
-        """
-        return await self._quote(client, None)
-
-    async def quote_double_payment(
-        self, client: Client, order_id: int
-    ) -> RefundQuote | RefundRefused:
-        """Полный возврат случайной второй оплаты `order_id` (заказ этого клиента)."""
-        return await self._quote(client, order_id)
-
-    async def request(self, client: Client) -> RefundCard | RefundRefused:
-        """Создать заявку на обычный возврат и отправить её в «↩️ Возвраты»."""
-        return await self._request(client, None)
-
-    async def request_double_payment(
-        self, client: Client, order_id: int
-    ) -> RefundCard | RefundRefused:
-        """Создать заявку на полный возврат случайной второй оплаты `order_id`."""
-        return await self._request(client, order_id)
-
-    async def _quote(
-        self, client: Client, double_order_id: int | None
-    ) -> RefundQuote | RefundRefused:
-        if self._payments is None:
-            return RefundRefused(RefundRefusal.PAYMENTS_OFF)
+    async def refundable_payments(self, telegram_id: int) -> list[RefundablePayment] | None:
+        """Оплаты клиента за последние 30 дней, новые сверху. `None` — не клиент бота."""
         now = utc_now(self._clock)
         async with self._session_factory() as session:
-            if await _has_open_request(session, client.id):
-                return RefundRefused(RefundRefusal.ALREADY_REQUESTED)
-            if double_order_id is None:
-                order = await _latest_granted_order(session, client.id)
-                last_refund_at = await _last_standard_refund_at(session, client.id)
-            else:
-                order = await _granted_order(session, client.id, double_order_id)
-                last_refund_at = None
-            if order is None:
-                return RefundRefused(RefundRefusal.NO_PAID_ORDER)
-            if double_order_id is not None and not await _double_payment_marked(session, order.id):
-                return RefundRefused(RefundRefusal.NOT_DOUBLE_PAYMENT)
-        kind = RefundKind.STANDARD if double_order_id is None else RefundKind.DOUBLE_PAYMENT
-        decision = _decide(order, kind, now, last_refund_at)
-        account = await self._account(client.telegram_id)
-        decision = limit_to_term(decision, _term_end(account, now), now)
-        if decision.denial is not None:
-            available_at = None
-            if decision.denial is RefundDenial.TOO_FREQUENT and last_refund_at is not None:
-                available_at = next_refund_at(last_refund_at)
-            return RefundRefused(_DENIAL_REFUSALS[decision.denial], available_at)
-        paid_at, paid_amount, _ = _paid(order)
-        return RefundQuote(
-            order.id, kind, paid_at, paid_amount, decision.unused_days, decision.amount
-        )
-
-    async def _request(
-        self, client: Client, double_order_id: int | None
-    ) -> RefundCard | RefundRefused:
-        async with self._locks.hold(("client", client.id)):
-            quote = await self._quote(client, double_order_id)
-            if isinstance(quote, RefundRefused):
-                return quote
-            async with self._session_factory() as session:
-                row = RefundRequest(
-                    order_id=quote.order_id,
-                    client_id=client.id,
-                    requested_at=utc_now(self._clock),
-                    unused_days=quote.unused_days,
-                    amount=quote.amount,
-                    status=RefundStatus.REQUESTED,
-                )
-                session.add(row)
-                await session.flush()
-                await self._events.record(
-                    session,
-                    EventKind.REFUND_REQUESTED,
-                    client_id=client.id,
-                    order_id=quote.order_id,
-                    details={
-                        REQUEST_DETAIL: row.id,
-                        KIND_DETAIL: quote.kind.value,
-                        "amount": str(quote.amount),
-                        "unused_days": quote.unused_days,
-                        "paid_amount": str(quote.paid_amount),
-                    },
-                )
-                await session.commit()
-                request_id = row.id
-        logger.info("Клиент %s: заявка на возврат %s", client.id, request_id)
-        card = await self.card(request_id)
-        if card is None:
-            raise LookupError(f"заявка {request_id} пропала сразу после записи")
-        await self._post(card)
-        return card
-
-    async def _post(self, card: RefundCard) -> None:
-        """Карточка в «↩️ Возвраты». Не ушла — тревога: заявка в базе, её покажет `/refunds`."""
-        try:
-            await self._board.request_created(card)
-        # Ловим всё: заявка уже записана, а ошибки Telegram и сети бывают разных типов.
-        # Не прячем: лог с трассировкой и тревога, чтобы заявку не забыли
-        except Exception:
-            logger.exception("Заявка на возврат %s не отправлена в тему", card.request_id)
-            await self._alerter.raise_alert(
-                f"refund_not_posted:{card.request_id}",
-                self._admin_texts.get("alerts.refund_not_posted", request_id=card.request_id),
-            )
-
-    # --- Администратор ---
-
-    async def card(self, request_id: int) -> RefundCard | None:
-        """Заявка для показа администратору. `None` — такой нет."""
-        async with self._session_factory() as session:
-            row = await session.get(RefundRequest, request_id)
-            if row is None:
+            client = await _client(session, telegram_id)
+            if client is None:
                 return None
-            return await _card(session, row)
-
-    async def open_requests(self) -> list[RefundCard]:
-        """Заявки, по которым ещё нет решения, — старые сначала (`/refunds`)."""
-        async with self._session_factory() as session:
-            rows = list(
-                await session.scalars(
-                    select(RefundRequest)
-                    .where(RefundRequest.status == RefundStatus.REQUESTED)
-                    .order_by(RefundRequest.id)
+            orders = await session.scalars(
+                select(Order)
+                .where(
+                    Order.client_id == client.id,
+                    Order.paid_at.is_not(None),
+                    Order.paid_at >= refund_list_since(now),
                 )
+                .order_by(Order.paid_at.desc(), Order.id.desc())
             )
-            return [await _card(session, row) for row in rows]
+            return [
+                await self._describe(session, client, order, RefundKind.SUPPORT, now)
+                for order in orders
+            ]
 
-    async def approve(self, admin_id: int, request_id: int) -> ApprovalResult:
-        """Одобрить: вернуть деньги через платёжку и укоротить подписку.
+    async def payment(self, telegram_id: int, order_id: int) -> RefundablePayment | RefundRefused:
+        """Оплата для подтверждения «вернуть?» администратору. Ничего не меняет."""
+        return await self._payment(telegram_id, order_id, RefundKind.SUPPORT)
 
-        Решение принимается один раз (атомарный переход). Сбои платёжки и панели не
-        теряют заявку: фоновая задача `retry_unfinished` доделает её сама.
+    async def refund_by_admin(
+        self, admin: AdminRef, telegram_id: int, order_id: int
+    ) -> RefundResult | RefundRefused:
+        """Вернуть всю сумму оплаты и снять её дни — после подтверждения администратором."""
+        return await self._refund(telegram_id, order_id, RefundKind.SUPPORT, admin)
+
+    # --- Клиент: случайная вторая оплата ---
+
+    async def double_payment(
+        self, telegram_id: int, order_id: int
+    ) -> RefundablePayment | RefundRefused:
+        """Вторая оплата для подтверждения «вернуть?» клиенту. Ничего не меняет."""
+        return await self._payment(telegram_id, order_id, RefundKind.DOUBLE_PAYMENT)
+
+    async def refund_double_payment(
+        self, telegram_id: int, order_id: int
+    ) -> RefundResult | RefundRefused:
+        """Клиент сам возвращает случайную вторую оплату (7 дней, без администратора)."""
+        return await self._refund(telegram_id, order_id, RefundKind.DOUBLE_PAYMENT, None)
+
+    async def keep_double_payment(self, telegram_id: int, order_id: int) -> RefundRefused | None:
+        """«Оставить — продлить подписку»: вернуть потом можно только через поддержку.
+
+        `None` — оставлено. После 7 дней кнопка уже ничего не решает: ничего не пишем.
         """
-        if self._payments is None:
-            return ApprovalResult(ApprovalOutcome.PAYMENTS_OFF, await self.card(request_id))
         now = utc_now(self._clock)
-        async with self._session_factory() as session:
-            row = await session.get(RefundRequest, request_id)
-            if row is None:
-                return ApprovalResult(ApprovalOutcome.NOT_FOUND)
-            if not await _claim(session, request_id, RefundStatus.APPROVED, admin_id, now):
-                await session.rollback()
-                return ApprovalResult(ApprovalOutcome.ALREADY_DECIDED, await self.card(request_id))
-            details = {REQUEST_DETAIL: request_id, "amount": str(row.amount)}
-            await self._record_decision(session, row, admin_id, EventKind.REFUND_APPROVED, details)
-            await session.commit()
-        logger.info("Администратор %s одобрил возврат %s", admin_id, request_id)
-        expire_at = await self._process(request_id)
-        card = await self.card(request_id)
-        if card is None:
-            raise LookupError(f"заявка {request_id} пропала")
-        return ApprovalResult(_STATUS_OUTCOMES[card.status], card, expire_at)
-
-    async def reject(
-        self, admin_id: int, request_id: int, reason: RefundRejection
-    ) -> RejectionResult:
-        """Отклонить заявку и объяснить клиенту причину. Решение — один раз."""
-        now = utc_now(self._clock)
-        async with self._session_factory() as session:
-            row = await session.get(RefundRequest, request_id)
-            if row is None:
-                return RejectionResult(RejectionOutcome.NOT_FOUND)
-            claimed = await _claim(
-                session, request_id, RefundStatus.REJECTED, admin_id, now, reason.value
-            )
-            if not claimed:
-                await session.rollback()
-                return RejectionResult(
-                    RejectionOutcome.ALREADY_DECIDED, await self.card(request_id)
-                )
-            details = {REQUEST_DETAIL: request_id, "reason": reason.value}
-            await self._record_decision(session, row, admin_id, EventKind.REFUND_REJECTED, details)
-            telegram_id = await session.scalar(
-                select(Client.telegram_id).where(Client.id == row.client_id)
+        async with self._locks.hold(("order", order_id)), self._session_factory() as session:
+            client = await _client(session, telegram_id)
+            if client is None:
+                return RefundRefused(RefundRefusal.CLIENT_NOT_FOUND)
+            order = await _client_order(session, client.id, order_id)
+            if order is None or order.paid_at is None:
+                return RefundRefused(RefundRefusal.ORDER_NOT_FOUND)
+            refusal = await _double_payment_refusal(session, order)
+            if refusal is not None:
+                return RefundRefused(refusal)
+            if order.status is OrderStatus.REFUNDED:
+                return RefundRefused(RefundRefusal.ALREADY_REFUNDED)
+            if not double_payment_refund_open(order.paid_at, now):
+                return None
+            await self._events.record(
+                session, EventKind.DOUBLE_PAYMENT_KEPT, client_id=client.id, order_id=order.id
             )
             await session.commit()
-        if telegram_id is None:
-            raise LookupError(f"клиента заявки {request_id} нет")
-        logger.info("Администратор %s отклонил возврат %s: %s", admin_id, request_id, reason)
-        await self._messages.refund_rejected(telegram_id, reason)
-        return RejectionResult(RejectionOutcome.REJECTED, await self.card(request_id))
+            text = self._admin_texts.get(
+                "refunds.topic.double_kept",
+                order_id=order.id,
+                amount=format_rubles(_paid_amount(order)),
+                **_client_values(self._admin_texts, client),
+            )
+        logger.info("Клиент %s оставил вторую оплату, заказ %s", client.id, order_id)
+        await self._payments_topic.post(text)
+        return None
 
-    async def _record_decision(
-        self,
-        session: AsyncSession,
-        row: RefundRequest,
-        admin_id: int,
-        kind: EventKind,
-        details: dict[str, Any],
-    ) -> None:
-        """Событие решения и, как у любого действия администратора, `ADMIN_ACTION`."""
-        action = (
-            AdminActionKind.REFUND_APPROVED
-            if kind is EventKind.REFUND_APPROVED
-            else AdminActionKind.REFUND_REJECTED
-        )
-        common = {"client_id": row.client_id, "order_id": row.order_id, "admin_id": admin_id}
-        await self._events.record(session, kind, details=details, **common)
-        await self._events.record(
-            session, EventKind.ADMIN_ACTION, details={"action": action.value, **details}, **common
-        )
+    # --- Платёжка сообщила итог проверки (задача 15) ---
 
-    # --- Возврат денег и новый срок ---
+    async def settle_review(self, request_id: int, outcome: RefundOutcome) -> RefundProgress:
+        """Итог возврата, отправленного платёжкой на проверку. Повтор безопасен."""
+        async with self._locks.hold(("request", request_id)):
+            row = await self._row(request_id)
+            if row.status in AWAITING_PROVIDER:
+                if outcome is RefundOutcome.SUCCEEDED:
+                    await self._mark_refunded(row, row.amount, refund_id=None)
+                elif outcome is RefundOutcome.CANCELED:
+                    await self._fail(row, "платёжка отклонила возврат после проверки")
+            progress, _ = await self._continue(request_id)
+        if _STATUS_PROGRESS[row.status] is not progress:
+            await self._report(request_id, progress)
+        return progress
+
+    # --- Фоновая задача ---
 
     async def retry_unfinished(self) -> None:
-        """Фоновая задача (раз в минуту): доделать одобренные заявки после сбоев."""
+        """Раз в минуту: доделать возвраты после сбоев платёжки или панели."""
         async with self._session_factory() as session:
             ids = list(
                 await session.scalars(
@@ -476,28 +333,182 @@ class RefundService:
                 )
             )
         for request_id in ids:
-            await self._process(request_id)
+            before = (await self._row(request_id)).status
+            async with self._locks.hold(("request", request_id)):
+                progress, _ = await self._continue(request_id)
+            if _STATUS_PROGRESS[before] is not progress:
+                await self._report(request_id, progress)
 
-    async def _process(self, request_id: int) -> datetime | None:
-        """Довести одобренную заявку как можно дальше. Возвращает срок после укорачивания."""
-        async with self._locks.hold(("request", request_id)):
-            async with self._session_factory() as session:
-                row = await session.get_one(RefundRequest, request_id)
-                order = await session.get_one(Order, row.order_id)
-                client = await session.get_one(Client, row.client_id)
-            if row.status is RefundStatus.APPROVED:
-                if not await self._return_money(row, order):
-                    return None
-                row.status = RefundStatus.REFUNDED
-            if row.status is RefundStatus.REFUNDED:
-                return await self._shorten(row, client)
-            return None
+    # --- Начало возврата ---
 
-    async def _return_money(self, row: RefundRequest, order: Order) -> bool:
-        """Попросить платёжку вернуть деньги. `True` — платёжка приняла возврат."""
+    async def _payment(
+        self, telegram_id: int, order_id: int, kind: RefundKind
+    ) -> RefundablePayment | RefundRefused:
+        now = utc_now(self._clock)
+        async with self._session_factory() as session:
+            client = await _client(session, telegram_id)
+            if client is None:
+                return RefundRefused(RefundRefusal.CLIENT_NOT_FOUND)
+            order = await _client_order(session, client.id, order_id)
+            if order is None or order.paid_at is None:
+                return RefundRefused(RefundRefusal.ORDER_NOT_FOUND)
+            payment = await self._describe(session, client, order, kind, now)
+        if payment.blocker is not None:
+            return RefundRefused(payment.blocker)
+        return payment
+
+    async def _refund(
+        self, telegram_id: int, order_id: int, kind: RefundKind, admin: AdminRef | None
+    ) -> RefundResult | RefundRefused:
+        claimed = await self._claim(telegram_id, order_id, kind, admin)
+        if isinstance(claimed, RefundRefused):
+            return claimed
+        async with self._locks.hold(("request", claimed)):
+            progress, expire_at = await self._continue(claimed)
+        await self._report(claimed, progress)
+        row = await self._row(claimed)
+        return RefundResult(claimed, row.order_id, telegram_id, row.amount, progress, expire_at)
+
+    async def _claim(
+        self, telegram_id: int, order_id: int, kind: RefundKind, admin: AdminRef | None
+    ) -> int | RefundRefused:
+        """Начать возврат: заказ «доступ выдан» → «возвращён» одним `UPDATE`, строка возврата
+        и события — одной транзакцией. Возвращает номер возврата."""
+        now = utc_now(self._clock)
+        async with self._locks.hold(("order", order_id)), self._session_factory() as session:
+            client = await _client(session, telegram_id)
+            if client is None:
+                return RefundRefused(RefundRefusal.CLIENT_NOT_FOUND)
+            order = await _client_order(session, client.id, order_id)
+            if order is None or order.paid_at is None:
+                return RefundRefused(RefundRefusal.ORDER_NOT_FOUND)
+            refusal = await self._refusal(session, client, order, kind, now)
+            if refusal is not None:
+                return RefundRefused(refusal)
+            moved = await session.execute(
+                update(Order)
+                .where(Order.id == order.id, Order.status == OrderStatus.ACCESS_GRANTED)
+                .values(status=OrderStatus.REFUNDED)
+            )
+            if affected_rows(moved) == 0:
+                await session.rollback()
+                return RefundRefused(RefundRefusal.ALREADY_REFUNDED)
+            row = RefundRequest(
+                order_id=order.id,
+                client_id=client.id,
+                requested_at=now,
+                unused_days=_duration(order) // ONE_DAY,
+                amount=_paid_amount(order),
+                status=RefundStatus.APPROVED,
+                decided_by_admin_id=None if admin is None else admin.telegram_id,
+                decision_reason=kind.value,
+                decided_at=now,
+            )
+            session.add(row)
+            await session.flush()
+            await self._record_start(session, row, kind, admin)
+            await session.commit()
+            request_id = row.id
+        logger.info("Возврат %s заказа %s начат (%s)", request_id, order_id, kind.value)
+        return request_id
+
+    async def _record_start(
+        self, session: AsyncSession, row: RefundRequest, kind: RefundKind, admin: AdminRef | None
+    ) -> None:
+        """«Возврат решён» и, если решил администратор, `ADMIN_ACTION` с его именем."""
+        details: dict[str, Any] = {
+            REQUEST_DETAIL: row.id,
+            "kind": kind.value,
+            "amount": str(row.amount),
+            "days": row.unused_days,
+            "admin_name": None if admin is None else admin.name,
+        }
+        common: dict[str, Any] = {
+            "client_id": row.client_id,
+            "order_id": row.order_id,
+            "admin_id": None if admin is None else admin.telegram_id,
+        }
+        await self._events.record(session, EventKind.REFUND_APPROVED, details=details, **common)
+        if admin is not None:
+            await self._events.record(
+                session,
+                EventKind.ADMIN_ACTION,
+                details={"action": AdminActionKind.REFUND.value, **details},
+                **common,
+            )
+
+    async def _describe(
+        self,
+        session: AsyncSession,
+        client: Client,
+        order: Order,
+        kind: RefundKind,
+        now: datetime,
+    ) -> RefundablePayment:
+        if order.paid_at is None:
+            raise ValueError(f"заказ {order.id} без оплаты")
+        return RefundablePayment(
+            order_id=order.id,
+            tariff_id=order.tariff_id,
+            days=order.days,
+            paid_at=order.paid_at,
+            amount=_paid_amount(order),
+            duration=_duration(order),
+            refund_status=await _last_refund_status(session, order.id),
+            blocker=await self._refusal(session, client, order, kind, now),
+        )
+
+    async def _refusal(
+        self,
+        session: AsyncSession,
+        client: Client,
+        order: Order,
+        kind: RefundKind,
+        now: datetime,
+    ) -> RefundRefusal | None:
+        """Почему эту оплату нельзя вернуть сейчас. `None` — можно."""
+        if order.paid_at is None:
+            return RefundRefusal.ORDER_NOT_FOUND
+        if kind is RefundKind.DOUBLE_PAYMENT:
+            refusal = await _double_payment_refusal(session, order)
+            if refusal is not None:
+                return refusal
+        if order.status is OrderStatus.REFUNDED:
+            return RefundRefusal.ALREADY_REFUNDED
+        if order.status is not OrderStatus.ACCESS_GRANTED:
+            return RefundRefusal.NOT_GRANTED
+        window_open = (
+            double_payment_refund_open(order.paid_at, now)
+            if kind is RefundKind.DOUBLE_PAYMENT
+            else refund_window_open(order.paid_at, now)
+        )
+        if not window_open:
+            return RefundRefusal.WINDOW_PASSED
+        if await _transferred_since(session, client, order.paid_at):
+            return RefundRefusal.TRANSFERRED
         if self._payments is None:
-            logger.warning("Заявка %s одобрена, а платёжки нет — ждём её", row.id)
-            return False
+            return RefundRefusal.PAYMENTS_OFF
+        return None
+
+    # --- Деньги и срок ---
+
+    async def _continue(self, request_id: int) -> tuple[RefundProgress, datetime | None]:
+        """Довести возврат как можно дальше. Вызывать под замком возврата."""
+        row = await self._row(request_id)
+        if row.status is RefundStatus.APPROVED:
+            await self._return_money(row)
+            row = await self._row(request_id)
+        if row.status is RefundStatus.REFUNDED:
+            return await self._shorten(row)
+        return _STATUS_PROGRESS[row.status], None
+
+    async def _return_money(self, row: RefundRequest) -> None:
+        """Попросить платёжку вернуть всю сумму. Статус меняется по ответу платёжки."""
+        if self._payments is None:
+            logger.warning("Возврат %s начат, а платёжки нет — ждём её", row.id)
+            return
+        async with self._session_factory() as session:
+            order = await session.get_one(Order, row.order_id)
         if order.payment_id is None:
             raise ValueError(f"заказ {order.id} оплачен без номера платежа")
         try:
@@ -507,48 +518,78 @@ class RefundService:
         except PaymentUnavailable as error:
             logger.warning("Возврат %s: платёжка не ответила: %s", row.id, error)
             await self._alert("refund_provider_unavailable", row, error=str(error))
-            return False
+            return
         except PaymentError as error:
             await self._fail(row, f"{type(error).__name__}: {error}")
-            return False
-        if refund.outcome is RefundOutcome.CANCELED:
-            await self._fail(row, f"возврат {refund.refund_id} отменён платёжкой")
-            return False
+            return
+        await self._apply_outcome(row, refund)
+
+    async def _apply_outcome(self, row: RefundRequest, refund: Refund) -> None:
+        match refund.outcome:
+            case RefundOutcome.SUCCEEDED:
+                await self._mark_refunded(row, refund.amount, refund.refund_id)
+            case RefundOutcome.CANCELED:
+                await self._fail(row, f"возврат {refund.refund_id} отменён платёжкой")
+            case RefundOutcome.IN_REVIEW | RefundOutcome.PENDING:
+                await self._mark_in_review(row, refund)
+
+    async def _mark_in_review(self, row: RefundRequest, refund: Refund) -> None:
+        """Платёжка проверяет возврат: дни не снимаем, пока деньги не вернулись."""
         async with self._session_factory() as session:
-            moved = await session.execute(
+            await session.execute(
                 update(RefundRequest)
                 .where(RefundRequest.id == row.id, RefundRequest.status == RefundStatus.APPROVED)
-                .values(status=RefundStatus.REFUNDED)
-            )
-            if affected_rows(moved) == 0:
-                raise RuntimeError(f"заявка {row.id} изменилась во время возврата")
-            await session.execute(
-                update(Order).where(Order.id == order.id).values(status=OrderStatus.REFUNDED)
+                .values(status=RefundStatus.IN_REVIEW)
             )
             await self._events.record(
                 session,
-                EventKind.REFUND_COMPLETED,
+                EventKind.REFUND_IN_REVIEW,
                 client_id=row.client_id,
-                order_id=order.id,
+                order_id=row.order_id,
                 details={
                     REQUEST_DETAIL: row.id,
                     "refund_id": refund.refund_id,
-                    "amount": str(refund.amount),
                     "outcome": refund.outcome.value,
                 },
             )
             await session.commit()
-        logger.info("Возврат %s: платёжка вернула %s", row.id, refund.amount)
-        return True
+        logger.info("Возврат %s: платёжка отправила его на проверку", row.id)
+
+    async def _mark_refunded(
+        self, row: RefundRequest, amount: Decimal, refund_id: str | None
+    ) -> None:
+        """Платёжка вернула деньги: «деньги возвращены» и событие для статистики."""
+        async with self._session_factory() as session:
+            moved = await session.execute(
+                update(RefundRequest)
+                .where(RefundRequest.id == row.id, RefundRequest.status.in_(AWAITING_PROVIDER))
+                .values(status=RefundStatus.REFUNDED)
+            )
+            if affected_rows(moved) == 0:
+                raise RuntimeError(f"возврат {row.id} изменился во время запроса к платёжке")
+            await self._events.record(
+                session,
+                EventKind.REFUND_COMPLETED,
+                client_id=row.client_id,
+                order_id=row.order_id,
+                details={REQUEST_DETAIL: row.id, "refund_id": refund_id, "amount": str(amount)},
+            )
+            await session.commit()
+        logger.info("Возврат %s: платёжка вернула %s", row.id, amount)
 
     async def _fail(self, row: RefundRequest, error: str) -> None:
-        """Платёжка отказала: повтор не поможет — «платёжка отказала» и тревога."""
+        """Платёжка отказала: деньги не вернулись — заказ снова «доступ выдан», тревога."""
         logger.error("Возврат %s: платёжка отказала: %s", row.id, error)
         async with self._session_factory() as session:
             await session.execute(
                 update(RefundRequest)
-                .where(RefundRequest.id == row.id, RefundRequest.status == RefundStatus.APPROVED)
+                .where(RefundRequest.id == row.id, RefundRequest.status.in_(AWAITING_PROVIDER))
                 .values(status=RefundStatus.FAILED)
+            )
+            await session.execute(
+                update(Order)
+                .where(Order.id == row.order_id, Order.status == OrderStatus.REFUNDED)
+                .values(status=OrderStatus.ACCESS_GRANTED)
             )
             await self._events.record(
                 session,
@@ -560,15 +601,18 @@ class RefundService:
             await session.commit()
         await self._alert("refund_provider_rejected", row, error=error)
 
-    async def _shorten(self, row: RefundRequest, client: Client) -> datetime | None:
-        """Укоротить срок на возвращённые дни. Сбой панели — тревога, повтор фоновой задачей."""
+    async def _shorten(self, row: RefundRequest) -> tuple[RefundProgress, datetime | None]:
+        """Снять дни оплаты. Сбой панели — тревога, повтор фоновой задачей."""
+        async with self._session_factory() as session:
+            client = await session.get_one(Client, row.client_id)
+            order = await session.get_one(Order, row.order_id)
         try:
             async with self._term_locks.hold(client.id):
-                after = await self._apply_term(row, client)
+                after = await self._apply_term(row, client, _duration(order))
         except RemnawaveError as error:
             logger.warning("Возврат %s: срок не укорочен: %s", row.id, error)
             await self._alert("refund_term_pending", row, error=f"{type(error).__name__}: {error}")
-            return None
+            return RefundProgress.TERM_PENDING, None
         async with self._session_factory() as session:
             await session.execute(
                 update(RefundRequest)
@@ -578,14 +622,19 @@ class RefundService:
             await session.commit()
         logger.info("Возврат %s закончен", row.id)
         await self._messages.refund_completed(client.telegram_id, row.amount, after)
-        return after
+        return RefundProgress.COMPLETED, after
 
-    async def _apply_term(self, row: RefundRequest, client: Client) -> datetime | None:
-        """Под блокировкой срока: свежий аккаунт, срок «до X» из журнала или новый расчёт."""
+    async def _apply_term(
+        self, row: RefundRequest, client: Client, duration: timedelta
+    ) -> datetime | None:
+        """Под блокировкой срока: свежий аккаунт, срок «до X» из журнала или новый расчёт.
+
+        Возвращает новый срок; `None` — доступ выключен (или аккаунта нет).
+        """
         try:
             account = await self._remnawave.get_account(client.telegram_id)
         except AccountNotFound:
-            # аккаунта нет — укорачивать нечего, доступа и так нет
+            # аккаунта нет — снимать нечего, доступа и так нет
             await self._record_term(row, None, ended=True)
             return None
         now = utc_now(self._clock)
@@ -596,7 +645,7 @@ class RefundService:
             await self._alert("refund_term_changed", row, error=account.expire_at.isoformat())
             planned = None
         if planned is None:
-            term = term_after_refund(account.expire_at, row.unused_days, now)
+            term = term_after_refund(account.expire_at, duration, now)
             planned = _PlannedTerm(account.expire_at, term.expire_at, term.end_access)
             await self._record_plan(row, planned)
         account, ended = await self._set_term(client.telegram_id, account, planned, now)
@@ -641,7 +690,6 @@ class RefundService:
                 order_id=row.order_id,
                 details={
                     REQUEST_DETAIL: row.id,
-                    "unused_days": row.unused_days,
                     "expire_before": planned.expire_before.isoformat(),
                     "expire_after": planned.expire_after.isoformat(),
                     "end_access": planned.end_access,
@@ -667,6 +715,29 @@ class RefundService:
             )
             await session.commit()
 
+    # --- Сообщения администраторам ---
+
+    async def _report(self, request_id: int, progress: RefundProgress) -> None:
+        """Сообщение в «💰 Оплаты»: кто вернул, сколько и докуда дошёл возврат."""
+        texts = self._admin_texts
+        async with self._session_factory() as session:
+            row = await session.get_one(RefundRequest, request_id)
+            client = await session.get_one(Client, row.client_id)
+            admin_name = await _admin_name(session, row)
+        if row.decision_reason == RefundKind.DOUBLE_PAYMENT.value:
+            who = texts.get("refunds.topic.by_client")
+        else:
+            who = texts.get("refunds.topic.by_admin", admin=admin_name or row.decided_by_admin_id)
+        header = texts.get(
+            "refunds.topic.header",
+            request_id=row.id,
+            order_id=row.order_id,
+            amount=format_rubles(row.amount),
+            **_client_values(texts, client),
+        )
+        status = texts.get(f"refunds.topic.{progress.value}")
+        await self._payments_topic.post("\n".join([header, who, status]))
+
     async def _alert(self, kind: str, row: RefundRequest, *, error: str) -> None:
         await self._alerter.raise_alert(
             f"{kind}:{row.id}",
@@ -679,157 +750,101 @@ class RefundService:
             ),
         )
 
-    async def _account(self, telegram_id: int) -> ProxyAccount | None:
-        try:
-            return await self._remnawave.get_account(telegram_id)
-        except AccountNotFound:
-            return None  # аккаунта нет — и возвращать не за что
+    async def _row(self, request_id: int) -> RefundRequest:
+        async with self._session_factory() as session:
+            return await session.get_one(RefundRequest, request_id)
 
 
 def refund_idempotency_key(request_id: int) -> str:
-    """Ключ идемпотентности возврата у платёжки — номер заявки: повтор не вернёт дважды."""
+    """Ключ идемпотентности возврата у платёжки — номер возврата: повтор не вернёт дважды."""
     return f"refund-request-{request_id}"
 
 
-def _paid(order: Order) -> tuple[datetime, Decimal, datetime]:
-    """Когда и сколько оплачено и до какой даты продлено — у выданного заказа есть всё."""
-    if order.paid_at is None or order.paid_amount is None or order.grant_target_expire_at is None:
-        raise ValueError(f"заказ {order.id} выдан без оплаты или срока")
-    return order.paid_at, order.paid_amount, order.grant_target_expire_at
+def _paid_amount(order: Order) -> Decimal:
+    if order.paid_amount is None:
+        raise ValueError(f"заказ {order.id} без оплаченной суммы")
+    return order.paid_amount
 
 
-def _decide(
-    order: Order, kind: RefundKind, now: datetime, last_refund_at: datetime | None
-) -> RefundDecision:
-    paid_at, paid_amount, period_end = _paid(order)
-    duration = paid_duration(order.days, order.price, paid_amount)
-    if kind is RefundKind.DOUBLE_PAYMENT:
-        return decide_double_payment_refund(now, paid_at, paid_amount, duration)
-    # Причину решает администратор; клиенту считаем по единственной, при которой возврат
-    # положен, — «не работало по нашей вине»
-    return decide_refund(
-        RefundFacts(
-            now=now,
-            reason=RefundReason.SERVICE_FAULT,
-            paid_at=paid_at,
-            paid_amount=paid_amount,
-            period_start=period_end - duration,
-            period_end=period_end,
-            last_refund_at=last_refund_at,
-        )
-    )
+def _duration(order: Order) -> timedelta:
+    """Сколько срока дала оплата: ровно дни тарифа или пересчёт по сумме (задача 04 п. 8)."""
+    return paid_duration(order.days, order.price, _paid_amount(order))
 
 
-def _term_end(account: ProxyAccount | None, now: datetime) -> datetime:
-    """До какого момента у клиента есть доступ. Нет аккаунта или доступ выключен — сейчас."""
-    if account is None or account.status is AccountStatus.DISABLED:
-        return now
-    return account.expire_at
+def _client_values(texts: Texts, client: Client) -> dict[str, object]:
+    no_value = texts.get("admin.no_value")
+    return {
+        "name": client.name or no_value,
+        "username": client.username or no_value,
+        "telegram_id": client.telegram_id,
+    }
 
 
-async def _claim(
-    session: AsyncSession,
-    request_id: int,
-    status: RefundStatus,
-    admin_id: int,
-    now: datetime,
-    reason: str | None = None,
-) -> bool:
-    """«Запрошен → решение» одним `UPDATE`. `False` — решение уже принято."""
-    result = await session.execute(
-        update(RefundRequest)
-        .where(RefundRequest.id == request_id, RefundRequest.status == RefundStatus.REQUESTED)
-        .values(status=status, decided_by_admin_id=admin_id, decided_at=now, decision_reason=reason)
-    )
-    return affected_rows(result) == 1
+async def _client(session: AsyncSession, telegram_id: int) -> Client | None:
+    return await session.scalar(select(Client).where(Client.telegram_id == telegram_id))
 
 
-async def _has_open_request(session: AsyncSession, client_id: int) -> bool:
-    return bool(
-        await session.scalar(
-            select(
-                exists().where(
-                    RefundRequest.client_id == client_id,
-                    RefundRequest.status.in_(OPEN_STATUSES),
-                )
-            )
-        )
-    )
-
-
-async def _latest_granted_order(session: AsyncSession, client_id: int) -> Order | None:
-    """Последняя оплата с выданным доступом: её дни — в конце срока."""
+async def _client_order(session: AsyncSession, client_id: int, order_id: int) -> Order | None:
+    """Заказ этого клиента — чужой номер из кнопки ничего не даст."""
     return await session.scalar(
-        select(Order)
-        .where(Order.client_id == client_id, Order.status == OrderStatus.ACCESS_GRANTED)
-        .order_by(Order.paid_at.desc(), Order.id.desc())
+        select(Order).where(Order.id == order_id, Order.client_id == client_id)
+    )
+
+
+async def _last_refund_status(session: AsyncSession, order_id: int) -> RefundStatus | None:
+    return await session.scalar(
+        select(RefundRequest.status)
+        .where(RefundRequest.order_id == order_id)
+        .order_by(RefundRequest.id.desc())
         .limit(1)
     )
 
 
-async def _granted_order(session: AsyncSession, client_id: int, order_id: int) -> Order | None:
-    """Заказ этого клиента с выданным доступом — чужой номер из кнопки ничего не даст."""
-    return await session.scalar(
-        select(Order).where(
-            Order.id == order_id,
-            Order.client_id == client_id,
-            Order.status == OrderStatus.ACCESS_GRANTED,
+async def _double_payment_refusal(session: AsyncSession, order: Order) -> RefundRefusal | None:
+    """Клиент сам может вернуть только отмеченную вторую оплату и только пока не оставил её."""
+    details = await session.scalar(
+        select(Event.details).where(
+            Event.order_id == order.id, Event.kind == EventKind.PAYMENT_RECEIVED.value
         )
     )
-
-
-async def _double_payment_marked(session: AsyncSession, order_id: int) -> bool:
-    return bool(
-        await session.scalar(
-            select(
-                exists().where(
-                    Event.order_id == order_id,
-                    Event.kind == EventKind.DOUBLE_PAYMENT_SUSPECTED.value,
-                )
+    if details is None or details.get(DOUBLE_DETAIL) is None:
+        return RefundRefusal.NOT_DOUBLE_PAYMENT
+    kept = await session.scalar(
+        select(
+            exists().where(
+                Event.order_id == order.id, Event.kind == EventKind.DOUBLE_PAYMENT_KEPT.value
             )
         )
     )
+    return RefundRefusal.KEPT if kept else None
 
 
-async def _double_payment_request_ids(session: AsyncSession, client_id: int) -> set[int]:
-    """Заявки клиента на возврат случайной второй оплаты — по событию «запрос на возврат»."""
+async def _transferred_since(session: AsyncSession, client: Client, since: datetime) -> bool:
+    """Подписку этого клиента переносили на другой аккаунт после `since`."""
     details = await session.scalars(
         select(Event.details).where(
-            Event.client_id == client_id, Event.kind == EventKind.REFUND_REQUESTED.value
+            Event.client_id == client.id,
+            Event.kind == EventKind.ADMIN_ACTION.value,
+            Event.occurred_at >= since,
         )
     )
-    return {
-        int(item[REQUEST_DETAIL])
+    return any(
+        item is not None
+        and item.get("action") == AdminActionKind.SUBSCRIPTION_TRANSFERRED.value
+        and item.get("from_telegram_id") == client.telegram_id
         for item in details
-        if item is not None and item.get(KIND_DETAIL) == RefundKind.DOUBLE_PAYMENT.value
-    }
-
-
-async def _last_standard_refund_at(session: AsyncSession, client_id: int) -> datetime | None:
-    """Когда клиенту одобрили прошлый обычный возврат (для правила «раз в полгода»)."""
-    rows = await session.execute(
-        select(RefundRequest.id, RefundRequest.decided_at).where(
-            RefundRequest.client_id == client_id,
-            RefundRequest.status.in_(APPROVED_STATUSES),
-            RefundRequest.decided_at.is_not(None),
-        )
     )
-    double = await _double_payment_request_ids(session, client_id)
-    moments = [decided_at for request_id, decided_at in rows if request_id not in double]
-    return max(moments, default=None)
 
 
-async def _request_kind(session: AsyncSession, row: RefundRequest) -> RefundKind:
-    details = await _request_event_details(session, row, EventKind.REFUND_REQUESTED)
-    if details is None:
-        return RefundKind.STANDARD
-    return RefundKind(details.get(KIND_DETAIL, RefundKind.STANDARD.value))
+async def _admin_name(session: AsyncSession, row: RefundRequest) -> str | None:
+    details = await _request_event_details(session, row, EventKind.REFUND_APPROVED)
+    return None if details is None else details.get("admin_name")
 
 
 async def _request_event_details(
     session: AsyncSession, row: RefundRequest, kind: EventKind
 ) -> dict[str, Any] | None:
-    """Подробности первого события вида `kind` этой заявки."""
+    """Подробности первого события вида `kind` этого возврата."""
     details = await session.scalars(
         select(Event.details)
         .where(Event.order_id == row.order_id, Event.kind == kind.value)
@@ -847,25 +862,4 @@ def _plan_still_valid(planned: _PlannedTerm, account: ProxyAccount) -> bool:
         same_second(account.expire_at, planned.expire_before)
         or account.expire_at <= planned.expire_after
         or same_second(account.expire_at, planned.expire_after)
-    )
-
-
-async def _card(session: AsyncSession, row: RefundRequest) -> RefundCard:
-    order = await session.get_one(Order, row.order_id)
-    client = await session.get_one(Client, row.client_id)
-    if order.paid_at is None or order.paid_amount is None:
-        raise ValueError(f"заказ {order.id} в заявке на возврат без оплаты")
-    return RefundCard(
-        request_id=row.id,
-        status=row.status,
-        kind=await _request_kind(session, row),
-        telegram_id=client.telegram_id,
-        name=client.name,
-        username=client.username,
-        order_id=order.id,
-        tariff_id=order.tariff_id,
-        paid_at=order.paid_at,
-        paid_amount=order.paid_amount,
-        unused_days=row.unused_days,
-        amount=row.amount,
     )
