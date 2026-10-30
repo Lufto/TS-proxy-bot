@@ -7,6 +7,8 @@
 - `models/hwid-user-device.schema.ts`, `commands/hwid/get-user-hwid-devices.command.ts`;
 - `models/nodes.schema.ts`, `models/internal-squad.schema.ts`;
 - `commands/system/get-metadata.command.ts`;
+- `models/subscription-settings.schema.ts` + `models/subscription-settings/*.schema.ts`,
+  `commands/subscription-settings/*.command.ts` (GET и PATCH `/api/subscription-settings`);
 - `constants/errors/errors.ts` (A019 — 400, A025 — 404, A029/A030 — 400).
 Все ответы панели завёрнуты в {"response": ...}.
 """
@@ -148,6 +150,51 @@ def metadata(version: str = "3.4.5") -> dict[str, Any]:
             "backend": {"commitSha": "abc", "branch": "main", "commitUrl": "https://example"},
             "frontend": {"commitSha": "def", "commitUrl": "https://example"},
         },
+    }
+
+
+SETTINGS_UUID = "55555555-5555-4555-8555-555555555555"
+
+
+def subscription_settings(headers: dict[str, str] | None) -> dict[str, Any]:
+    """Настройки подписки: свои заголовки ответа (`customResponseHeaders`) и всё остальное."""
+    return {
+        "uuid": SETTINGS_UUID,
+        "serveJsonAtBaseSubscription": False,
+        "isShowCustomRemarks": True,
+        "customRemarks": {
+            "expiredUsers": ["⌛ Subscription expired"],
+            "limitedUsers": ["🚧 Traffic limit reached"],
+            "disabledUsers": ["🚫 Subscription disabled"],
+            "emptyHosts": ["→ No hosts found"],
+            "HWIDMaxDevicesExceeded": ["Max devices reached"],
+            "HWIDNotSupported": ["App not supported"],
+        },
+        "customResponseHeaders": headers,
+        "randomizeHosts": False,
+        "responseRules": {
+            "version": "1",
+            "rules": [
+                {
+                    "name": "Browser",
+                    "description": "Open subscription page in browser",
+                    "enabled": True,
+                    "operator": "AND",
+                    "conditions": [
+                        {
+                            "headerName": "accept",
+                            "operator": "CONTAINS",
+                            "value": "text/html",
+                            "caseSensitive": True,
+                        }
+                    ],
+                    "responseType": "BROWSER",
+                }
+            ],
+        },
+        "hwidSettings": {"enabled": True, "fallbackDeviceLimit": 3, "maxDevicesAnnounce": None},
+        "createdAt": STAMP,
+        "updatedAt": STAMP,
     }
 
 

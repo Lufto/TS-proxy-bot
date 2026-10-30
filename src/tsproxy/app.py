@@ -43,6 +43,7 @@ from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from tsproxy.bot.admin import AdminAccess
+from tsproxy.bot.admin_announce import create_admin_announce_router
 from tsproxy.bot.admin_broadcast import TelegramBroadcastSender, create_admin_broadcast_router
 from tsproxy.bot.admin_compensation import (
     CompensationButtons,
@@ -83,6 +84,7 @@ from tsproxy.services.account_checks import AccountCheckHandler, AccountChecks
 from tsproxy.services.admin import AdminService
 from tsproxy.services.admin_topics import AdminTopic
 from tsproxy.services.alerts import Alerter
+from tsproxy.services.announcement import AnnouncementService
 from tsproxy.services.broadcast import BroadcastService
 from tsproxy.services.client_card import ClientCardService
 from tsproxy.services.clients import ClientService
@@ -409,6 +411,10 @@ def build_application(
             # задача 22: доказательство оказания услуги по заказу
             create_admin_proof_router(
                 ctx.access, ServiceProofService(session_factory, remnawave, clock)
+            ),
+            # задача 35: объявление клиентам в приложении (настройки подписки панели)
+            create_admin_announce_router(
+                ctx.access, AnnouncementService(session_factory, remnawave, events)
             ),
         ],
     )
