@@ -44,6 +44,7 @@ from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from tsproxy.bot.admin import AdminAccess
+from tsproxy.bot.admin_announce import create_admin_announce_router
 from tsproxy.bot.admin_broadcast import TelegramBroadcastSender, create_admin_broadcast_router
 from tsproxy.bot.admin_compensation import (
     CompensationButtons,
@@ -52,7 +53,6 @@ from tsproxy.bot.admin_compensation import (
     TelegramCompensationReporter,
     create_admin_compensation_router,
 )
-from tsproxy.bot.admin_erasure import TelegramTopicRemover
 from tsproxy.bot.admin_proof import create_admin_proof_router
 from tsproxy.bot.admin_stats import create_admin_stats_router
 from tsproxy.bot.admin_transfer import create_admin_transfer_router
@@ -86,13 +86,13 @@ from tsproxy.services.account_checks import AccountCheckHandler, AccountChecks
 from tsproxy.services.admin import AdminService
 from tsproxy.services.admin_topics import AdminTopic
 from tsproxy.services.alerts import Alerter
+from tsproxy.services.announcement import AnnouncementService
 from tsproxy.services.broadcast import BroadcastService
 from tsproxy.services.client_card import ClientCardService
 from tsproxy.services.clients import ClientService
 from tsproxy.services.clock import Clock, system_clock, utc_now
 from tsproxy.services.compensation import CompensationService
 from tsproxy.services.crediting import CreditingService
-from tsproxy.services.erasure import DataErasureService
 from tsproxy.services.events import EventLog
 from tsproxy.services.grace import GraceHandler
 from tsproxy.services.health import HealthCheck
@@ -393,9 +393,6 @@ def build_application(
         admin=AdminService(session_factory, remnawave, profiles, events, clock, term_locks),
         link_revokes=LinkRevokeService(session_factory, remnawave, events, clock, KeyedLocks()),
         trial_switch=trial_switch,
-        erasure=DataErasureService(
-            session_factory, TelegramTopicRemover(bot, settings.admin_chat_id), events
-        ),
         payment_checks=payment_checks,
         refunds=refunds,
     )
@@ -446,6 +443,10 @@ def build_application(
                     clock,
                     term_locks,
                 ),
+            ),
+            # задача 35: объявление клиентам в приложении (настройки подписки панели)
+            create_admin_announce_router(
+                ctx.access, AnnouncementService(session_factory, remnawave, events)
             ),
         ],
     )

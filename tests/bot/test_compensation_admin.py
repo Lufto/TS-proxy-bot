@@ -1,13 +1,24 @@
 """Компенсация при сбое в Telegram (задача 20): предложение в «🚨 Тревоги», подтверждение,
-ход и итог, извинение клиенту; двойное «Да» не начисляет дважды, чужое нажатие — отказ."""
+ход и итог, извинение клиенту (и в льготный период); двойное «Да» не начисляет дважды,
+чужое нажатие — отказ; `/outages` — список сбоев с кнопками."""
 
+from collections import Counter
 from datetime import timedelta
 
 import pytest
 from aiogram import Bot, Dispatcher
 from aiogram.methods import AnswerCallbackQuery, EditMessageText, SendMessage
-from aiogram.types import InlineKeyboardMarkup, Update
-from bot_updates import ADMIN_CHAT_ID, ADMIN_ID, ALERTS_THREAD_ID, CLIENT_ID, NOW, callback, user
+from aiogram.types import Chat, InlineKeyboardMarkup, Update
+from bot_updates import (
+    ADMIN_CHAT_ID,
+    ADMIN_ID,
+    ALERTS_THREAD_ID,
+    CLIENT_ID,
+    NOW,
+    callback,
+    message,
+    user,
+)
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from tsproxy.bot.admin_compensation import (
@@ -20,19 +31,28 @@ from tsproxy.bot.admin_compensation import (
     create_admin_compensation_router,
     duration_words,
 )
+from tsproxy.bot.callbacks import MenuCallback, ScreenId
 from tsproxy.bot.context import BotContext
 from tsproxy.bot.dispatcher import create_dispatcher
 from tsproxy.bot.fakes import FakeTelegramSession
 from tsproxy.bot.throttling import RateLimiter
 from tsproxy.content.loader import Content
 from tsproxy.db.models import Client, NodeOutage
+from tsproxy.domain.compensation import CompensationAction, Outage
 from tsproxy.domain.constants import PAID_DEVICE_LIMIT, UNLIMITED_TRAFFIC_BYTES
 from tsproxy.integrations.fakes import FakeRemnawave
-from tsproxy.services.compensation import CompensationService
+from tsproxy.services.compensation import (
+    Apology,
+    ClientOutcome,
+    CompensationReport,
+    CompensationRun,
+    CompensationService,
+)
 from tsproxy.services.fakes import FakeClock
 from tsproxy.services.locks import KeyedLocks
 
 STRANGER_ID = 333
+ADMIN_GROUP = Chat(id=ADMIN_CHAT_ID, type="supergroup", title="Админы", is_forum=True)
 EXPIRE = NOW + timedelta(days=10)
 # простой 2 ч 10 мин → 3 часа + 1 день
 OUTAGE_START = NOW - timedelta(hours=3)
@@ -213,3 +233,105 @@ async def test_unknown_outage_answers_not_found(
 
     [answer] = telegram.sent(AnswerCallbackQuery)
     assert answer.text == content.admin_texts.get("admin.compensation.not_found")
+
+
+# --- Льготный период: извинение и итог ---
+
+
+def test_grace_apology_names_new_grace_end_and_offers_renewal(
+    ctx: BotContext, content: Content
+) -> None:
+    messenger = TelegramApologyMessenger(ctx.delivery, content.texts)
+
+    screen = messenger.screen(Apology(CompensationAction.EXTEND_GRACE, AMOUNT, EXPIRE))
+
+    assert "1 день 3 часа" in screen.text
+    assert "03.11.2026, 15:00 МСК" in screen.text
+    assert buttons_of(screen.markup) == [MenuCallback(screen=ScreenId.TARIFFS).pack()]
+
+
+def test_report_counts_grace_extensions(screens: CompensationScreens) -> None:
+    run = CompensationRun(1, ADMIN_ID, 1, AMOUNT, Outage(OUTAGE_START, OUTAGE_END))
+    counts = Counter({ClientOutcome.EXTENDED: 2, ClientOutcome.GRACE_EXTENDED: 1})
+
+    report = screens.finished(CompensationReport(run, total=3, counts=counts))
+
+    assert "Продлено: 2" in report.text
+    assert "Продлён льготный период: 1" in report.text
+
+
+# --- /outages ---
+
+
+def outages_command(*, sender_id: int = ADMIN_ID) -> Update:
+    return message(user(sender_id, first_name="Админ"), "/outages", chat=ADMIN_GROUP)
+
+
+async def test_outages_without_outages(
+    admin_dispatcher: Dispatcher, bot: Bot, telegram: FakeTelegramSession, content: Content
+) -> None:
+    await admin_dispatcher.feed_update(bot, outages_command())
+
+    [sent] = telegram.sent(SendMessage)
+    assert sent.text == content.admin_texts.get("admin.outages.empty")
+
+
+async def test_outages_lists_outages_with_compensate_button(
+    admin_dispatcher: Dispatcher,
+    bot: Bot,
+    telegram: FakeTelegramSession,
+    session_factory: async_sessionmaker[AsyncSession],
+    outage_id: int,
+) -> None:
+    async with session_factory() as session:
+        session.add(NodeOutage(node_uuid="node-2", started_at=NOW - timedelta(minutes=5)))
+        await session.commit()
+
+    await admin_dispatcher.feed_update(bot, outages_command())
+
+    [sent] = telegram.sent(SendMessage)
+    assert sent.chat_id == ADMIN_CHAT_ID
+    assert "130 мин" in sent.text
+    assert "1 день 3 часа" in sent.text
+    assert "ещё не восстановилась" in sent.text
+    # кнопка — только у восстановившейся и не компенсированной ноды
+    assert buttons_of(sent.reply_markup) == [step_data(outage_id, CompensationStep.ASK)]
+
+
+@pytest.mark.usefixtures("paid_client")
+async def test_outages_offers_resume_after_compensation(
+    admin_dispatcher: Dispatcher,
+    bot: Bot,
+    telegram: FakeTelegramSession,
+    service: CompensationService,
+    outage_id: int,
+) -> None:
+    await admin_dispatcher.feed_update(bot, press(outage_id, CompensationStep.CONFIRM))
+    await service.drain()
+    telegram.requests.clear()
+
+    await admin_dispatcher.feed_update(bot, outages_command())
+
+    [sent] = telegram.sent(SendMessage)
+    assert "Компенсировано" in sent.text
+    assert buttons_of(sent.reply_markup) == [step_data(outage_id, CompensationStep.RESUME)]
+
+
+async def test_outages_ask_button_leads_to_confirmation(
+    admin_dispatcher: Dispatcher, bot: Bot, telegram: FakeTelegramSession, outage_id: int
+) -> None:
+    await admin_dispatcher.feed_update(bot, outages_command())
+    await admin_dispatcher.feed_update(bot, press(outage_id, CompensationStep.ASK))
+
+    [confirm] = telegram.sent(EditMessageText)
+    assert buttons_of(confirm.reply_markup) == [
+        step_data(outage_id, CompensationStep.CONFIRM),
+        step_data(outage_id, CompensationStep.CANCEL),
+    ]
+
+
+async def test_outages_ignores_strangers(
+    admin_dispatcher: Dispatcher, bot: Bot, telegram: FakeTelegramSession, outage_id: int
+) -> None:
+    await admin_dispatcher.feed_update(bot, outages_command(sender_id=STRANGER_ID))
+    assert telegram.sent(SendMessage) == []

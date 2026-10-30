@@ -306,7 +306,7 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         "notices.trial_traffic_used_up",
         # задача 20: извинение после сбоя
         "compensation.extended",
-        "compensation.carried",
+        "compensation.grace_extended",
         # задача 21: случайная вторая оплата, сообщение о возврате, перенос подписки
         "buttons.refund_double_payment",
         "buttons.keep_double_payment",
@@ -493,13 +493,6 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
         "admin.buttons.confirm_revoke",
         "admin.buttons.cancel",
         "admin.buttons.delete_device",
-        # задача 24: удаление данных клиента
-        "admin.buttons.erase",
-        "admin.buttons.confirm_erase",
-        "admin.erase.ask",
-        "admin.erase.done",
-        "admin.erase.nothing",
-        "admin.erase.topic_failed",
         "admin.extend.preview",
         "admin.extend.no_account",
         "admin.extend.done",
@@ -660,6 +653,21 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
         "admin.compensation.running",
         "admin.compensation.not_found",
         "admin.compensation.still_open",
+        # задача 20: /outages
+        *(
+            f"admin.outages.{key}"
+            for key in (
+                "empty",
+                "title",
+                "open",
+                "waiting",
+                "covered",
+                "compensated",
+                "footer",
+                "ask_button",
+                "resume_button",
+            )
+        ),
         # задача 19: статистика и рассылка
         *(
             f"admin.stats.{key}"
@@ -686,6 +694,12 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
                 "usage",
                 "preview_header",
                 "preview_failed",
+                "copy_header",
+                "reply_or_text",
+                "album",
+                "unsupported",
+                "has_buttons",
+                "preview_missing",
                 "send_button",
                 "cancel_button",
                 "stop_button",
@@ -703,6 +717,20 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
                 "stopped",
                 "aborted",
                 "crashed",
+            )
+        ),
+        # задача 35: объявление клиентам в приложении
+        *(
+            f"admin.announce.{key}"
+            for key in (
+                "usage",
+                "none",
+                "current",
+                "published",
+                "cleared",
+                "already_off",
+                "too_long",
+                "no_rights",
             )
         ),
     }

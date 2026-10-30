@@ -29,6 +29,7 @@ from tsproxy.db.enums import TicketStatus
 from tsproxy.db.models import Client, Event, Order, SupportTicket
 from tsproxy.domain.client_state import ClientSnapshot
 from tsproxy.domain.constants import UNLIMITED_TRAFFIC_BYTES
+from tsproxy.domain.grace import observed_grace_extension
 from tsproxy.domain.stats import (
     ResponseTimes,
     SubscriptionCounts,
@@ -155,11 +156,14 @@ def _snapshot(account: ProxyAccount, client: Client | None) -> ClientSnapshot:
     """
     limited = account.traffic_limit_bytes != UNLIMITED_TRAFFIC_BYTES
     trial_granted = client is None or client.trial_granted_at is not None
+    grace_started_at = None if client is None else client.grace_started_at
     return ClientSnapshot(
         expire_at=account.expire_at,
         on_trial=trial_granted and limited,
-        grace_started_at=None if client is None else client.grace_started_at,
+        grace_started_at=grace_started_at,
         access_disabled=account.status is AccountStatus.DISABLED,
+        # компенсация за сбой продлевает льготный (задача 20) — видно по сроку в панели
+        grace_extension=observed_grace_extension(grace_started_at, account.expire_at),
     )
 
 

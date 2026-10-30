@@ -9,7 +9,6 @@ from bot_updates import ADMIN_CHAT_ID, ADMIN_ID, ALERTS_THREAD_ID, BOT_TOKEN, NO
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from tsproxy.bot.admin import AdminAccess
-from tsproxy.bot.admin_erasure import TelegramTopicRemover
 from tsproxy.bot.context import BotContext
 from tsproxy.bot.delivery import ClientDelivery
 from tsproxy.bot.dispatcher import create_dispatcher
@@ -32,7 +31,6 @@ from tsproxy.services.alerts import Alerter
 from tsproxy.services.client_card import ClientCardService
 from tsproxy.services.clients import ClientService
 from tsproxy.services.crediting import CreditingService
-from tsproxy.services.erasure import DataErasureService
 from tsproxy.services.events import EventLog
 from tsproxy.services.fakes import FakeAlertSender, FakeClock
 from tsproxy.services.link_revoke import LinkRevokeService
@@ -203,9 +201,6 @@ def ctx(
         ),
         link_revokes=LinkRevokeService(session_factory, remnawave, events, clock, KeyedLocks()),
         trial_switch=trial_switch,
-        erasure=DataErasureService(
-            session_factory, TelegramTopicRemover(bot, ADMIN_CHAT_ID), events
-        ),
         payment_checks=payment_checks,
         refunds=refunds,
     )

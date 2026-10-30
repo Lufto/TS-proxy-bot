@@ -3,12 +3,17 @@
 Остальной код бота видит только интерфейс `RemnawaveClient` из `remnawave_types`.
 Перед каждым изменением аккаунт перечитывается из панели и проверяется `AccountGuard`:
 чужие аккаунты (28 нынешних клиентов) не меняются ни при какой ошибке в сервисах.
+
+Исключение — объявление в приложении (задача 35): заголовок `announce` в общих настройках
+подписки (`/api/subscription-settings`). Они одни на всю панель, меняется только этот
+заголовок: остальные заголовки и настройки подписки остаются как были.
 """
 
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from datetime import datetime
+from uuid import UUID
 
 import httpx
 import pydantic
@@ -18,6 +23,7 @@ from remnawave.models import (
     CreateUserBodyDto,
     HWIDDeleteRequest,
     RevokeUserSubscriptionBodyDto,
+    UpdateSubscriptionSettingsRequestDto,
     UpdateUserBodyDto,
     UserResponseDto,
 )
@@ -26,6 +32,7 @@ from remnawave.models.nodes import NodeResponseDto
 
 from tsproxy.config import RunMode
 from tsproxy.integrations.remnawave_types import (
+    ANNOUNCE_HEADER,
     DEV_SQUAD_NAME,
     AccountGuard,
     AccountNotFound,
@@ -40,6 +47,9 @@ from tsproxy.integrations.remnawave_types import (
     RemnawaveResponseError,
     RemnawaveUnavailable,
     UnexpectedPanelVersion,
+    check_header_value,
+    find_header,
+    without_header,
 )
 
 logger = logging.getLogger(__name__)
@@ -378,3 +388,40 @@ class RemnawaveApiClient:
             raise OperationNotAllowed("В боевом режиме прокси-аккаунты не удаляются")
         account = await self._own_account(telegram_id)
         await self._call(lambda: self._sdk.users.delete_user(account.id), retry=False)
+
+    # --- Объявление в приложении (задача 35): свои заголовки ответа подписки ---
+
+    async def _subscription_headers(self) -> tuple[UUID, dict[str, str]]:
+        """uuid настроек подписки и свои заголовки ответа (`customResponseHeaders`)."""
+        settings = await self._call(
+            lambda: self._sdk.subscriptions_settings.get_settings(), retry=True
+        )
+        return settings.uuid, dict(settings.custom_response_headers or {})
+
+    async def _write_subscription_headers(self, uuid: UUID, headers: dict[str, str]) -> None:
+        # Панель заменяет словарь заголовков целиком. Шлём только его: другие настройки
+        # подписки не трогаем. Значение абсолютное — повтор безопасен
+        body = UpdateSubscriptionSettingsRequestDto(uuid=uuid, custom_response_headers=headers)
+        await self._call(lambda: self._sdk.subscriptions_settings.update_settings(body), retry=True)
+
+    async def get_announce(self) -> str | None:
+        _, headers = await self._subscription_headers()
+        return find_header(headers, ANNOUNCE_HEADER)
+
+    async def set_announce(self, value: str) -> str | None:
+        check_header_value(value)
+        uuid, headers = await self._subscription_headers()
+        previous = find_header(headers, ANNOUNCE_HEADER)
+        updated = {**without_header(headers, ANNOUNCE_HEADER), ANNOUNCE_HEADER: value}
+        await self._write_subscription_headers(uuid, updated)
+        logger.info("Remnawave: объявление в приложении поставлено")
+        return previous
+
+    async def clear_announce(self) -> str | None:
+        uuid, headers = await self._subscription_headers()
+        previous = find_header(headers, ANNOUNCE_HEADER)
+        if previous is None:
+            return None
+        await self._write_subscription_headers(uuid, without_header(headers, ANNOUNCE_HEADER))
+        logger.info("Remnawave: объявление в приложении снято")
+        return previous

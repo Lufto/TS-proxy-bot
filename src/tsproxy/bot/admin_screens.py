@@ -14,7 +14,6 @@ from tsproxy.bot.admin_callbacks import (
     AdminAction,
     AdminClientCallback,
     AdminDeviceCallback,
-    AdminEraseCallback,
     AdminExtendCallback,
     AdminRefundCallback,
     expire_stamp,
@@ -78,14 +77,6 @@ def extend_button(texts: Texts, telegram_id: int, days: int) -> InlineKeyboardBu
 def devices_button(texts: Texts, telegram_id: int) -> InlineKeyboardButton:
     """«📱 Устройства» — список устройств клиента с «🗑» у каждого."""
     return _action_button(texts, "admin.buttons.devices", AdminAction.DEVICES, telegram_id)
-
-
-def erase_button(texts: Texts, telegram_id: int) -> InlineKeyboardButton:
-    """«🗑 Удалить данные» — предпросмотр удаления с подтверждением (задача 24)."""
-    return InlineKeyboardButton(
-        text=texts.get("admin.buttons.erase"),
-        callback_data=AdminEraseCallback(telegram_id=telegram_id).pack(),
-    )
 
 
 def refund_button(texts: Texts, telegram_id: int) -> InlineKeyboardButton:
@@ -246,7 +237,6 @@ class AdminScreens:
                 _action_button(texts, "admin.buttons.revoke", AdminAction.REVOKE_ASK, telegram_id),
                 refund_button(texts, telegram_id),  # задача 21
             ],
-            [erase_button(texts, telegram_id)],  # задача 24
         )
 
     # --- Ручная выдача ---

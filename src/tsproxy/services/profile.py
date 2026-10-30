@@ -13,6 +13,7 @@ from datetime import datetime
 from tsproxy.db.models import Client
 from tsproxy.domain.client_state import ClientSnapshot
 from tsproxy.domain.constants import UNLIMITED_TRAFFIC_BYTES
+from tsproxy.domain.grace import observed_grace_extension
 from tsproxy.domain.profile import ProfileStatus, TimeLeft, profile_status, time_left
 from tsproxy.integrations.remnawave_types import (
     AccountNotFound,
@@ -118,6 +119,8 @@ class ProfileService:
             on_trial=trial,
             grace_started_at=client.grace_started_at,
             access_disabled=account.status is AccountStatus.DISABLED,
+            # компенсация за сбой продлевает льготный (задача 20) — видно по сроку в панели
+            grace_extension=observed_grace_extension(client.grace_started_at, account.expire_at),
         )
         traffic_used_up = account.status is AccountStatus.LIMITED
         traffic = (

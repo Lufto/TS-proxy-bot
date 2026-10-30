@@ -12,6 +12,10 @@
 3. Льготный прошёл — событие `GRACE_ENDED`, доступ выключается (аккаунт не удаляется),
    одно финальное сообщение.
 
+Компенсация за сбой в льготный период (задача 20) продлевает льготный: продление — сумма
+событий компенсации с начала льготного (`compensation_log.grace_extension`), оно входит
+в конец льготного везде — в срок в панели, в «последний день», в выключение доступа.
+
 Каждое сообщение сначала записывается в таблицу уведомлений (уникально по клиенту, виду
 и дню), потом отправляется; не ушло из-за сбоя Telegram — запись снимается, следующая
 проверка повторит. Пробного это не касается: его окончание — задача 10.
@@ -27,7 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from tsproxy.db.enums import NotificationKind
 from tsproxy.db.models import Client, Event
 from tsproxy.db.repository import claim_grace, claim_notification, release_notification
-from tsproxy.domain.client_state import ClientSnapshot
+from tsproxy.domain.client_state import NO_GRACE_EXTENSION, ClientSnapshot
 from tsproxy.domain.constants import UNLIMITED_TRAFFIC_BYTES
 from tsproxy.domain.grace import (
     GraceAction,
@@ -40,6 +44,7 @@ from tsproxy.domain.grace import (
 from tsproxy.integrations.remnawave_types import AccountStatus, ProxyAccount, RemnawaveClient
 from tsproxy.services.account_checks import AccountCheck
 from tsproxy.services.clock import Clock, utc_now
+from tsproxy.services.compensation_log import grace_extension
 from tsproxy.services.events import EventKind, EventLog
 
 logger = logging.getLogger(__name__)
@@ -66,11 +71,14 @@ class GraceMessenger(Protocol):
         ...
 
 
-def client_snapshot(client: Client, account: ProxyAccount) -> ClientSnapshot:
+def client_snapshot(
+    client: Client, account: ProxyAccount, extension: timedelta = NO_GRACE_EXTENSION
+) -> ClientSnapshot:
     """Состояние клиента для правил сроков.
 
     Пробный — то же правило, что в профиле (`services/profile.py`): пробный выдавался,
     а лимит трафика ещё стоит. Оплата снимает лимит 7 ГБ (аудит §7.6).
+    `extension` — продление льготного компенсациями (`compensation_log.grace_extension`).
     """
     limited = account.traffic_limit_bytes != UNLIMITED_TRAFFIC_BYTES
     return ClientSnapshot(
@@ -78,6 +86,7 @@ def client_snapshot(client: Client, account: ProxyAccount) -> ClientSnapshot:
         on_trial=client.trial_granted_at is not None and limited,
         grace_started_at=client.grace_started_at,
         access_disabled=account.status is AccountStatus.DISABLED,
+        grace_extension=extension,
     )
 
 
@@ -103,21 +112,26 @@ class GraceHandler:
             client = await session.scalar(
                 select(Client).where(Client.telegram_id == check.telegram_id)
             )
+            extension = (
+                NO_GRACE_EXTENSION
+                if client is None
+                else await grace_extension(session, client.id, client.grace_started_at)
+            )
         if client is None:
             # Аккаунт бота есть, а клиента в базе нет: отметку ставить некуда
             logger.warning("Льготный: клиента %s нет в базе — пропускаем", check.telegram_id)
             return
         now = check.checked_at
-        decision = decide_on_expiry(client_snapshot(client, check.account), now)
+        decision = decide_on_expiry(client_snapshot(client, check.account, extension), now)
         match decision.action:
             case GraceAction.START_GRACE if decision.grace_started_at is not None:
                 await self._start(client, check.account, decision.grace_started_at, now)
             case GraceAction.ALREADY_IN_GRACE if decision.grace_started_at is not None:
-                await self._keep(client, check.account, decision.grace_started_at, now)
+                await self._keep(client, check.account, decision.grace_started_at, now, extension)
             case GraceAction.END_GRACE:
-                await self._end(client)
+                await self._end(client, extension)
             case GraceAction.ALREADY_ENDED:
-                await self._after_end(client, now)
+                await self._after_end(client, now, extension)
             case _:
                 return  # срок идёт или кончился пробный — не наше дело
 
@@ -142,13 +156,19 @@ class GraceHandler:
             await session.commit()
         logger.info("Клиент %s: начался льготный период", client.telegram_id)
         client.grace_started_at = started_at
-        await self._keep(client, account, started_at, now)
+        # только что начатый льготный ещё не продлевали
+        await self._keep(client, account, started_at, now, NO_GRACE_EXTENSION)
 
     async def _keep(
-        self, client: Client, account: ProxyAccount, started_at: datetime, now: datetime
+        self,
+        client: Client,
+        account: ProxyAccount,
+        started_at: datetime,
+        now: datetime,
+        extension: timedelta,
     ) -> None:
         """Идёт льготный: срок в панели — до его конца, сегодняшнее сообщение — один раз."""
-        ends_at = grace_ends_at(started_at)
+        ends_at = grace_ends_at(started_at, extension)
         if account.expire_at > ends_at + EXPIRY_TOLERANCE:
             # Срок продлили дальше льготного (оплата или администратор), а отметку ещё
             # не сняли: доступ есть, напоминать «продлите» было бы неправдой
@@ -157,9 +177,9 @@ class GraceHandler:
             # Сначала доступ в панели, потом сообщение «мы сохранили доступ до …»
             await self._remnawave.set_expiry(client.telegram_id, ends_at)
             logger.info("Клиент %s: срок до конца льготного выставлен", client.telegram_id)
-        await self._notify(client, grace_notice(started_at, now), ends_at)
+        await self._notify(client, grace_notice(started_at, now, extension), ends_at)
 
-    async def _end(self, client: Client) -> None:
+    async def _end(self, client: Client, extension: timedelta) -> None:
         """Льготный прошёл: событие (один раз), выключить доступ, финальное сообщение.
 
         Событие — до выключения: по нему повторная проверка узнаёт, что доступ выключили
@@ -178,18 +198,18 @@ class GraceHandler:
         # Только выключаем: аккаунт и ссылка подписки остаются — после оплаты всё заработает
         await self._remnawave.disable_account(client.telegram_id)
         logger.info("Клиент %s: льготный кончился, доступ выключен", client.telegram_id)
-        ends_at = grace_ends_at(started_at)
+        ends_at = grace_ends_at(started_at, extension)
         await self._notify(client, GraceNotice(GraceStage.ENDED, ends_at), ends_at)
 
-    async def _after_end(self, client: Client, now: datetime) -> None:
+    async def _after_end(self, client: Client, now: datetime, extension: timedelta) -> None:
         """Доступ уже выключен. Если выключили мы, а финальное сообщение не ушло — повторить."""
         started_at = client.grace_started_at
-        if started_at is None or now < grace_ends_at(started_at):
+        if started_at is None or now < grace_ends_at(started_at, extension):
             return  # выключен не по окончании льготного (например, администратором)
         async with self._session_factory() as session:
             ended_by_us = await self._end_recorded(session, client.id, started_at)
         if ended_by_us:
-            ends_at = grace_ends_at(started_at)
+            ends_at = grace_ends_at(started_at, extension)
             await self._notify(client, GraceNotice(GraceStage.ENDED, ends_at), ends_at)
 
     async def _end_recorded(

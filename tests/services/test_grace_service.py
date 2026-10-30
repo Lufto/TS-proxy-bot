@@ -11,11 +11,13 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from tsproxy.config import RunMode
 from tsproxy.db.engine import create_session_factory
 from tsproxy.db.models import Client, Event, Notification
+from tsproxy.domain.compensation import CompensationAction
 from tsproxy.domain.constants import BYTES_PER_GB, GRACE_DAYS, LAST_CHANCE_DAYS
 from tsproxy.domain.grace import GraceStage
 from tsproxy.integrations.fakes import FakeRemnawave
 from tsproxy.integrations.remnawave_types import AccountStatus, RemnawaveUnavailable
 from tsproxy.services.account_checks import AccountCheck, AccountChecks, CheckSource
+from tsproxy.services.compensation_log import ACTION, AMOUNT_SECONDS
 from tsproxy.services.events import EventKind, EventLog
 from tsproxy.services.fakes import FakeClock
 from tsproxy.services.grace import GraceHandler
@@ -527,3 +529,132 @@ async def test_extended_by_admin_after_grace_is_not_disabled(
 
     assert (await remnawave.get_account(TELEGRAM_ID)).status is AccountStatus.ACTIVE
     assert messenger.stages == [GraceStage.STARTED]
+
+
+# --- Льготный, продлённый компенсацией за сбой (задача 20) ---
+
+COMPENSATION = timedelta(days=1, hours=3)
+EXTENDED_END = PAID_UNTIL + GRACE + COMPENSATION
+
+
+async def record_compensation(
+    session_factory: async_sessionmaker[AsyncSession],
+    clock: FakeClock,
+    mask: Masker,
+    client: Client,
+    action: CompensationAction = CompensationAction.EXTEND_GRACE,
+) -> None:
+    """Начисление компенсации в журнале — как его пишет `CompensationService`."""
+    async with session_factory() as session:
+        await EventLog(clock, mask).record(
+            session,
+            EventKind.COMPENSATION_GRANTED,
+            client_id=client.id,
+            details={ACTION: action, AMOUNT_SECONDS: int(COMPENSATION.total_seconds())},
+        )
+        await session.commit()
+
+
+@pytest.fixture
+async def compensated_in_grace(
+    checks: AccountChecks,
+    remnawave: FakeRemnawave,
+    clock: FakeClock,
+    session_factory: async_sessionmaker[AsyncSession],
+    mask: Masker,
+    client: Client,
+) -> None:
+    """Льготный идёт сутки; компенсация продлила его — запись в журнале и срок в панели."""
+    await paid_account(remnawave)
+    expire_in_panel(remnawave, clock, PAID_UNTIL)
+    await checks.check_all()
+    clock.advance(timedelta(days=1))
+    await record_compensation(session_factory, clock, mask, client)
+    await remnawave.set_expiry(TELEGRAM_ID, EXTENDED_END)
+
+
+@pytest.mark.usefixtures("compensated_in_grace")
+async def test_compensated_grace_is_not_rolled_back_at_usual_end(
+    checks: AccountChecks,
+    remnawave: FakeRemnawave,
+    messenger: RecordingMessenger,
+    clock: FakeClock,
+    session: AsyncSession,
+) -> None:
+    clock.now = PAID_UNTIL + GRACE + timedelta(hours=1)  # обычный льготный уже кончился бы
+
+    await checks.check_all()
+
+    account = await remnawave.get_account(TELEGRAM_ID)
+    assert account.expire_at == EXTENDED_END
+    assert account.status is AccountStatus.ACTIVE
+    assert GraceStage.ENDED not in messenger.stages
+    assert await events_of(session, EventKind.GRACE_ENDED) == []
+
+
+@pytest.mark.usefixtures("compensated_in_grace")
+async def test_compensated_grace_messages_use_new_end_and_shifted_last_day(
+    checks: AccountChecks, messenger: RecordingMessenger, clock: FakeClock
+) -> None:
+    while clock.now < EXTENDED_END - timedelta(minutes=5):
+        clock.advance(timedelta(minutes=5))
+        await checks.check_all()
+
+    assert messenger.stages.count(GraceStage.LAST_DAY) == 1
+    assert messenger.stages[-1] is GraceStage.LAST_DAY
+    assert messenger.sent[-1][2] == EXTENDED_END
+    assert GraceStage.ENDED not in messenger.stages
+
+
+@pytest.mark.usefixtures("compensated_in_grace")
+async def test_compensated_grace_ends_at_new_end(
+    checks: AccountChecks,
+    remnawave: FakeRemnawave,
+    messenger: RecordingMessenger,
+    clock: FakeClock,
+) -> None:
+    expire_in_panel(remnawave, clock, EXTENDED_END)
+
+    await checks.check_all()
+
+    assert (await remnawave.get_account(TELEGRAM_ID)).status is AccountStatus.DISABLED
+    assert messenger.sent[-1] == (TELEGRAM_ID, GraceStage.ENDED, EXTENDED_END)
+
+
+async def test_recorded_compensation_missing_in_panel_is_set_by_grace_check(
+    checks: AccountChecks,
+    remnawave: FakeRemnawave,
+    clock: FakeClock,
+    session_factory: async_sessionmaker[AsyncSession],
+    mask: Masker,
+    client: Client,
+) -> None:
+    # компенсация записана, а панель срок не приняла — обработчик льготного доводит срок сам
+    await paid_account(remnawave)
+    expire_in_panel(remnawave, clock, PAID_UNTIL)
+    await checks.check_all()
+    clock.advance(timedelta(hours=2))
+    await record_compensation(session_factory, clock, mask, client)
+
+    await checks.check_all()
+
+    assert (await remnawave.get_account(TELEGRAM_ID)).expire_at == EXTENDED_END
+
+
+async def test_compensation_of_paid_term_does_not_extend_grace(
+    checks: AccountChecks,
+    remnawave: FakeRemnawave,
+    messenger: RecordingMessenger,
+    clock: FakeClock,
+    session_factory: async_sessionmaker[AsyncSession],
+    mask: Masker,
+    client: Client,
+) -> None:
+    # продление оплаченного срока (до льготного) — уже в сроке, льготный от него не длиннее
+    await paid_account(remnawave)
+    await record_compensation(session_factory, clock, mask, client, CompensationAction.EXTEND)
+    expire_in_panel(remnawave, clock, PAID_UNTIL)
+    await checks.check_all()
+
+    assert (await remnawave.get_account(TELEGRAM_ID)).expire_at == PAID_UNTIL + GRACE
+    assert messenger.sent == [(TELEGRAM_ID, GraceStage.STARTED, PAID_UNTIL + GRACE)]

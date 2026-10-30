@@ -90,7 +90,7 @@ TEXT_PLACEHOLDERS: dict[str, set[str]] = {
     "notices.trial_traffic_warning": {"used", "limit"},
     "notices.trial_traffic_used_up": {"limit"},
     "compensation.extended": {"amount", "until"},
-    "compensation.carried": {"amount"},
+    "compensation.grace_extended": {"amount", "until"},
     **{
         f"units.{unit}_{form}": {"n"}
         for unit in ("days", "hours")

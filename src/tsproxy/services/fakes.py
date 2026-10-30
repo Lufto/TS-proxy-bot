@@ -1,5 +1,5 @@
 """Подделки для тестов сервисов: управляемые часы, отправка тревог без Telegram,
-выключатель пробных без журнала, удаление тем группы, проверка прошлых оплат без платёжки."""
+выключатель пробных без журнала, проверка прошлых оплат без платёжки."""
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -50,23 +50,6 @@ class FakeTrialGate:
 
     async def note_new_trial(self) -> None:
         self.new_trials += 1
-
-
-@dataclass
-class FakeTopicRemover:
-    """Удаление тем группы без Telegram: запоминает удалённые темы.
-
-    `fail_on` — на этой теме бросить `error` (как Telegram без права «Управление темами»).
-    """
-
-    removed: list[int] = field(default_factory=list)
-    fail_on: int | None = None
-    error: Exception | None = None
-
-    async def remove(self, topic_id: int) -> None:
-        if topic_id == self.fail_on and self.error is not None:
-            raise self.error
-        self.removed.append(topic_id)
 
 
 @dataclass

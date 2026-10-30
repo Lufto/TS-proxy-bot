@@ -59,13 +59,6 @@ class AdminDeviceCallback(CallbackData, prefix="admd"):
     ref: Annotated[str, Field(pattern=rf"^[0-9a-f]{{{DEVICE_REF_LENGTH}}}$")]
 
 
-class AdminEraseCallback(CallbackData, prefix="adme"):
-    """«🗑 Удалить данные» (задача 24): `confirm=False` — предпросмотр, `True` — удалить."""
-
-    telegram_id: TelegramId
-    confirm: bool = False
-
-
 class AdminRefundCallback(CallbackData, prefix="admr"):
     """«↩️ Вернуть» (задача 21): `order_id=0` — список оплат клиента за 30 дней,
     иначе `confirm=False` — вопрос «вернуть?», `True` — вернуть.
