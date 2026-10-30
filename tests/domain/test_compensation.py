@@ -14,6 +14,7 @@ from tsproxy.domain.compensation import (
     remaining_compensation,
     resume_extension,
 )
+from tsproxy.domain.grace import grace_ends_at
 from tsproxy.domain.subscription import grant_target_expire_at
 
 NOW = datetime(2026, 11, 10, 12, 0, tzinfo=UTC)
@@ -26,13 +27,19 @@ def client(
     on_trial: bool = False,
     grace_started_at: datetime | None = None,
     access_disabled: bool = False,
+    grace_extension: timedelta = timedelta(0),
 ) -> ClientSnapshot:
     return ClientSnapshot(
         expire_at=expire_at,
         on_trial=on_trial,
         grace_started_at=grace_started_at,
         access_disabled=access_disabled,
+        grace_extension=grace_extension,
     )
+
+
+def grace_target(state: ClientSnapshot, paid_at: datetime) -> datetime:
+    return grant_target_expire_at(state, paid_at, timedelta(days=30))
 
 
 # --- Сколько компенсировать ---
@@ -95,7 +102,6 @@ def test_active_client_gets_absolute_new_expiry() -> None:
     plan = plan_compensation(client(expire_at), DAY, already_compensated=False, now=NOW)
     assert plan.action is CompensationAction.EXTEND
     assert plan.extend_to == expire_at + DAY
-    assert plan.carry_over is None
 
 
 def test_same_incident_is_not_compensated_twice() -> None:
@@ -105,28 +111,64 @@ def test_same_incident_is_not_compensated_twice() -> None:
     assert plan.extend_to is None
 
 
-def test_grace_client_gets_compensation_carried_over() -> None:
+def test_grace_client_gets_grace_period_extended() -> None:
     started = NOW - DAY
-    state = client(started + timedelta(days=3), grace_started_at=started)
+    state = client(started + timedelta(days=4), grace_started_at=started)
     amount = timedelta(days=1, hours=4)
     plan = plan_compensation(state, amount, already_compensated=False, now=NOW)
-    assert plan.action is CompensationAction.CARRY_OVER
-    assert plan.carry_over == amount
-    assert plan.extend_to is None  # конец льготного периода не сдвигаем
+    assert plan.action is CompensationAction.EXTEND_GRACE
+    assert plan.extend_to == grace_ends_at(started) + amount
 
 
-def test_carried_compensation_is_added_after_payment_in_grace() -> None:
+def test_second_compensation_in_grace_adds_to_earlier_extension() -> None:
     started = NOW - DAY
-    state = client(started + timedelta(days=3), grace_started_at=started)
-    amount = timedelta(days=1, hours=4)
-    plan = plan_compensation(state, amount, already_compensated=False, now=NOW)
-    assert plan.carry_over is not None
-    paid_at = NOW + timedelta(hours=6)
-    target = grant_target_expire_at(
-        state, paid_at, timedelta(days=30), carried_compensation=plan.carry_over
+    earlier = timedelta(hours=5)
+    state = client(
+        grace_ends_at(started, earlier), grace_started_at=started, grace_extension=earlier
     )
-    # Покупка «от момента оплаты» не затирает компенсацию
-    assert target == paid_at + timedelta(days=30) + amount
+    plan = plan_compensation(state, DAY, already_compensated=False, now=NOW)
+    assert plan.extend_to == grace_ends_at(started) + earlier + DAY
+
+
+def test_extended_grace_is_still_grace_after_usual_end() -> None:
+    started = NOW - timedelta(days=4, hours=1)  # обычный льготный кончился час назад
+    extension = timedelta(hours=5)
+    state = client(
+        grace_ends_at(started, extension), grace_started_at=started, grace_extension=extension
+    )
+    plan = plan_compensation(state, DAY, already_compensated=False, now=NOW)
+    assert plan.action is CompensationAction.EXTEND_GRACE
+
+
+def test_grace_client_with_term_already_beyond_grace_gets_term_extended() -> None:
+    # срок в панели продлили дальше льготного (оплата, администратор), отметку ещё не сняли:
+    # продлеваем срок, а не льготный — иначе «до X» укоротил бы подписку
+    started = NOW - DAY
+    paid_until = NOW + timedelta(days=30)
+    state = client(paid_until, grace_started_at=started)
+    plan = plan_compensation(state, DAY, already_compensated=False, now=NOW)
+    assert plan.action is CompensationAction.EXTEND
+    assert plan.extend_to == paid_until + DAY
+
+
+def test_grace_client_whose_panel_term_lags_gets_grace_end_plus_amount() -> None:
+    # льготный начался, а срок в панели ещё не сдвинут (сбой панели) — считаем от конца льготного
+    started = NOW - DAY
+    state = client(started, grace_started_at=started)
+    plan = plan_compensation(state, DAY, already_compensated=False, now=NOW)
+    assert plan.action is CompensationAction.EXTEND_GRACE
+    assert plan.extend_to == grace_ends_at(started) + DAY
+
+
+def test_payment_in_grace_does_not_add_compensation() -> None:
+    started = NOW - DAY
+    extension = timedelta(days=1, hours=4)
+    state = client(
+        grace_ends_at(started, extension), grace_started_at=started, grace_extension=extension
+    )
+    paid_at = NOW + timedelta(hours=6)
+    # оплата в льготный — от момента оплаты, продление льготного не переносится
+    assert grace_target(state, paid_at) == paid_at + timedelta(days=30)
 
 
 @pytest.mark.parametrize(

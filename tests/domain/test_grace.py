@@ -11,6 +11,7 @@ from tsproxy.domain.grace import (
     grace_ends_at,
     grace_notice,
     is_last_chance,
+    observed_grace_extension,
 )
 
 NOW = datetime(2026, 11, 10, 12, 0, tzinfo=UTC)
@@ -159,3 +160,65 @@ def test_same_day_gives_same_notice() -> None:
     morning = grace_notice(NOW, NOW + timedelta(days=1, minutes=1))
     evening = grace_notice(NOW, NOW + timedelta(days=1, hours=23))
     assert morning == evening
+
+
+# --- Льготный, продлённый компенсацией за сбой (задача 20) ---
+
+EXTENSION = timedelta(days=1, hours=3)
+
+
+def extended(now_offset: timedelta) -> tuple[ClientSnapshot, datetime]:
+    """Льготный начат в NOW и продлён на EXTENSION; срок в панели — новый конец."""
+    state = ClientSnapshot(
+        expire_at=grace_ends_at(NOW, EXTENSION),
+        on_trial=False,
+        grace_started_at=NOW,
+        access_disabled=False,
+        grace_extension=EXTENSION,
+    )
+    return state, NOW + now_offset
+
+
+def test_extension_moves_grace_end() -> None:
+    assert grace_ends_at(NOW, EXTENSION) == NOW + GRACE + EXTENSION
+
+
+def test_extended_grace_continues_after_usual_end() -> None:
+    state, now = extended(GRACE + timedelta(hours=1))
+    decision = decide_on_expiry(state, now)
+    assert decision.action is GraceAction.ALREADY_IN_GRACE
+    assert decision.grace_ends_at == NOW + GRACE + EXTENSION
+
+
+def test_extended_grace_ends_only_after_new_end() -> None:
+    state, now = extended(GRACE + EXTENSION)
+    assert decide_on_expiry(state, now).action is GraceAction.END_GRACE
+
+
+def test_last_day_is_the_day_before_extended_end() -> None:
+    usual_last_day = grace_notice(NOW, NOW + timedelta(days=GRACE_DAYS, hours=1), EXTENSION)
+    assert usual_last_day.stage is GraceStage.REMINDER  # «последний день» сдвинулся
+    last_day_at = NOW + GRACE + EXTENSION - timedelta(days=LAST_CHANCE_DAYS)
+    notice = grace_notice(NOW, last_day_at + timedelta(minutes=5), EXTENSION)
+    assert notice.stage is GraceStage.LAST_DAY
+    assert notice.due_at == last_day_at
+    assert is_last_chance(NOW, last_day_at, EXTENSION)
+
+
+def test_final_notice_at_extended_end() -> None:
+    notice = grace_notice(NOW, NOW + GRACE + EXTENSION, EXTENSION)
+    assert notice.stage is GraceStage.ENDED
+    assert notice.due_at == NOW + GRACE + EXTENSION
+
+
+def test_extension_cannot_be_negative() -> None:
+    with pytest.raises(ValueError):
+        grace_ends_at(NOW, timedelta(hours=-1))
+
+
+def test_observed_extension_is_panel_term_beyond_usual_end() -> None:
+    assert observed_grace_extension(NOW, NOW + GRACE + EXTENSION) == EXTENSION
+    assert observed_grace_extension(NOW, NOW + GRACE) == timedelta(0)
+    # срок в панели ещё не сдвинут до конца льготного — продления нет
+    assert observed_grace_extension(NOW, NOW) == timedelta(0)
+    assert observed_grace_extension(None, NOW + GRACE + EXTENSION) == timedelta(0)

@@ -6,6 +6,9 @@
 в той же теме. Под предложением остаётся «🔁 Продолжить»: если бот перезапускался посреди
 начисления, нажатие доделает его, никому не начислив дважды (`CompensationService`).
 
+`/outages` — последние сбои с теми же кнопками: если предложение не дошло до Telegram или
+потерялось в теме, кнопку можно получить командой.
+
 Права — как у всей админки: `AdminFilter` на обработчике; данные кнопки прав не дают.
 """
 
@@ -16,6 +19,7 @@ from typing import Annotated
 
 from aiogram import Bot, Router
 from aiogram.exceptions import TelegramAPIError
+from aiogram.filters import Command
 from aiogram.filters.callback_data import CallbackData
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from pydantic import Field
@@ -32,18 +36,21 @@ from tsproxy.domain.constants import ONE_DAY, ONE_HOUR
 from tsproxy.domain.dates import format_moscow
 from tsproxy.domain.profile import plural_form
 from tsproxy.services.compensation import (
+    RECENT_OUTAGES,
     Apology,
     ClientOutcome,
     CompensationOffer,
     CompensationReport,
     CompensationRun,
     CompensationService,
+    OutageSummary,
     StartOutcome,
 )
 from tsproxy.services.nodes import outage_minutes
 
 logger = logging.getLogger(__name__)
 
+OUTAGES_COMMAND = "outages"
 LINE = "\n"
 PARAGRAPH = "\n\n"
 TELEGRAM_IDS_SEPARATOR = ", "
@@ -176,7 +183,7 @@ class CompensationScreens:
                 run_id=run.run_id,
                 amount=self.amount(run.amount),
                 extended=counts[ClientOutcome.EXTENDED],
-                carried=counts[ClientOutcome.CARRIED_OVER],
+                grace_extended=counts[ClientOutcome.GRACE_EXTENDED],
                 already=counts[ClientOutcome.ALREADY_COMPENSATED],
                 not_eligible=counts[ClientOutcome.NOT_ELIGIBLE],
                 skipped=counts[ClientOutcome.SKIPPED],
@@ -195,6 +202,64 @@ class CompensationScreens:
             parts.append(self._texts.get("admin.compensation.manual", telegram_ids=ids))
         markup = self._resume_markup(run.outage_id) if report.unfinished else None
         return AdminScreen(LINE.join(parts), markup)
+
+    def outages(self, outages: list[OutageSummary], limit: int) -> AdminScreen:
+        """`/outages`: сбои по строке и по кнопке на каждый, который можно компенсировать
+        («🎁») или доделать («🔁»)."""
+        if not outages:
+            return AdminScreen(self._texts.get("admin.outages.empty"))
+        lines = [self._texts.get("admin.outages.title", limit=limit)]
+        lines += [self._outage_line(outage) for outage in outages]
+        rows = [[button] for outage in outages if (button := self._outage_button(outage))]
+        if rows:
+            lines.append(self._texts.get("admin.outages.footer"))
+        markup = InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
+        return AdminScreen(PARAGRAPH.join(lines), markup)
+
+    def _outage_line(self, outage: OutageSummary) -> str:
+        node = outage.node_name or outage.node_uuid
+        since = format_moscow(outage.started_at)
+        if outage.ended_at is None:
+            return self._texts.get(
+                "admin.outages.open", outage_id=outage.outage_id, node=node, since=since
+            )
+        values: dict[str, object] = {
+            "outage_id": outage.outage_id,
+            "node": node,
+            "since": since,
+            "until": format_moscow(outage.ended_at),
+            "minutes": outage_minutes(outage.started_at, outage.ended_at),
+        }
+        if outage.compensated_at is not None:
+            return self._texts.get(
+                "admin.outages.compensated",
+                at=format_moscow(outage.compensated_at),
+                admin_id=outage.compensated_by_admin_id or self._texts.get("admin.no_value"),
+                **values,
+            )
+        if outage.amount > timedelta(0):
+            return self._texts.get(
+                "admin.outages.waiting", amount=self.amount(outage.amount), **values
+            )
+        return self._texts.get("admin.outages.covered", **values)
+
+    def _outage_button(self, outage: OutageSummary) -> InlineKeyboardButton | None:
+        if outage.compensated_at is not None:
+            return self._button(
+                "admin.outages.resume_button",
+                outage.outage_id,
+                CompensationStep.RESUME,
+                number=outage.outage_id,
+            )
+        if outage.ended_at is not None and outage.amount > timedelta(0):
+            return self._button(
+                "admin.outages.ask_button",
+                outage.outage_id,
+                CompensationStep.ASK,
+                number=outage.outage_id,
+                amount=self.amount(outage.amount),
+            )
+        return None  # нода ещё лежит или сбой уже покрыт соседней компенсацией
 
 
 class TelegramCompensationReporter:
@@ -260,15 +325,17 @@ class TelegramApologyMessenger:
         return await self._delivery.send(telegram_id, self.screen(apology)) is not None
 
     def screen(self, apology: Apology) -> Screen:
-        amount = duration_words(self._texts, apology.amount)
-        if apology.action is CompensationAction.EXTEND and apology.until is not None:
-            text = self._texts.get(
-                "compensation.extended", amount=amount, until=format_moscow(apology.until)
-            )
-            button = self._menu_button("buttons.profile", ScreenId.PROFILE)
-        else:
-            text = self._texts.get("compensation.carried", amount=amount)
+        values = {
+            "amount": duration_words(self._texts, apology.amount),
+            "until": format_moscow(apology.until),
+        }
+        if apology.action is CompensationAction.EXTEND_GRACE:
+            # в льготном подписка кончилась — зовём продлить
+            text = self._texts.get("compensation.grace_extended", **values)
             button = self._menu_button("buttons.renew", ScreenId.TARIFFS)
+        else:
+            text = self._texts.get("compensation.extended", **values)
+            button = self._menu_button("buttons.profile", ScreenId.PROFILE)
         return Screen(text, InlineKeyboardMarkup(inline_keyboard=[[button]]))
 
     def _menu_button(self, key: str, screen: ScreenId) -> InlineKeyboardButton:
@@ -278,7 +345,8 @@ class TelegramApologyMessenger:
 
 
 class CompensationButtons:
-    """Обработчик кнопок компенсации (только администраторы в группе администраторов)."""
+    """Обработчик кнопок компенсации и `/outages` (только администраторы в группе
+    администраторов)."""
 
     def __init__(
         self, service: CompensationService, screens: CompensationScreens, admin_texts: Texts
@@ -309,6 +377,12 @@ class CompensationButtons:
         await callback.answer()
         await _edit(callback, screen)
 
+    async def on_outages(self, message: Message) -> None:
+        """`/outages` — последние сбои с кнопками."""
+        outages = await self._service.recent_outages()
+        screen = self._screens.outages(outages, RECENT_OUTAGES)
+        await message.answer(screen.text, reply_markup=screen.markup)
+
     async def _start(self, callback: CallbackQuery, outage_id: int) -> None:
         started = await self._service.compensate(outage_id, callback.from_user.id)
         if started.run is None:
@@ -328,6 +402,7 @@ async def _edit(callback: CallbackQuery, screen: AdminScreen) -> None:
 
 def create_admin_compensation_router(access: AdminAccess, buttons: CompensationButtons) -> Router:
     router = Router(name="admin_compensation")
+    router.message.register(buttons.on_outages, AdminFilter(access), Command(OUTAGES_COMMAND))
     router.callback_query.register(
         buttons.on_press, AdminFilter(access), CompensationCallback.filter()
     )

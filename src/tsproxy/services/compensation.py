@@ -17,10 +17,14 @@
    начислено»), потом срок в панели «до X», потом в событии ставится `applied_at`.
    Упал посреди — повторное нажатие видит событие и по сроку в панели понимает, поставлен
    ли он (`resume_extension`). Срок изменился иначе — клиент в отчёте «на ручную проверку».
-4. **Льготный период.** Срок в панели не трогаем, компенсация записывается как
-   перенесённая и добавляется к сроку при следующей оплате (`carried_compensation`,
-   его вызывает зачёт оплаты).
+4. **Льготный период** (решение владельца 2026-10-26). Компенсация продлевает сам льготный:
+   «срок до X» = конец льготного (с прежними продлениями) + компенсация. Начисление вида
+   EXTEND_GRACE в журнале — это и есть продление: по нему обработчик льготного
+   (`services/grace.py`, через `compensation_log.grace_extension`) считает новый конец
+   и не откатывает срок. К следующей оплате компенсация не добавляется.
 5. **Ход и итог** — сообщениями в «🚨 Тревоги»; клиентам — извинение.
+6. **Список сбоев** (`recent_outages`) — для `/outages`: если предложение с кнопкой не
+   дошло до Telegram, кнопку можно получить командой.
 
 Прогон идёт в фоне (`launch`): нажатие кнопки не ждёт сотни запросов к панели.
 """
@@ -61,6 +65,7 @@ from tsproxy.integrations.remnawave_types import (
 from tsproxy.services.admin import AdminActionKind
 from tsproxy.services.alerts import Alerter
 from tsproxy.services.clock import Clock, utc_now
+from tsproxy.services.compensation_log import ACTION, AMOUNT_SECONDS, grace_extension
 from tsproxy.services.events import EventKind, EventLog
 from tsproxy.services.grace import client_snapshot
 from tsproxy.services.locks import KeyedLocks
@@ -69,13 +74,14 @@ logger = logging.getLogger(__name__)
 
 # Ход прогона в «🚨 Тревоги» — после каждых стольких клиентов (значение выбрано агентом)
 PROGRESS_EVERY = 25
+# Сколько последних сбоев показывает `/outages` (значение выбрано агентом)
+RECENT_OUTAGES = 10
 # Панель могла отдать одинаковое время начала и конца сбоя — считаем такой сбой секундным
 MIN_OUTAGE = timedelta(seconds=1)
 
-# Поля подробностей событий. Прогон (`ADMIN_ACTION`):
-ACTION = "action"
+# Поля подробностей событий (`ACTION`, `AMOUNT_SECONDS` — общие, из `compensation_log`).
+# Прогон (`ADMIN_ACTION`):
 OUTAGE_IDS = "outage_ids"
-AMOUNT_SECONDS = "amount_seconds"
 INCIDENT_STARTED_AT = "incident_started_at"
 INCIDENT_ENDED_AT = "incident_ended_at"
 # Начисление клиенту (`COMPENSATION_GRANTED`): прогон, вид, срок до и после, когда поставлен
@@ -96,7 +102,7 @@ class ClientOutcome(StrEnum):
     """Что вышло у одного клиента в прогоне."""
 
     EXTENDED = "extended"  # срок продлён
-    CARRIED_OVER = "carried_over"  # льготный: добавится к следующей оплате
+    GRACE_EXTENDED = "grace_extended"  # в льготном: продлён льготный период
     ALREADY_COMPENSATED = "already_compensated"  # по этому прогону уже начислено
     NOT_ELIGIBLE = "not_eligible"  # нет оплаченной подписки (пробный, истёк, выключен)
     DEFERRED = "deferred"  # идёт выдача доступа по оплате — нажать ещё раз позже
@@ -107,6 +113,11 @@ class ClientOutcome(StrEnum):
 
 # Клиенты, которых следующее нажатие может доделать
 UNFINISHED = frozenset({ClientOutcome.DEFERRED, ClientOutcome.FAILED})
+# Чем кончилось начисление каждого вида
+GRANTED: dict[CompensationAction, ClientOutcome] = {
+    CompensationAction.EXTEND: ClientOutcome.EXTENDED,
+    CompensationAction.EXTEND_GRACE: ClientOutcome.GRACE_EXTENDED,
+}
 
 
 @dataclass(frozen=True)
@@ -115,6 +126,25 @@ class CompensationOffer:
 
     outage_id: int
     incident: Outage
+    amount: timedelta
+
+
+@dataclass(frozen=True)
+class OutageSummary:
+    """Сбой для `/outages`.
+
+    `node_name` — имя ноды из панели (`None` — панель не ответила или ноды там уже нет).
+    `amount` — сколько начислит нажатие по инциденту с этим сбоем; ноль — нечего
+    (уже компенсировано или нода ещё не восстановилась, `ended_at` пуст).
+    """
+
+    outage_id: int
+    node_uuid: str
+    node_name: str | None
+    started_at: datetime
+    ended_at: datetime | None
+    compensated_at: datetime | None
+    compensated_by_admin_id: int | None
     amount: timedelta
 
 
@@ -151,11 +181,12 @@ class CompensationReport:
 
 @dataclass(frozen=True)
 class Apology:
-    """Извинение клиенту: `until` — новый срок (EXTEND), для CARRY_OVER — None."""
+    """Извинение клиенту: `until` — новый срок подписки (EXTEND) или конец льготного
+    (EXTEND_GRACE)."""
 
     action: CompensationAction
     amount: timedelta
-    until: datetime | None = None
+    until: datetime
 
 
 class CompensationReporter(Protocol):
@@ -232,6 +263,28 @@ class CompensationService:
             return None
         incident, members = _incident(target, closed)
         return CompensationOffer(outage_id, incident, _remaining(incident, members))
+
+    async def recent_outages(self, limit: int = RECENT_OUTAGES) -> list[OutageSummary]:
+        """Последние сбои, новые сверху: компенсированы ли и сколько начислит нажатие."""
+        async with self._session_factory() as session:
+            rows = await session.scalars(
+                select(NodeOutage).order_by(NodeOutage.started_at.desc()).limit(limit)
+            )
+            recent = list(rows)
+            closed = list(
+                await session.scalars(select(NodeOutage).where(NodeOutage.ended_at.is_not(None)))
+            )
+        names = await self._node_names()
+        return [_summary(row, closed, names.get(row.node_uuid)) for row in recent]
+
+    async def _node_names(self) -> dict[str, str]:
+        """Имена нод по uuid. Панель не ответила — без имён: список сбоев важнее."""
+        try:
+            nodes = await self._remnawave.list_nodes()
+        except RemnawaveError as error:
+            logger.warning("Список сбоев: панель не отдала ноды, показываем uuid: %s", error)
+            return {}
+        return {node.uuid: node.name for node in nodes}
 
     # --- Запуск ---
 
@@ -371,6 +424,7 @@ class CompensationService:
                 client = await session.get_one(Client, client_id)
                 claim = await _find_claim(session, client_id, run.run_id)
                 granting = await _grant_pending(session, client_id)
+                extension = await grace_extension(session, client_id, client.grace_started_at)
             try:
                 account = await self._remnawave.get_account(telegram_id)
             except AccountNotFound:
@@ -382,56 +436,56 @@ class CompensationService:
                 # Срок ещё пересчитает выдача по оплате и затрёт продление — подождём её
                 return ClientOutcome.DEFERRED
             now = utc_now(self._clock)
-            plan = plan_compensation(
-                client_snapshot(client, account), run.amount, already_compensated=False, now=now
-            )
-            if plan.action is CompensationAction.EXTEND and plan.extend_to is not None:
-                return await self._extend(run, client, account, plan.extend_to)
-            if plan.action is CompensationAction.CARRY_OVER:
-                return await self._carry_over(run, client)
+            # продление льготного — по журналу, как у обработчика льготного
+            snapshot = client_snapshot(client, account, extension)
+            plan = plan_compensation(snapshot, run.amount, already_compensated=False, now=now)
+            if plan.action in GRANTED and plan.extend_to is not None:
+                return await self._extend(run, client, account, plan.action, plan.extend_to)
             return ClientOutcome.NOT_ELIGIBLE
 
     async def _extend(
-        self, run: CompensationRun, client: Client, account: ProxyAccount, target: datetime
+        self,
+        run: CompensationRun,
+        client: Client,
+        account: ProxyAccount,
+        action: CompensationAction,
+        target: datetime,
     ) -> ClientOutcome:
-        """Сначала отметка в журнале, потом срок в панели — так дважды не начислится."""
+        """Сначала отметка в журнале, потом срок в панели — так дважды не начислится.
+
+        Для льготного отметка (EXTEND_GRACE) ещё и продлевает его: если панель срок
+        не примет, обработчик льготного сам поставит новый конец.
+        """
         async with self._session_factory() as session:
             event = await self._record_grant(
                 session,
                 run,
                 client.id,
-                CompensationAction.EXTEND,
+                action,
                 {EXPIRE_BEFORE: account.expire_at, EXTEND_TO: target, APPLIED_AT: None},
             )
             event_id = event.id
             await session.commit()
-        await self._apply(client, event_id, target, run.amount)
-        return ClientOutcome.EXTENDED
-
-    async def _carry_over(self, run: CompensationRun, client: Client) -> ClientOutcome:
-        """Льготный: срок не трогаем, событие — это и есть перенесённая компенсация."""
-        async with self._session_factory() as session:
-            await self._record_grant(session, run, client.id, CompensationAction.CARRY_OVER, {})
-            await session.commit()
-        logger.info("Компенсация #%s: клиенту %s — к следующей оплате", run.run_id, client.id)
-        await self._apologize(client, Apology(CompensationAction.CARRY_OVER, run.amount))
-        return ClientOutcome.CARRIED_OVER
+        await self._apply(client, event_id, Apology(action, run.amount, target))
+        return GRANTED[action]
 
     async def _resume(self, client: Client, account: ProxyAccount, claim: Event) -> ClientOutcome:
         """Начисление по прогону уже записано: доделать, если срок в панели не поставлен."""
         details = claim.details or {}
-        if details.get(ACTION) != CompensationAction.EXTEND or details.get(APPLIED_AT) is not None:
+        if details.get(ACTION) not in GRANTED or details.get(APPLIED_AT) is not None:
             return ClientOutcome.ALREADY_COMPENSATED
+        action = CompensationAction(details[ACTION])
         before = _moment(details[EXPIRE_BEFORE])
         target = _moment(details[EXTEND_TO])
-        amount = timedelta(seconds=details[AMOUNT_SECONDS])
+        apology = Apology(action, timedelta(seconds=details[AMOUNT_SECONDS]), target)
         match resume_extension(account.expire_at, before, target):
             case ResumeAction.APPLY:
-                await self._apply(client, claim.id, target, amount)
+                await self._apply(client, claim.id, apology)
             case ResumeAction.ALREADY_APPLIED:
-                # панель срок поставила, а ответ или отметка потерялись
+                # панель срок поставила (или обработчик льготного довёл его до нового конца),
+                # а ответ или отметка потерялись
                 await self._mark_applied(claim.id)
-                await self._apologize(client, Apology(CompensationAction.EXTEND, amount, target))
+                await self._apologize(client, apology)
             case ResumeAction.UNCLEAR:
                 logger.warning(
                     "Компенсация: клиент %s — срок %s, ждали %s или %s; проверить вручную",
@@ -441,15 +495,18 @@ class CompensationService:
                     target.isoformat(),
                 )
                 return ClientOutcome.MANUAL
-        return ClientOutcome.EXTENDED
+        return GRANTED[action]
 
-    async def _apply(
-        self, client: Client, event_id: int, target: datetime, amount: timedelta
-    ) -> None:
-        await self._remnawave.set_expiry(client.telegram_id, target)
+    async def _apply(self, client: Client, event_id: int, apology: Apology) -> None:
+        await self._remnawave.set_expiry(client.telegram_id, apology.until)
         await self._mark_applied(event_id)
-        logger.info("Компенсация: клиенту %s срок до %s", client.telegram_id, target.isoformat())
-        await self._apologize(client, Apology(CompensationAction.EXTEND, amount, target))
+        logger.info(
+            "Компенсация (%s): клиенту %s срок до %s",
+            apology.action.value,
+            client.telegram_id,
+            apology.until.isoformat(),
+        )
+        await self._apologize(client, apology)
 
     async def _record_grant(
         self,
@@ -493,36 +550,6 @@ class CompensationService:
             logger.info("Клиент %s заблокировал бота: извинение не ушло", client.telegram_id)
 
 
-# --- Перенесённая компенсация (её учитывает зачёт оплаты) ---
-
-
-async def carried_compensation(
-    session: AsyncSession, client_id: int, grace_started_at: datetime | None
-) -> timedelta:
-    """Компенсация, начисленная клиенту в льготный период, начатый в `grace_started_at`.
-
-    Это события CARRY_OVER после отметки «льготный начался». Следующий льготный начнётся
-    позже этих событий, поэтому одна и та же компенсация к двум оплатам не добавится.
-    """
-    if grace_started_at is None:
-        return NO_TIME
-    details = await session.scalars(
-        select(Event.details).where(
-            Event.kind == EventKind.COMPENSATION_GRANTED.value,
-            Event.client_id == client_id,
-            Event.occurred_at >= grace_started_at,
-        )
-    )
-    return sum(
-        (
-            timedelta(seconds=item[AMOUNT_SECONDS])
-            for item in details
-            if item is not None and item.get(ACTION) == CompensationAction.CARRY_OVER
-        ),
-        NO_TIME,
-    )
-
-
 # --- Чтение из базы ---
 
 
@@ -533,6 +560,23 @@ async def _load(
     target = await session.get(NodeOutage, outage_id)
     closed = await session.scalars(select(NodeOutage).where(NodeOutage.ended_at.is_not(None)))
     return target, list(closed)
+
+
+def _summary(row: NodeOutage, closed: Sequence[NodeOutage], name: str | None) -> OutageSummary:
+    amount = NO_TIME
+    if row.ended_at is not None:
+        incident, members = _incident(row, closed)
+        amount = _remaining(incident, members)
+    return OutageSummary(
+        outage_id=row.id,
+        node_uuid=row.node_uuid,
+        node_name=name,
+        started_at=row.started_at,
+        ended_at=row.ended_at,
+        compensated_at=row.compensated_at,
+        compensated_by_admin_id=row.compensated_by_admin_id,
+        amount=amount,
+    )
 
 
 def _as_outage(row: NodeOutage) -> Outage:

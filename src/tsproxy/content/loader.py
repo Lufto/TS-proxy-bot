@@ -306,7 +306,7 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         "notices.trial_traffic_used_up",
         # задача 20: извинение после сбоя
         "compensation.extended",
-        "compensation.carried",
+        "compensation.grace_extended",
     }
 )
 REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
@@ -557,6 +557,21 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
         "admin.compensation.running",
         "admin.compensation.not_found",
         "admin.compensation.still_open",
+        # задача 20: /outages
+        *(
+            f"admin.outages.{key}"
+            for key in (
+                "empty",
+                "title",
+                "open",
+                "waiting",
+                "covered",
+                "compensated",
+                "footer",
+                "ask_button",
+                "resume_button",
+            )
+        ),
         # задача 19: статистика и рассылка
         *(
             f"admin.stats.{key}"

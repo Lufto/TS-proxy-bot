@@ -135,12 +135,18 @@ def test_target_new_client() -> None:
     assert grant_target_expire_at(snapshot(None), NOW, DAYS_30) == NOW + DAYS_30
 
 
-def test_target_purchase_during_grace_adds_carried_compensation() -> None:
-    started = NOW - timedelta(days=1)
-    state = snapshot(started + timedelta(days=3), grace_started_at=started)
-    carried = timedelta(days=1, hours=5)
-    target = grant_target_expire_at(state, NOW, DAYS_30, carried_compensation=carried)
-    assert target == NOW + DAYS_30 + carried
+def test_target_purchase_during_extended_grace_counts_from_payment() -> None:
+    # компенсация в льготный продлила льготный; к оплате она не добавляется (задача 20)
+    started = NOW - timedelta(days=4, hours=1)
+    extension = timedelta(days=1, hours=5)
+    state = ClientSnapshot(
+        started + timedelta(days=4) + extension,
+        on_trial=False,
+        grace_started_at=started,
+        access_disabled=False,
+        grace_extension=extension,
+    )
+    assert grant_target_expire_at(state, NOW, DAYS_30) == NOW + DAYS_30
 
 
 def test_target_is_stable_for_the_same_inputs() -> None:
@@ -154,10 +160,3 @@ def test_target_is_stable_for_the_same_inputs() -> None:
 def test_target_rejects_non_positive_duration() -> None:
     with pytest.raises(ValueError):
         grant_target_expire_at(snapshot(None), NOW, timedelta(0))
-
-
-def test_target_rejects_negative_compensation() -> None:
-    with pytest.raises(ValueError):
-        grant_target_expire_at(
-            snapshot(None), NOW, DAYS_30, carried_compensation=timedelta(hours=-1)
-        )

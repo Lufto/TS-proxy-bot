@@ -118,6 +118,19 @@ async def test_grace_from_database_mark(service: ProfileService, remnawave: Fake
     assert profile.status is ProfileStatus.GRACE
 
 
+async def test_grace_extended_by_compensation_is_still_grace(
+    service: ProfileService, remnawave: FakeRemnawave
+) -> None:
+    # задача 20: компенсация продлила льготный — срок в панели позже обычного конца льготного
+    await create_account(remnawave)
+    started = NOW - timedelta(days=4, hours=1)  # обычный льготный кончился час назад
+
+    profile = await service.profile(client_row(grace_started_at=started))
+
+    assert profile is not None
+    assert profile.status is ProfileStatus.GRACE
+
+
 async def test_expired(service: ProfileService, remnawave: FakeRemnawave, clock: FakeClock) -> None:
     await create_account(remnawave)
     clock.advance(timedelta(days=6))

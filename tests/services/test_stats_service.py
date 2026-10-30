@@ -153,6 +153,23 @@ async def test_subscriptions_by_state_without_manual_panel_clients(
     assert result.subscriptions == SubscriptionCounts(paid=1, grace=1, trial=1)
 
 
+async def test_grace_extended_by_compensation_counts_as_grace(
+    stats: StatsService, session: AsyncSession, remnawave: FakeRemnawave
+) -> None:
+    # задача 20: обычный льготный кончился час назад, но компенсация его продлила
+    await add_client(session, 222, grace_started_at=NOW - timedelta(days=4, hours=1))
+    await remnawave.get_or_create_account(
+        222,
+        expire_at=NOW + timedelta(hours=5),
+        device_limit=PAID_DEVICE_LIMIT,
+        traffic_limit_bytes=UNLIMITED_TRAFFIC_BYTES,
+    )
+
+    result = await stats.collect()
+
+    assert result.subscriptions == SubscriptionCounts(paid=0, grace=1, trial=0)
+
+
 async def test_subscriptions_unknown_when_panel_is_down(
     stats: StatsService, remnawave: FakeRemnawave
 ) -> None:
