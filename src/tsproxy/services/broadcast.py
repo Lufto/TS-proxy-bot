@@ -1,4 +1,7 @@
-"""Рассылка всем клиентам бота (задача 19, спецификация «Админка» п. 5).
+"""Рассылка всем клиентам бота (задачи 19 и 32, спецификация «Админка» п. 5).
+
+Что: текст (`/broadcast <текст>`) или копия сообщения из группы администраторов —
+фото, видео, файл, голосовое… с подписью и разметкой (`copyMessage`, без «переслано от»).
 
 Кому: клиентам бота из базы (`clients`), кроме заблокировавших бота. 28 нынешних клиентов
 панели в базе бота не записаны — им рассылка не уходит; Remnawave рассылка не трогает вовсе.
@@ -9,6 +12,7 @@
   `action=broadcast`, номер сообщения предпросмотра) под замком, повторное нажатие
   или второй администратор находят запись и ничего не шлют. Отменённый предпросмотр
   (`broadcast_cancelled`) тоже не отправить. Запись в базе переживает перезапуск бота;
+  в ней же — что отправлено: текст или откуда копия (чат и номер сообщения);
 - одна рассылка за раз: пока идёт одна, вторая не начинается (BUSY);
 - темп: не больше `BROADCAST_MESSAGES_PER_SECOND` сообщений в секунду — с запасом
   от предела Telegram (≈ 30 в секунду на бота), чтобы оставалось место ответам клиентам.
@@ -76,9 +80,31 @@ class BroadcastThrottled(Exception):
         self.retry_after = retry_after
 
 
+@dataclass(frozen=True)
+class BroadcastText:
+    """Текст рассылки в HTML — ровно как в предпросмотре (`/broadcast <текст>`)."""
+
+    html: str
+
+
+@dataclass(frozen=True)
+class BroadcastCopy:
+    """Рассылка копией сообщения (`copyMessage`): фото, видео, файл… с подписью.
+
+    Откуда копировать — сообщение предпросмотра в группе администраторов: его прислал бот,
+    администраторы его не изменят, и клиенты получат ровно то, что видели в предпросмотре.
+    """
+
+    chat_id: int
+    message_id: int
+
+
+type BroadcastContent = BroadcastText | BroadcastCopy
+
+
 class BroadcastSender(Protocol):
-    async def send(self, telegram_id: int, text: str) -> DeliveryOutcome:
-        """Отправить текст клиенту. «Подождите» — `BroadcastThrottled`."""
+    async def send(self, telegram_id: int, content: BroadcastContent) -> DeliveryOutcome:
+        """Отправить рассылку клиенту. «Подождите» — `BroadcastThrottled`."""
         ...
 
 
@@ -185,11 +211,15 @@ class BroadcastService:
         return Audience(recipients or 0, blocked or 0)
 
     async def start(
-        self, admin_id: int, preview: PreviewRef, text: str, reporter: BroadcastReporter
+        self,
+        admin_id: int,
+        preview: PreviewRef,
+        content: BroadcastContent,
+        reporter: BroadcastReporter,
     ) -> BroadcastStart:
         """«✅ Отправить»: записать запуск в журнал и начать рассылку в фоне.
 
-        `text` — ровно то, что администратор видел в предпросмотре (HTML).
+        `content` — ровно то, что администратор видел в предпросмотре.
         """
         async with self._lock:
             async with self._session_factory() as session:
@@ -207,11 +237,11 @@ class BroadcastService:
                     preview_chat_id=preview.chat_id,
                     preview_message_id=preview.message_id,
                     recipients=len(recipients),
-                    text=text,
+                    **_content_details(content),
                 )
                 await session.commit()
             self._task = asyncio.create_task(
-                self._run(recipients, text, reporter), name="broadcast"
+                self._run(recipients, content, reporter), name="broadcast"
             )
         logger.info("Администратор %s запустил рассылку на %s клиентов", admin_id, len(recipients))
         return BroadcastStart(StartOutcome.STARTED, len(recipients))
@@ -264,7 +294,9 @@ class BroadcastService:
         with contextlib.suppress(asyncio.CancelledError):
             await task
 
-    async def _run(self, recipients: list[int], text: str, reporter: BroadcastReporter) -> None:
+    async def _run(
+        self, recipients: list[int], content: BroadcastContent, reporter: BroadcastReporter
+    ) -> None:
         started_at = utc_now(self._clock)
         progress = BroadcastProgress(total=len(recipients))
 
@@ -277,7 +309,7 @@ class BroadcastService:
             await reporter.started(progress.total)
             failures_in_row = 0
             for telegram_id in recipients:
-                outcome = await self._deliver(telegram_id, text)
+                outcome = await self._deliver(telegram_id, content)
                 progress = _counted(progress, outcome)
                 failures_in_row = failures_in_row + 1 if outcome is DeliveryOutcome.FAILED else 0
                 if failures_in_row >= MAX_CONSECUTIVE_FAILURES:
@@ -298,10 +330,10 @@ class BroadcastService:
             return
         await finish(BroadcastEnd.COMPLETED)
 
-    async def _deliver(self, telegram_id: int, text: str) -> DeliveryOutcome:
+    async def _deliver(self, telegram_id: int, content: BroadcastContent) -> DeliveryOutcome:
         for _ in range(MAX_THROTTLE_RETRIES + 1):
             try:
-                return await self._sender.send(telegram_id, text)
+                return await self._sender.send(telegram_id, content)
             except BroadcastThrottled as throttled:
                 logger.info("Рассылка: Telegram просит подождать %s с", throttled.retry_after)
                 await self._sleep(throttled.retry_after)
@@ -321,6 +353,15 @@ class BroadcastService:
             admin_id=admin_id,
             details={"action": action.value, **details},
         )
+
+
+def _content_details(content: BroadcastContent) -> dict[str, object]:
+    """Что отправлено — для записи о запуске в журнале."""
+    match content:
+        case BroadcastText(html=html):
+            return {"text": html}
+        case BroadcastCopy(chat_id=chat_id, message_id=message_id):
+            return {"source_chat_id": chat_id, "source_message_id": message_id}
 
 
 def _counted(progress: BroadcastProgress, outcome: DeliveryOutcome) -> BroadcastProgress:

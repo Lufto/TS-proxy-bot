@@ -1,5 +1,6 @@
-"""Рассылка (задача 19): только клиентам бота из базы и без заблокировавших, один раз
-на предпросмотр, с паузами между сообщениями и повтором после «подождите» от Telegram."""
+"""Рассылка (задачи 19, 32): только клиентам бота из базы и без заблокировавших, один раз
+на предпросмотр, с паузами между сообщениями и повтором после «подождите» от Telegram.
+Текстом или копией сообщения (фото, видео, файл…)."""
 
 import asyncio
 from dataclasses import dataclass, field
@@ -17,10 +18,13 @@ from tsproxy.services.broadcast import (
     BROADCAST_SEND_INTERVAL,
     MAX_CONSECUTIVE_FAILURES,
     PROGRESS_EVERY,
+    BroadcastContent,
+    BroadcastCopy,
     BroadcastEnd,
     BroadcastProgress,
     BroadcastReport,
     BroadcastService,
+    BroadcastText,
     BroadcastThrottled,
     DeliveryOutcome,
     PreviewRef,
@@ -33,25 +37,27 @@ from tsproxy.services.masking import Masker
 ADMIN_ID = 900
 ADMIN_CHAT_ID = -100500
 PREVIEW = PreviewRef(chat_id=ADMIN_CHAT_ID, message_id=42)
-TEXT = "<b>Новость</b>: тарифы & скидки"
+TEXT = BroadcastText("<b>Новость</b>: тарифы & скидки")
+# предпросмотр-копия в группе администраторов, с которой копируется рассылка
+COPY = BroadcastCopy(chat_id=ADMIN_CHAT_ID, message_id=41)
 
 
 @dataclass
 class FakeSender:
     """Запоминает, кому что ушло. `outcomes` — что ответить конкретному клиенту."""
 
-    sent: list[tuple[int, str]] = field(default_factory=list)
+    sent: list[tuple[int, BroadcastContent]] = field(default_factory=list)
     outcomes: dict[int, DeliveryOutcome] = field(default_factory=dict)
     throttle: dict[int, list[float]] = field(default_factory=dict)  # Telegram: «подождите N с»
     gate: asyncio.Event | None = None  # пока не открыт — отправка ждёт (рассылка «идёт»)
 
-    async def send(self, telegram_id: int, text: str) -> DeliveryOutcome:
+    async def send(self, telegram_id: int, content: BroadcastContent) -> DeliveryOutcome:
         if self.gate is not None:
             await self.gate.wait()
         waits = self.throttle.get(telegram_id)
         if waits:
             raise BroadcastThrottled(waits.pop(0))
-        self.sent.append((telegram_id, text))
+        self.sent.append((telegram_id, content))
         return self.outcomes.get(telegram_id, DeliveryOutcome.DELIVERED)
 
     @property
@@ -200,8 +206,52 @@ async def test_start_is_logged_with_admin_and_text(
         "preview_chat_id": ADMIN_CHAT_ID,
         "preview_message_id": PREVIEW.message_id,
         "recipients": 1,
-        "text": TEXT,
+        "text": TEXT.html,
     }
+
+
+async def test_copy_goes_to_each_client_and_is_logged_with_its_source(
+    broadcasts: BroadcastService,
+    session: AsyncSession,
+    sender: FakeSender,
+    reporter: FakeReporter,
+) -> None:
+    await add_clients(session, 111, 222)
+
+    started = await broadcasts.start(ADMIN_ID, PREVIEW, COPY, reporter)
+    await broadcasts.wait()
+
+    assert started.outcome is StartOutcome.STARTED
+    assert sender.sent == [(111, COPY), (222, COPY)]  # каждому — копия того же сообщения
+    [event] = await broadcast_events(session)
+    assert event.details == {
+        "action": "broadcast",
+        "preview_chat_id": ADMIN_CHAT_ID,
+        "preview_message_id": PREVIEW.message_id,
+        "recipients": 2,
+        "source_chat_id": COPY.chat_id,
+        "source_message_id": COPY.message_id,
+    }
+
+
+async def test_copy_pressed_twice_at_once_is_sent_once(
+    broadcasts: BroadcastService,
+    session: AsyncSession,
+    sender: FakeSender,
+    reporter: FakeReporter,
+) -> None:
+    await add_clients(session, 111)
+
+    results = await asyncio.gather(
+        broadcasts.start(ADMIN_ID, PREVIEW, COPY, reporter),
+        broadcasts.start(ADMIN_ID, PREVIEW, COPY, reporter),
+    )
+    await broadcasts.wait()
+
+    assert sorted(r.outcome for r in results) == sorted(
+        [StartOutcome.STARTED, StartOutcome.ALREADY_HANDLED]
+    )
+    assert sender.sent == [(111, COPY)]
 
 
 async def test_same_preview_is_sent_only_once(
