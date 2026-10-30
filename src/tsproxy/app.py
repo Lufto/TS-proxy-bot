@@ -51,7 +51,6 @@ from tsproxy.bot.admin_compensation import (
     TelegramCompensationReporter,
     create_admin_compensation_router,
 )
-from tsproxy.bot.admin_erasure import TelegramTopicRemover
 from tsproxy.bot.admin_proof import create_admin_proof_router
 from tsproxy.bot.admin_stats import create_admin_stats_router
 from tsproxy.bot.alert_sender import TelegramAlertSender
@@ -89,7 +88,6 @@ from tsproxy.services.clients import ClientService
 from tsproxy.services.clock import Clock, system_clock, utc_now
 from tsproxy.services.compensation import CompensationService
 from tsproxy.services.crediting import CreditingService
-from tsproxy.services.erasure import DataErasureService
 from tsproxy.services.events import EventLog
 from tsproxy.services.grace import GraceHandler
 from tsproxy.services.health import HealthCheck
@@ -370,9 +368,6 @@ def build_application(
         admin=AdminService(session_factory, remnawave, profiles, events, clock, term_locks),
         link_revokes=LinkRevokeService(session_factory, remnawave, events, clock, KeyedLocks()),
         trial_switch=trial_switch,
-        erasure=DataErasureService(
-            session_factory, TelegramTopicRemover(bot, settings.admin_chat_id), events
-        ),
         payment_checks=payment_checks,
     )
     # Статистика и рассылка (задача 19)
