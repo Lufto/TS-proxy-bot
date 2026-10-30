@@ -14,6 +14,7 @@ from tsproxy.bot.context import BotContext
 from tsproxy.bot.delivery import ClientDelivery
 from tsproxy.bot.dispatcher import create_dispatcher
 from tsproxy.bot.fakes import FakeTelegramSession
+from tsproxy.bot.payments import PaymentScreens, TelegramPaymentMessages
 from tsproxy.bot.screens import Screens
 from tsproxy.bot.support_guard import SupportGuard, support_rate_limiter
 from tsproxy.bot.throttling import RateLimiter
@@ -25,21 +26,26 @@ from tsproxy.integrations.fake_payments import FakePaymentProvider
 from tsproxy.integrations.fakes import FakeRemnawave
 from tsproxy.logging_setup import MaskingFilter
 from tsproxy.services.admin import AdminService
+from tsproxy.services.admin_topics import AdminTopic
 from tsproxy.services.alerts import Alerter
 from tsproxy.services.client_card import ClientCardService
 from tsproxy.services.clients import ClientService
+from tsproxy.services.crediting import CreditingService
 from tsproxy.services.erasure import DataErasureService
 from tsproxy.services.events import EventLog
 from tsproxy.services.fakes import FakeAlertSender, FakeClock
 from tsproxy.services.link_revoke import LinkRevokeService
 from tsproxy.services.locks import KeyedLocks
 from tsproxy.services.orders import OrderService
+from tsproxy.services.payment_checks import PaymentChecks
 from tsproxy.services.profile import ProfileService
 from tsproxy.services.support import SupportService
 from tsproxy.services.trial import TrialService
 from tsproxy.services.trial_switch import TrialSwitch
 
 REPO_CONTENT = Path(__file__).parent.parent.parent / "content"
+# Тема «💰 Оплаты» в тестах бота (задача 14: зачёт по кнопке «Проверить оплату»)
+PAYMENTS_THREAD_ID = 4
 
 
 class ManualMonotonic:
@@ -124,13 +130,36 @@ def ctx(
         alert_sender, content.admin_texts, ADMIN_CHAT_ID, ALERTS_THREAD_ID, clock, mask
     )
     trial_switch = TrialSwitch(session_factory, events, alerter, content.admin_texts, clock)
+    screens = Screens(content.texts)
+    delivery = ClientDelivery(bot, clients)
+    crediting = CreditingService(
+        session_factory,
+        remnawave,
+        events,
+        alerter,
+        AdminTopic(alert_sender, ADMIN_CHAT_ID, PAYMENTS_THREAD_ID),
+        content.admin_texts,
+        TelegramPaymentMessages(delivery, PaymentScreens(content.texts, screens)),
+        clock,
+        KeyedLocks(),
+    )
+    payment_checks = PaymentChecks(
+        session_factory,
+        payments,
+        crediting,
+        events,
+        alerter,
+        content.admin_texts,
+        clock,
+        test_payments=True,
+    )
     return BotContext(
         texts=content.texts,
         admin_texts=content.admin_texts,
-        screens=Screens(content.texts),
+        screens=screens,
         clients=clients,
         remnawave=remnawave,
-        delivery=ClientDelivery(bot, clients),
+        delivery=delivery,
         alerter=alerter,
         events=events,
         access=AdminAccess(frozenset({ADMIN_ID}), ADMIN_CHAT_ID),
@@ -147,6 +176,7 @@ def ctx(
             frozenset({ADMIN_ID}),
             clock,
             KeyedLocks(),
+            payment_checks,
         ),
         client_cards=ClientCardService(session_factory, ProfileService(remnawave, clock)),
         admin=AdminService(
@@ -162,6 +192,7 @@ def ctx(
         erasure=DataErasureService(
             session_factory, TelegramTopicRemover(bot, ADMIN_CHAT_ID), events
         ),
+        payment_checks=payment_checks,
     )
 
 

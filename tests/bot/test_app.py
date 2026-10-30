@@ -22,7 +22,9 @@ from tsproxy.app import (
 from tsproxy.bot.fakes import FakeTelegramSession
 from tsproxy.config import PaymentsMode, RunMode, Settings
 from tsproxy.content.loader import Content
-from tsproxy.integrations.fake_payments import FakePaymentProvider
+from tsproxy.db.models import Base
+from tsproxy.integrations.fake_payments import FakePaymentProvider, notification_body
+from tsproxy.web.payments import PAYMENT_NOTIFICATION_PATH
 from tsproxy.web.telegram import TELEGRAM_WEBHOOK_PATH
 
 WEBHOOK_SECRET = "A" * 40
@@ -170,3 +172,24 @@ def test_real_payments_without_provider_refuse_to_start(tmp_path: Path, content:
     """Настоящей платёжки ещё нет (задача 15): лучше не стартовать, чем принять заказ в никуда."""
     with pytest.raises(ValueError, match="задача 15"):
         build_application(prod_settings(tmp_path), content, telegram_session=FakeTelegramSession())
+
+
+async def test_payment_notifications_are_accepted_in_fake_mode(
+    tmp_path: Path, content: Content, telegram_session: FakeTelegramSession
+) -> None:
+    """Задача 14: адрес уведомлений платёжки есть, проверки оплат — среди фоновых задач."""
+    app = build_application(make_settings(tmp_path), content, telegram_session=telegram_session)
+    try:
+        async with app.engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        transport = httpx.ASGITransport(app=app.web)
+        async with httpx.AsyncClient(transport=transport, base_url="http://bot.test") as http:
+            response = await http.post(
+                PAYMENT_NOTIFICATION_PATH, content=notification_body("fake_unknown")
+            )
+    finally:
+        await close_application(app)
+
+    assert response.status_code == httpx.codes.OK
+    names = {job.name for job in app.jobs._jobs}
+    assert {"payment_checks_fresh", "payment_checks_stale", "payments_reconcile"} <= names

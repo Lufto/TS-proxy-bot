@@ -61,11 +61,18 @@ class Settings(BaseSettings):
     alerts_thread_id: int
     backups_thread_id: int
     refunds_thread_id: int | None = None
+    # Ежедневный отчёт (задача 22): тема группы; не задано — общая тема
+    reports_thread_id: int | None = None
 
     database_url: str = "sqlite+aiosqlite:///data/tsproxy.db"
     # Бэкапы базы бота (задача 23): куда класть и чем шифровать (открытый ключ age, как у панели)
     backup_dir: Path = Path("/var/backups/tsproxy")
     backup_age_recipients: Path = Path("/etc/remnawave-backup/recipients.txt")
+    # Присмотр за бэкапами панели (задача 22): журнал скрипта `ops/remnawave-backup` и папка
+    # ежедневных копий. Боту нужно только право читать журнал и список файлов. Пустое
+    # значение в `.env` (`PANEL_BACKUP_DIR=`) — не присматривать (например, на Mac).
+    panel_backup_log: Path | None = Path("/var/lib/remnawave-backup/backup.log")
+    panel_backup_dir: Path | None = Path("/var/backups/remnawave/daily")
     content_dir: Path = Path("content")
     # Поддельная платёжка (PAYMENTS_MODE=fake): файл с платежами, общий со скриптом
     # `scripts/simulate_payment.py`
@@ -81,7 +88,13 @@ class Settings(BaseSettings):
         return value
 
     @field_validator(
-        "public_base_url", "telegram_webhook_secret", "remnawave_webhook_secret", mode="before"
+        "public_base_url",
+        "telegram_webhook_secret",
+        "remnawave_webhook_secret",
+        "panel_backup_log",
+        "panel_backup_dir",
+        "reports_thread_id",
+        mode="before",
     )
     @classmethod
     def _empty_is_none(cls, value: object) -> object:

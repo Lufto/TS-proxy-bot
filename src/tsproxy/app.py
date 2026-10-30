@@ -8,9 +8,16 @@ Telegram, журнал событий, тревоги, тексты. Остал�
 - бот aiogram: на Mac (`RUN_MODE=dev`) — polling, перед ним бот снимает webhook;
   на сервере (`RUN_MODE=prod`) — webhook с секретом, бот ставит его при старте;
 - веб-сервер FastAPI (uvicorn): вебхук Telegram в боевом режиме, вебхуки Remnawave
-  (если задан `REMNAWAVE_WEBHOOK_SECRET`), позже — платёжка и `/health`;
+  (если задан `REMNAWAVE_WEBHOOK_SECRET`), уведомления платёжки (если оплата включена,
+  задача 14), `/health` (задача 22);
 - фоновые задачи: сводки повторов тревог раз в минуту; сверка с Remnawave раз в 5 минут
-  и сразу при запуске (задача 09); повторы выдачи доступа после оплаты раз в минуту (задача 13).
+  и сразу при запуске (задача 09); повторы выдачи доступа после оплаты раз в минуту (задача 13);
+  проверка оплат раз в 2 и раз в 30 минут и сверка с платёжкой в 09:00 МСК (задача 14);
+  сторож фоновых задач раз в минуту, присмотр за бэкапами панели раз в час, бэкап базы бота
+  в 04:30 МСК (только `RUN_MODE=prod`), ежедневный отчёт в 10:00 МСК (задача 22).
+
+Каждый запуск фоновой задачи отмечается в `JobHealth`: по отметкам сторож поднимает тревогу
+о зависшей задаче, а `/health` отвечает «проблема».
 
 `PAYMENTS_MODE=off` (задача 29) — тестовый запуск без платёжки: тарифы видны, купить нельзя;
 при запуске — предупреждение в лог и тревога, чтобы не забыть включить оплату.
@@ -25,7 +32,7 @@ import logging
 import signal
 from collections.abc import Awaitable, Callable, Generator, Sequence
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import time, timedelta
 
 import uvicorn
 from aiogram import Bot, Dispatcher
@@ -33,7 +40,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.client.session.base import BaseSession
 from aiogram.enums import ParseMode
 from fastapi import FastAPI
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from tsproxy.bot.admin import AdminAccess
 from tsproxy.bot.admin_broadcast import TelegramBroadcastSender, create_admin_broadcast_router
@@ -45,12 +52,14 @@ from tsproxy.bot.admin_compensation import (
     create_admin_compensation_router,
 )
 from tsproxy.bot.admin_erasure import TelegramTopicRemover
+from tsproxy.bot.admin_proof import create_admin_proof_router
 from tsproxy.bot.admin_stats import create_admin_stats_router
 from tsproxy.bot.alert_sender import TelegramAlertSender
 from tsproxy.bot.connect import REMNAWAVE_UNAVAILABLE_ALERT
 from tsproxy.bot.context import BotContext
 from tsproxy.bot.delivery import ClientDelivery
 from tsproxy.bot.dispatcher import bot_commands, create_dispatcher
+from tsproxy.bot.documents import TelegramDocumentSender
 from tsproxy.bot.grace import TelegramGraceMessenger
 from tsproxy.bot.notices import NoticeScreens, TelegramNotifier
 from tsproxy.bot.payments import PaymentScreens, TelegramPaymentMessages
@@ -62,10 +71,13 @@ from tsproxy.bot.trial import deliver_pending_trials
 from tsproxy.config import PaymentsMode, RunMode, Settings
 from tsproxy.content.loader import Content
 from tsproxy.db.engine import create_engine, create_session_factory
+from tsproxy.domain.monitoring import DAILY_JOB_STALE_AFTER, next_daily_run, periodic_stale_after
 from tsproxy.integrations.fake_payments import FakePaymentLedger, FakePaymentProvider
 from tsproxy.integrations.payments_types import PaymentProvider
 from tsproxy.integrations.remnawave import RemnawaveApiClient, create_http_client
 from tsproxy.integrations.remnawave_types import RemnawaveUnavailable
+from tsproxy.jobs.backup import DatabaseBackup
+from tsproxy.jobs.daily_report import BotBackupJob, DailyReport, ReportDestination
 from tsproxy.logging_setup import MaskingFilter
 from tsproxy.services.account_checks import AccountCheckHandler, AccountChecks
 from tsproxy.services.admin import AdminService
@@ -74,26 +86,35 @@ from tsproxy.services.alerts import Alerter
 from tsproxy.services.broadcast import BroadcastService
 from tsproxy.services.client_card import ClientCardService
 from tsproxy.services.clients import ClientService
-from tsproxy.services.clock import Clock, system_clock
+from tsproxy.services.clock import Clock, system_clock, utc_now
 from tsproxy.services.compensation import CompensationService
 from tsproxy.services.crediting import CreditingService
 from tsproxy.services.erasure import DataErasureService
 from tsproxy.services.events import EventLog
 from tsproxy.services.grace import GraceHandler
+from tsproxy.services.health import HealthCheck
+from tsproxy.services.job_health import JobHealth
 from tsproxy.services.link_revoke import LinkRevokeService
 from tsproxy.services.locks import KeyedLocks
 from tsproxy.services.nodes import NodeMonitor
 from tsproxy.services.orders import OrderService
+from tsproxy.services.panel_backups import PanelBackupMonitor
+from tsproxy.services.payment_checks import PaymentChecks
+from tsproxy.services.payment_reconciliation import PaymentReconciliation
 from tsproxy.services.profile import ProfileService
 from tsproxy.services.reconciliation import Reconciliation
 from tsproxy.services.reminders import ReminderService
 from tsproxy.services.remnawave_signals import RemnawaveSignals
+from tsproxy.services.service_proof import ServiceProofService
 from tsproxy.services.stats import StatsService
 from tsproxy.services.support import SupportService
 from tsproxy.services.term_guard import TermLockedHandlers
 from tsproxy.services.trial import TrialService
 from tsproxy.services.trial_switch import TrialSwitch
+from tsproxy.services.watchdog import JobWatchdog
 from tsproxy.web.app import create_web_app
+from tsproxy.web.health import HealthEndpoint
+from tsproxy.web.payments import PaymentNotificationWebhook
 from tsproxy.web.remnawave import RemnawaveWebhook
 from tsproxy.web.telegram import TelegramWebhook, webhook_url
 
@@ -107,10 +128,23 @@ PENDING_TRIALS_INTERVAL = timedelta(minutes=1)
 PAYMENTS_OFF_ALERT = "payments_off"
 # Повторы выдачи доступа после оплаты — расписание каждого заказа в базе (задача 13)
 PAYMENT_GRANTS_INTERVAL = timedelta(minutes=1)
+# Проверка оплат в два темпа (задача 14): заказы младше 2 часов — раз в 2 минуты,
+# от 2 до 72 часов — раз в 30 минут; сверка с платёжкой — раз в сутки в 09:00 МСК
+FRESH_PAYMENT_CHECK_INTERVAL = timedelta(minutes=2)
+STALE_PAYMENT_CHECK_INTERVAL = timedelta(minutes=30)
+PAYMENTS_RECONCILE_AT = time(9, 0)  # по Москве, до ежедневного отчёта
 # Забытые обращения (нет ответа дольше часа) — проверка раз в 5 минут (задача 17)
 SUPPORT_REMINDERS_INTERVAL = timedelta(minutes=5)
 # Сверка с Remnawave — страховка от потерянных вебхуков (задача 09: «каждые 5–10 минут»)
 RECONCILE_INTERVAL = timedelta(minutes=5)
+# Сторож фоновых задач (задача 22)
+WATCHDOG_INTERVAL = timedelta(minutes=1)
+# Бэкап панели идёт раз в сутки — проверять его чаще раза в час незачем (задача 22)
+PANEL_BACKUP_CHECK_INTERVAL = timedelta(hours=1)
+# Бэкап базы бота — через полчаса после бэкапа панели в 04:00 МСК (задача 23)
+BOT_BACKUP_AT = time(4, 30)
+# Ежедневный отчёт (задача 18 в vpn-bot-rework)
+DAILY_REPORT_AT = time(10, 0)
 STOP_SIGNALS = (signal.SIGINT, signal.SIGTERM)
 
 
@@ -127,14 +161,43 @@ class PeriodicJob:
     run_at_start: bool = False  # выполнить сразу при запуске, не дожидаясь интервала
 
 
+@dataclass(frozen=True)
+class DailyJob:
+    """Фоновая задача «раз в сутки в `at` по Москве» (бэкап, отчёт)."""
+
+    name: str
+    at: time
+    run: Callable[[], Awaitable[None]]
+
+
+type Job = PeriodicJob | DailyJob
+
+
+def stale_after(job: Job) -> timedelta:
+    """Сколько задача может не отрабатывать успешно, пока сторож не поднимет тревогу."""
+    if isinstance(job, DailyJob):
+        return DAILY_JOB_STALE_AFTER
+    return periodic_stale_after(job.interval)
+
+
 class PeriodicJobs:
     """Простой планировщик: каждая задача — свой цикл «подождать, выполнить».
 
-    Точка подключения для следующих задач (сверка с Remnawave, бэкапы, напоминания).
+    Каждый запуск отмечается в `health` (начала, успешно закончила, упала) — по этим
+    отметкам работают сторож фоновых задач и `/health` (задача 22).
     """
 
-    def __init__(self, jobs: Sequence[PeriodicJob]) -> None:
+    def __init__(
+        self,
+        jobs: Sequence[Job],
+        health: JobHealth | None = None,
+        clock: Clock = system_clock,
+    ) -> None:
         self._jobs = tuple(jobs)
+        self._clock = clock
+        self.health = health if health is not None else JobHealth(clock)
+        for job in self._jobs:
+            self.health.watch(job.name, stale_after(job))
         self._tasks: list[asyncio.Task[None]] = []
 
     def start(self) -> None:
@@ -150,20 +213,38 @@ class PeriodicJobs:
                 await task
         self._tasks = []
 
-    async def _loop(self, job: PeriodicJob) -> None:
+    async def _loop(self, job: Job) -> None:
+        if isinstance(job, DailyJob):
+            await self._daily_loop(job)
+            return
         if job.run_at_start:
             await self._run_once(job)
         while True:
             await asyncio.sleep(job.interval.total_seconds())
             await self._run_once(job)
 
-    async def _run_once(self, job: PeriodicJob) -> None:
+    async def _daily_loop(self, job: DailyJob) -> None:
+        target = next_daily_run(utc_now(self._clock), job.at)
+        while True:
+            remaining = (target - utc_now(self._clock)).total_seconds()
+            if remaining > 0:
+                # sleep может проснуться чуть раньше срока — тогда доспать, а не запустить дважды
+                await asyncio.sleep(remaining)
+                continue
+            await self._run_once(job)
+            target = next_daily_run(max(target, utc_now(self._clock)), job.at)
+
+    async def _run_once(self, job: Job) -> None:
+        self.health.started(job.name)
         try:
             await job.run()
         # Одна неудача не должна останавливать задачу навсегда: пишем в лог с трассировкой
-        # и пробуем в следующий раз. Сторож зависших задач — задача 22.
+        # и пробуем в следующий раз. Отметку «упала» видит сторож фоновых задач.
         except Exception:
+            self.health.failed(job.name)
             logger.exception("Фоновая задача %s завершилась ошибкой", job.name)
+            return
+        self.health.succeeded(job.name)
 
 
 # --- Сборка ---
@@ -221,16 +302,7 @@ def build_application(
     )
     clients = ClientService(session_factory, clock)
     events = EventLog(clock, mask)
-    orders = OrderService(
-        session_factory,
-        payments if payments is not None else _payment_provider(settings, clock),
-        events,
-        content.texts,
-        content.tariffs,
-        settings.admin_ids,
-        clock,
-        KeyedLocks(),
-    )
+    provider = payments if payments is not None else _payment_provider(settings, clock)
     profiles = ProfileService(remnawave, clock)
     screens = Screens(content.texts)
     delivery = ClientDelivery(bot, clients)
@@ -250,6 +322,32 @@ def build_application(
         TelegramPaymentMessages(delivery, PaymentScreens(content.texts, screens)),
         clock,
         term_locks,
+    )
+    # Уведомления платёжки, «Проверить оплату», фоновая проверка, «Купить» (задача 14)
+    payment_checks = PaymentChecks(
+        session_factory,
+        provider,
+        crediting,
+        events,
+        alerter,
+        content.admin_texts,
+        clock,
+        test_payments=_expects_test_payments(settings),
+    )
+    # Замки заказов: «Купить» берёт сначала их, потом (внутри зачёта) — замок срока
+    orders = OrderService(
+        session_factory,
+        provider,
+        events,
+        content.texts,
+        content.tariffs,
+        settings.admin_ids,
+        clock,
+        KeyedLocks(),
+        payment_checks,
+    )
+    payments_reconciliation = PaymentReconciliation(
+        session_factory, provider, payment_checks, alerter, content.admin_texts, clock
     )
     # Выключатель пробных (задача 28): состояние — последнее событие в журнале
     trial_switch = TrialSwitch(session_factory, events, alerter, content.admin_texts, clock)
@@ -275,6 +373,7 @@ def build_application(
         erasure=DataErasureService(
             session_factory, TelegramTopicRemover(bot, settings.admin_chat_id), events
         ),
+        payment_checks=payment_checks,
     )
     # Статистика и рассылка (задача 19)
     broadcasts = BroadcastService(
@@ -296,15 +395,20 @@ def build_application(
         clock,
         term_locks,
     )
+    stats = StatsService(session_factory, remnawave, clock)  # /stats и отчёт 10:00
     dispatcher = create_dispatcher(
         ctx,
         RateLimiter(),
         extra_routers=[
-            create_admin_stats_router(ctx.access, StatsService(session_factory, remnawave, clock)),
+            create_admin_stats_router(ctx.access, stats),
             create_admin_broadcast_router(ctx.access, broadcasts),
             create_admin_compensation_router(
                 ctx.access,
                 CompensationButtons(compensation, compensation_screens, content.admin_texts),
+            ),
+            # задача 22: доказательство оказания услуги по заказу
+            create_admin_proof_router(
+                ctx.access, ServiceProofService(session_factory, remnawave, clock)
             ),
         ],
     )
@@ -342,6 +446,9 @@ def build_application(
     remnawave_webhook = _remnawave_webhook(
         settings, RemnawaveSignals(account_checks, nodes), alerter, content, clock
     )
+    # Задача 22: отметки фоновых задач — для сторожа и /health
+    job_health = JobHealth(clock)
+    health = HealthCheck(session_factory, remnawave, job_health, clock)
     return Application(
         settings=settings,
         content=content,
@@ -349,7 +456,13 @@ def build_application(
         remnawave=remnawave,
         bot=bot,
         dispatcher=dispatcher,
-        web=create_web_app(_telegram_webhook(settings, bot, dispatcher), remnawave_webhook),
+        web=create_web_app(
+            _telegram_webhook(settings, bot, dispatcher),
+            remnawave_webhook,
+            HealthEndpoint(health),
+            # оплата выключена — уведомления не принимаем: перепроверить их не у кого
+            None if provider is None else PaymentNotificationWebhook(provider, payment_checks),
+        ),
         alerter=alerter,
         broadcasts=broadcasts,
         jobs=PeriodicJobs(
@@ -370,6 +483,20 @@ def build_application(
                     crediting.retry_grants,
                     run_at_start=True,  # бот лежал — сразу доделать выдачу оплаченного
                 ),
+                # Без платёжки (PAYMENTS_MODE=off) ничего не делают: спросить не у кого
+                PeriodicJob(
+                    "payment_checks_fresh",
+                    FRESH_PAYMENT_CHECK_INTERVAL,
+                    payment_checks.check_fresh,
+                    run_at_start=True,  # бот лежал — сразу найти оплаты с потерянными уведомлениями
+                ),
+                PeriodicJob(
+                    "payment_checks_stale",
+                    STALE_PAYMENT_CHECK_INTERVAL,
+                    payment_checks.check_stale,
+                    run_at_start=True,
+                ),
+                DailyJob("payments_reconcile", PAYMENTS_RECONCILE_AT, payments_reconciliation.run),
                 PeriodicJob(
                     "remnawave_reconcile",
                     RECONCILE_INTERVAL,
@@ -381,9 +508,97 @@ def build_application(
                     SUPPORT_REMINDERS_INTERVAL,
                     SupportReminders(bot, ctx).run,
                 ),
-            ]
+                *_monitoring_jobs(
+                    settings, content, bot, alerter, job_health, session_factory, stats, clock
+                ),
+            ],
+            job_health,
+            clock,
         ),
     )
+
+
+def _monitoring_jobs(
+    settings: Settings,
+    content: Content,
+    bot: Bot,
+    alerter: Alerter,
+    job_health: JobHealth,
+    session_factory: async_sessionmaker[AsyncSession],
+    stats: StatsService,
+    clock: Clock,
+) -> list[Job]:
+    """Задача 22: сторож, присмотр за бэкапами панели, бэкап базы бота, ежедневный отчёт."""
+    jobs: list[Job] = [
+        PeriodicJob(
+            "watchdog",
+            WATCHDOG_INTERVAL,
+            JobWatchdog(job_health, alerter, content.admin_texts).run,
+        )
+    ]
+    panel_backups = _panel_backup_monitor(settings, alerter, content, clock)
+    if panel_backups is not None:
+        jobs.append(
+            PeriodicJob(
+                "panel_backup_check",
+                PANEL_BACKUP_CHECK_INTERVAL,
+                panel_backups.check,
+                run_at_start=True,
+            )
+        )
+    bot_backup = _bot_backup_job(settings, bot, alerter, clock)
+    if bot_backup is not None:
+        jobs.append(DailyJob("bot_backup", BOT_BACKUP_AT, bot_backup.run))
+    report = DailyReport(
+        session_factory,
+        stats,
+        alerter,
+        job_health,
+        panel_backups,
+        settings.backup_dir,
+        bot_backup,
+        TelegramAlertSender(bot),
+        ReportDestination(settings.admin_chat_id, settings.reports_thread_id),
+        content.admin_texts,
+        clock,
+    )
+    jobs.append(DailyJob("daily_report", DAILY_REPORT_AT, report.send))
+    return jobs
+
+
+def _panel_backup_monitor(
+    settings: Settings, alerter: Alerter, content: Content, clock: Clock
+) -> PanelBackupMonitor | None:
+    """Присмотр за бэкапами панели — только на сервере и если заданы журнал и папка копий.
+
+    На Mac (`RUN_MODE=dev`) панели и её копий нет: присмотр давал бы тревогу при каждом запуске.
+    """
+    if settings.run_mode is not RunMode.PROD:
+        return None
+    if settings.panel_backup_log is None or settings.panel_backup_dir is None:
+        logger.warning(
+            "PANEL_BACKUP_LOG или PANEL_BACKUP_DIR не заданы: бэкапы панели без присмотра"
+        )
+        return None
+    return PanelBackupMonitor(
+        settings.panel_backup_log, settings.panel_backup_dir, alerter, content.admin_texts, clock
+    )
+
+
+def _bot_backup_job(
+    settings: Settings, bot: Bot, alerter: Alerter, clock: Clock
+) -> BotBackupJob | None:
+    """Бэкап базы бота (задача 23) — только на сервере.
+
+    На Mac (`RUN_MODE=dev`) нет `age` и `/var/backups/tsproxy`, а копия тестовой базы
+    в «💾 Бэкапы» рядом с настоящими только запутает. Создаётся при запуске, чтобы
+    не-SQLite база остановила бота сразу, а не ночью.
+    """
+    if settings.run_mode is not RunMode.PROD:
+        logger.info("Режим dev: бэкап базы бота по расписанию не запускается")
+        return None
+    backup = DatabaseBackup.from_settings(settings, TelegramDocumentSender(bot), alerter, clock)
+    return BotBackupJob(backup)
 
 
 def _payment_provider(settings: Settings, clock: Clock) -> PaymentProvider | None:
@@ -396,6 +611,12 @@ def _payment_provider(settings: Settings, clock: Clock) -> PaymentProvider | Non
     if settings.payments_mode is PaymentsMode.FAKE:
         return FakePaymentProvider(clock, FakePaymentLedger(settings.fake_payments_file))
     raise ValueError("PAYMENTS_MODE=real: настоящая платёжка ещё не подключена (задача 15)")
+
+
+def _expects_test_payments(settings: Settings) -> bool:
+    """Какие платежи засчитывать: в бою — только настоящие, в разработке — только тестовые
+    (поддельная платёжка, тестовый магазин). Не совпало — не засчитываем (аудит R08)."""
+    return settings.run_mode is not RunMode.PROD
 
 
 def _telegram_webhook(

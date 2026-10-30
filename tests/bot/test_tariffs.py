@@ -18,6 +18,7 @@ from tsproxy.integrations.fake_payments import FakePaymentProvider
 from tsproxy.integrations.payments_types import PaymentUnavailable
 from tsproxy.services.fakes import FakeAlertSender
 from tsproxy.services.orders import NEW_PAYMENTS_LIMIT, Checkout, TariffOffer
+from tsproxy.services.payment_checks import CheckOutcome
 
 CALLBACK_ANSWER_MAX = 200
 CALLBACK_DATA_MAX_BYTES = 64
@@ -197,6 +198,10 @@ async def test_screens_use_only_required_texts(content: Content) -> None:
     screens.payment(Checkout(1, content.tariffs[0], "https://pay.example/1", NOW, reused=False))
     screens.notice("payment.too_many")
     screens.notice("payment.unavailable")
+    for outcome in CheckOutcome:  # задача 14: ответы на «Проверить оплату»
+        screens.check_result(outcome, 1)
+    screens.notice("payment.found")
+    screens.notice("payment.check_unavailable", check_order_id=1)
     assert texts.get("payment.description", title="1 месяц")
 
 
