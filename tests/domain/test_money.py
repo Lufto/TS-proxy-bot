@@ -102,3 +102,16 @@ def test_format_rubles(amount: Decimal, shown: str) -> None:
 def test_format_rubles_rejects_fractions_of_kopeck() -> None:
     with pytest.raises(ValueError, match="копейк"):
         format_rubles(Decimal("1.005"))
+
+
+@pytest.mark.parametrize(
+    ("amount", "shown"),
+    [
+        (Decimal("-299.50"), "−299,50"),
+        (Decimal("-0.50"), "−0,50"),
+        (Decimal("-1440"), "−1\u00a0440"),
+    ],
+)
+def test_format_rubles_negative_for_stats(amount: Decimal, shown: str) -> None:
+    # задача 21: в статистике оплаты за вычетом возвратов бывают меньше нуля
+    assert format_rubles(amount) == shown

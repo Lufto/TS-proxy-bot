@@ -26,6 +26,7 @@ class ScreenId(StrEnum):
     PROFILE = "profile"  # «👤 Мой профиль» — задача 08
     DEVICES = "devices"  # «📱 Мои устройства» — задача 08
     REVOKE_LINK = "revoke_link"  # «🔄 Перевыпустить ссылку»: предупреждение — задача 31
+    REFUND = "refund"  # «↩️ Вернуть деньги»: условия и сумма — задача 21
     INSTRUCTIONS = "instructions"
     SUPPORT = "support"  # «💬 Поддержка» — задачи 16–17
     ABOUT = "about"
@@ -59,6 +60,22 @@ class DeviceCallback(CallbackData, prefix="device"):
 
 class RevokeLinkCallback(CallbackData, prefix="relink"):
     """«✅ Да, перевыпустить» (задача 31). Без данных: чью ссылку — решает `from_user.id`."""
+
+
+class RefundRequestCallback(CallbackData, prefix="refund"):
+    """«✅ Отправить запрос» на возврат (задача 21). Без данных: за какую оплату и сколько —
+    сервис считает заново по нажавшему."""
+
+
+class DoublePaymentRefundCallback(CallbackData, prefix="refund2"):
+    """«↩️ Вернуть вторую оплату» (задача 21): `confirm=False` — сумма, `True` — запрос.
+
+    Номер заказа — не доступ: сервис ищет его только среди заказов нажавшего и только
+    с отметкой «случайная вторая оплата» (её ставит задача 14).
+    """
+
+    order_id: Annotated[int, Field(gt=0)]
+    confirm: bool = False
 
 
 class TariffCallback(CallbackData, prefix="buy"):

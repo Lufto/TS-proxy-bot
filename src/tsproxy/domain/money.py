@@ -51,14 +51,20 @@ def discount_percent(tariff_days: int, tariff_price: Decimal, monthly_price: Dec
 
 # Разделитель тысяч в цене — неразрывный пробел, чтобы «1 440» не переносилось на две строки
 THOUSANDS_SEPARATOR = " "
+MINUS_SIGN = "−"  # знак минус, а не дефис
 
 
 def format_rubles(amount: Decimal) -> str:
-    """Сумма для клиента: «150», «1 440», «149,90». Без копеек, если их нет."""
+    """Сумма для клиента: «150», «1 440», «149,90». Без копеек, если их нет.
+
+    Меньше нуля — со знаком «−» (статистика: оплаты за вычетом возвратов, задача 21).
+    """
     if amount != amount.quantize(KOPECK):
         raise ValueError(f"сумма {amount} с долями копейки")
+    sign = MINUS_SIGN if amount < 0 else ""
+    amount = abs(amount)
     whole = f"{int(amount):,}".replace(",", THOUSANDS_SEPARATOR)
     if amount == amount.to_integral_value():
-        return whole
+        return sign + whole
     kopecks = int((amount - int(amount)) / KOPECK)
-    return f"{whole},{kopecks:02d}"
+    return f"{sign}{whole},{kopecks:02d}"
