@@ -2,8 +2,10 @@
 
 Что считаем и откуда:
 - продажи за день и за месяц (по Москве) — оплаченные заказы по `paid_at` (когда бот
-  засчитал оплату), сумма — сколько заплачено на самом деле (`paid_amount`);
-  возвращённые заказы не вычитаются — это сумма поступивших оплат;
+  засчитал оплату), сумма — сколько заплачено на самом деле (`paid_amount`) за вычетом
+  возвратов за тот же период. Возврат считается по времени, когда платёжка вернула деньги
+  (событие `REFUND_COMPLETED`, задача 21), а не по дате самой оплаты: оплату прошлого
+  месяца, возвращённую сегодня, вычитаем из сегодняшних. Возвраты — отдельной строкой;
 - живые подписки (оплаченные, льготный период, пробные) — по аккаунтам бота из Remnawave:
   срок знает только панель. `list_accounts` отдаёт только аккаунты бота, 28 нынешних
   клиентов панели сюда не попадают. Панель не ответила — эта строка неизвестна, остальное
@@ -51,9 +53,23 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
-class SalesTotal:
+class RefundsTotal:
+    """Возвраты за период: сколько и на какую сумму вернула платёжка."""
+
     count: int
     amount: Decimal
+
+
+NO_REFUNDS = RefundsTotal(0, Decimal(0))
+
+
+@dataclass(frozen=True)
+class SalesTotal:
+    """Оплаты за период. `amount` — поступило за вычетом `refunds` (может быть меньше нуля)."""
+
+    count: int
+    amount: Decimal
+    refunds: RefundsTotal = NO_REFUNDS
 
 
 @dataclass(frozen=True)
@@ -163,7 +179,23 @@ async def _sales(session: AsyncSession, since: datetime, until: datetime) -> Sal
         )
     )
     amounts = [paid if paid is not None else price for paid, price in rows]
-    return SalesTotal(count=len(amounts), amount=sum(amounts, Decimal(0)))
+    refunds = await _refunds(session, since, until)
+    return SalesTotal(
+        count=len(amounts), amount=sum(amounts, Decimal(0)) - refunds.amount, refunds=refunds
+    )
+
+
+async def _refunds(session: AsyncSession, since: datetime, until: datetime) -> RefundsTotal:
+    """Деньги, которые платёжка вернула за период (по событию «платёжка вернула деньги»)."""
+    details = await session.scalars(
+        select(Event.details).where(
+            Event.kind == EventKind.REFUND_COMPLETED.value,
+            Event.occurred_at >= since,
+            Event.occurred_at <= until,
+        )
+    )
+    amounts = [Decimal(item["amount"]) for item in details if item is not None]
+    return RefundsTotal(count=len(amounts), amount=sum(amounts, Decimal(0)))
 
 
 async def _trials(session: AsyncSession) -> TrialStats:

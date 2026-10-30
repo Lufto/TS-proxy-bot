@@ -5,8 +5,9 @@
 обработчике). Номер обращения в кнопке — не доступ: обращение каждый раз читается из базы.
 «Беру» и «Закрыть» пишутся в журнал событий (`SupportService`), обычные ответы — нет.
 
-«➕ Продлить» и «📱 Устройства» — действия админки (задача 18). Здесь только кнопки и точка
-подключения `CardClientActions`; реализация — `bot.admin_clients.AdminCardClientActions`.
+«➕ Продлить», «📱 Устройства» и «↩️ Вернуть» — действия админки (задачи 18, 21).
+Здесь только кнопки и точка подключения `CardClientActions`; реализация —
+`bot.admin_clients.AdminCardClientActions`.
 """
 
 import logging
@@ -32,7 +33,8 @@ CALLBACK_ANSWER_MAX = 200
 
 
 class CardClientActions(Protocol):
-    """«➕ Продлить на N дней» и «📱 Устройства» в карточке обращения — логика админки (задача 18).
+    """«➕ Продлить на N дней», «📱 Устройства» (задача 18) и «↩️ Вернуть» (задача 21)
+    в карточке обращения — логика админки.
 
     Права администратора уже проверены; клиент — `ticket.client_telegram_id`.
     """
@@ -42,6 +44,8 @@ class CardClientActions(Protocol):
     async def devices(
         self, callback: CallbackQuery, ticket: TicketRef, ctx: BotContext
     ) -> None: ...
+
+    async def refund(self, callback: CallbackQuery, ticket: TicketRef, ctx: BotContext) -> None: ...
 
 
 def register_ticket_actions(
@@ -63,6 +67,9 @@ def register_ticket_actions(
     )
     router.callback_query.register(
         _client_action(client_actions.devices), admin, on(TicketAction.DEVICES)
+    )
+    router.callback_query.register(
+        _client_action(client_actions.refund), admin, on(TicketAction.REFUND)
     )
 
 

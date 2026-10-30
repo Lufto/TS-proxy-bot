@@ -32,9 +32,12 @@ class PaymentStatus(StrEnum):
 class RefundOutcome(StrEnum):
     """Что с возвратом у платёжки."""
 
-    PENDING = "pending"
-    SUCCEEDED = "succeeded"
-    CANCELED = "canceled"
+    PENDING = "pending"  # принят, ещё обрабатывается — итог придёт позже
+    # платёжка отправила возврат на ручную проверку (у Platega — `manualControlRequired`);
+    # итог придёт позже уведомлением (задача 15)
+    IN_REVIEW = "in_review"
+    SUCCEEDED = "succeeded"  # деньги возвращены
+    CANCELED = "canceled"  # платёжка отказала
 
 
 class PaymentError(Exception):
@@ -113,7 +116,11 @@ class PaymentProvider(Protocol):
         ...
 
     async def refund(self, payment_id: str, amount: Decimal, idempotency_key: str) -> Refund:
-        """Вернуть клиенту `amount` рублей по оплаченному платежу. Чек аннулирует платёжка."""
+        """Вернуть клиенту `amount` рублей по оплаченному платежу. Чек аннулирует платёжка.
+
+        Тот же `idempotency_key` — тот же возврат (повтор после сбоя деньги дважды не вернёт).
+        Возврат может уйти на проверку (`RefundOutcome.IN_REVIEW`) — итог придёт позже.
+        """
         ...
 
     def parse_notification(self, body: bytes, headers: Mapping[str, str]) -> str:

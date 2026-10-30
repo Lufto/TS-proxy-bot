@@ -28,8 +28,9 @@
 Задача 14 (решения владельца 2026-10-25):
 - **Случайная двойная оплата** — другой заказ клиента засчитан уже после создания этого
   (`domain.payments.possible_double_payment`): дни складываются как обычно, в «💰 Оплаты» —
-  пометка, клиенту — предложение вернуть вторую оплату полностью в течение 7 дней.
-  Сам возврат — задача 21; номер первого заказа — в событии оплаты (`possible_double_of`).
+  пометка, клиенту — кнопки «Вернуть вторую оплату» (полностью, 7 дней) и «Оставить».
+  Сам возврат — задача 21 (`services.refunds`); номер первого заказа — в событии оплаты
+  (`possible_double_of`), по нему возврат клиентом и разрешается.
 - **Доступ не выдан за 30 минут** — вместе с тревогой клиенту второе сообщение
   «оплата получена, доступ задерживается, разбираемся».
 """
@@ -157,8 +158,11 @@ class PaymentMessages(Protocol):
         """«Доступ задерживается, разбираемся» — доступ не выдан за 30 минут (задача 14)."""
         ...
 
-    async def possible_double_payment(self, telegram_id: int, refund_until: datetime) -> None:
-        """«Получили две оплаты, дни сложены; вторую можем вернуть до …» (задача 14)."""
+    async def possible_double_payment(
+        self, telegram_id: int, order_id: int, refund_until: datetime
+    ) -> None:
+        """«Получили две оплаты, дни сложены» и кнопки «Вернуть вторую оплату» (до
+        `refund_until`) и «Оставить» для заказа `order_id` (задачи 14, 21)."""
         ...
 
 
@@ -230,7 +234,9 @@ class CreditingService:
             await self._messages.access_pending(credited.telegram_id)
         if credited.double_of is not None:
             await self._messages.possible_double_payment(
-                credited.telegram_id, credited.paid_at + DOUBLE_PAYMENT_REFUND_WINDOW
+                credited.telegram_id,
+                credited.order_id,
+                credited.paid_at + DOUBLE_PAYMENT_REFUND_WINDOW,
             )
         return CreditResult(order_id, outcome)
 

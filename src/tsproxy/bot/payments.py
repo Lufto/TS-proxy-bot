@@ -1,6 +1,7 @@
 """Сообщения клиенту об оплате (задача 13): «✅ Оплачено, подписка до …» и «доступ подключается».
 
-Задача 14: «доступ задерживается» (не выдан за 30 минут) и «получили две оплаты».
+Задача 14: «доступ задерживается» (не выдан за 30 минут) и «получили две оплаты»
+(с кнопками «Вернуть вторую оплату» и «Оставить» — задача 21).
 
 Реализует `services.crediting.PaymentMessages`. Оплата к этому моменту уже засчитана,
 поэтому сбой Telegram не бросается дальше, а пишется в лог: подписку клиент всё равно
@@ -13,7 +14,12 @@ from datetime import datetime
 from aiogram.exceptions import TelegramAPIError
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from tsproxy.bot.callbacks import MenuCallback, ScreenId
+from tsproxy.bot.callbacks import (
+    DoublePaymentAction,
+    DoublePaymentCallback,
+    MenuCallback,
+    ScreenId,
+)
 from tsproxy.bot.delivery import ClientDelivery
 from tsproxy.bot.screens import Screen, Screens
 from tsproxy.content.loader import Texts
@@ -58,9 +64,31 @@ class PaymentScreens:
         """Доступ не выдан за 30 минут: «задерживается, разбираемся» (задача 14)."""
         return self._with_back(self._texts.get("payment.delayed"))
 
-    def double(self, refund_until: datetime) -> Screen:
-        """Две оплаты подряд: дни сложены, вторую можно вернуть до `refund_until`."""
-        return self._with_back(self._texts.get("payment.double", until=format_moscow(refund_until)))
+    def double(self, order_id: int, refund_until: datetime) -> Screen:
+        """Две оплаты подряд: дни сложены; «↩️ Вернуть вторую оплату» (до `refund_until`)
+        и «Оставить» — задача 21, обрабатывает `bot.refunds`."""
+        text = self._texts.get("payment.double", until=format_moscow(refund_until))
+        rows = [
+            [
+                self._double_button(
+                    "buttons.refund_double_payment", DoublePaymentAction.ASK, order_id
+                )
+            ],
+            [
+                self._double_button(
+                    "buttons.keep_double_payment", DoublePaymentAction.KEEP, order_id
+                )
+            ],
+        ]
+        return Screen(text, InlineKeyboardMarkup(inline_keyboard=rows))
+
+    def _double_button(
+        self, key: str, action: DoublePaymentAction, order_id: int
+    ) -> InlineKeyboardButton:
+        return InlineKeyboardButton(
+            text=self._texts.get(key),
+            callback_data=DoublePaymentCallback(action=action, order_id=order_id).pack(),
+        )
 
     def _with_back(self, text: str) -> Screen:
         back = InlineKeyboardButton(
@@ -86,8 +114,10 @@ class TelegramPaymentMessages:
     async def access_delayed(self, telegram_id: int) -> None:
         await self._send(telegram_id, self._screens.delayed())
 
-    async def possible_double_payment(self, telegram_id: int, refund_until: datetime) -> None:
-        await self._send(telegram_id, self._screens.double(refund_until))
+    async def possible_double_payment(
+        self, telegram_id: int, order_id: int, refund_until: datetime
+    ) -> None:
+        await self._send(telegram_id, self._screens.double(order_id, refund_until))
 
     async def _send(self, telegram_id: int, screen: Screen) -> None:
         try:

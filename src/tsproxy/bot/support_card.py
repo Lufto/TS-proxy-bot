@@ -106,13 +106,15 @@ class SupportTopicTexts:
         )
 
     def keyboard(self, ticket_id: int, *, client_actions: bool) -> InlineKeyboardMarkup:
-        """Кнопки темы. `client_actions` — ещё «➕ Продлить» и «📱 Устройства» (в карточке)."""
+        """Кнопки темы. `client_actions` — ещё «➕ Продлить», «📱 Устройства» и «↩️ Вернуть»
+        (в карточке)."""
         rows = []
         if client_actions:
             rows.append(
                 [
                     self._button("extend", TicketAction.EXTEND, ticket_id),
                     self._button("devices", TicketAction.DEVICES, ticket_id),
+                    self._button("refund", TicketAction.REFUND, ticket_id),  # задача 21
                 ]
             )
         rows += [

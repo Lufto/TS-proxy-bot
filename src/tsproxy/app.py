@@ -13,6 +13,7 @@ Telegram, журнал событий, тревоги, тексты. Остал�
 - фоновые задачи: сводки повторов тревог раз в минуту; сверка с Remnawave раз в 5 минут
   и сразу при запуске (задача 09); повторы выдачи доступа после оплаты раз в минуту (задача 13);
   проверка оплат раз в 2 и раз в 30 минут и сверка с платёжкой в 09:00 МСК (задача 14);
+  доделывание возвратов после сбоев раз в минуту (задача 21);
   сторож фоновых задач раз в минуту, присмотр за бэкапами панели раз в час, бэкап базы бота
   в 04:30 МСК (только `RUN_MODE=prod`), ежедневный отчёт в 10:00 МСК (задача 22).
 
@@ -54,6 +55,7 @@ from tsproxy.bot.admin_compensation import (
 )
 from tsproxy.bot.admin_proof import create_admin_proof_router
 from tsproxy.bot.admin_stats import create_admin_stats_router
+from tsproxy.bot.admin_transfer import create_admin_transfer_router
 from tsproxy.bot.alert_sender import TelegramAlertSender
 from tsproxy.bot.connect import REMNAWAVE_UNAVAILABLE_ALERT
 from tsproxy.bot.context import BotContext
@@ -63,6 +65,7 @@ from tsproxy.bot.documents import TelegramDocumentSender
 from tsproxy.bot.grace import TelegramGraceMessenger
 from tsproxy.bot.notices import NoticeScreens, TelegramNotifier
 from tsproxy.bot.payments import PaymentScreens, TelegramPaymentMessages
+from tsproxy.bot.refunds import RefundScreens, TelegramRefundMessages
 from tsproxy.bot.screens import Screens
 from tsproxy.bot.support_guard import SupportGuard, support_rate_limiter
 from tsproxy.bot.support_reminders import SupportReminders
@@ -103,12 +106,14 @@ from tsproxy.services.payment_checks import PaymentChecks
 from tsproxy.services.payment_reconciliation import PaymentReconciliation
 from tsproxy.services.profile import ProfileService
 from tsproxy.services.reconciliation import Reconciliation
+from tsproxy.services.refunds import RefundService
 from tsproxy.services.reminders import ReminderService
 from tsproxy.services.remnawave_signals import RemnawaveSignals
 from tsproxy.services.service_proof import ServiceProofService
 from tsproxy.services.stats import StatsService
 from tsproxy.services.support import SupportService
 from tsproxy.services.term_guard import TermLockedHandlers
+from tsproxy.services.transfer import TransferService
 from tsproxy.services.trial import TrialService
 from tsproxy.services.trial_switch import TrialSwitch
 from tsproxy.services.watchdog import JobWatchdog
@@ -133,6 +138,8 @@ PAYMENT_GRANTS_INTERVAL = timedelta(minutes=1)
 FRESH_PAYMENT_CHECK_INTERVAL = timedelta(minutes=2)
 STALE_PAYMENT_CHECK_INTERVAL = timedelta(minutes=30)
 PAYMENTS_RECONCILE_AT = time(9, 0)  # по Москве, до ежедневного отчёта
+# Возвраты после сбоя платёжки или панели доделываются раз в минуту (задача 21)
+REFUND_RETRIES_INTERVAL = timedelta(minutes=1)
 # Забытые обращения (нет ответа дольше часа) — проверка раз в 5 минут (задача 17)
 SUPPORT_REMINDERS_INTERVAL = timedelta(minutes=5)
 # Сверка с Remnawave — страховка от потерянных вебхуков (задача 09: «каждые 5–10 минут»)
@@ -312,12 +319,15 @@ def build_application(
     term_locks = KeyedLocks()
     # Зачёт оплаты и выдача доступа (задача 13). Его вызывают уведомления платёжки,
     # «Проверить оплату» и фоновая проверка (задача 14)
+    payments_topic = AdminTopic(
+        TelegramAlertSender(bot), settings.admin_chat_id, settings.payments_thread_id
+    )
     crediting = CreditingService(
         session_factory,
         remnawave,
         events,
         alerter,
-        AdminTopic(TelegramAlertSender(bot), settings.admin_chat_id, settings.payments_thread_id),
+        payments_topic,
         content.admin_texts,
         TelegramPaymentMessages(delivery, PaymentScreens(content.texts, screens)),
         clock,
@@ -349,6 +359,19 @@ def build_application(
     payments_reconciliation = PaymentReconciliation(
         session_factory, provider, payment_checks, alerter, content.admin_texts, clock
     )
+    # Возвраты (задача 21): деньги — через ту же платёжку, срок — под той же блокировкой
+    refunds = RefundService(
+        session_factory,
+        remnawave,
+        provider,
+        events,
+        alerter,
+        payments_topic,
+        content.admin_texts,
+        TelegramRefundMessages(delivery, RefundScreens(content.texts)),
+        clock,
+        term_locks,
+    )
     # Выключатель пробных (задача 28): состояние — последнее событие в журнале
     trial_switch = TrialSwitch(session_factory, events, alerter, content.admin_texts, clock)
     ctx = BotContext(
@@ -371,6 +394,7 @@ def build_application(
         link_revokes=LinkRevokeService(session_factory, remnawave, events, clock, KeyedLocks()),
         trial_switch=trial_switch,
         payment_checks=payment_checks,
+        refunds=refunds,
     )
     # Статистика и рассылка (задача 19)
     broadcasts = BroadcastService(
@@ -406,6 +430,19 @@ def build_application(
             # задача 22: доказательство оказания услуги по заказу
             create_admin_proof_router(
                 ctx.access, ServiceProofService(session_factory, remnawave, clock)
+            ),
+            # задача 21: перенос подписки на другой аккаунт по подтверждённому платежу
+            create_admin_transfer_router(
+                ctx.access,
+                TransferService(
+                    session_factory,
+                    remnawave,
+                    events,
+                    alerter,
+                    content.admin_texts,
+                    clock,
+                    term_locks,
+                ),
             ),
             # задача 35: объявление клиентам в приложении (настройки подписки панели)
             create_admin_announce_router(
@@ -498,6 +535,14 @@ def build_application(
                     run_at_start=True,
                 ),
                 DailyJob("payments_reconcile", PAYMENTS_RECONCILE_AT, payments_reconciliation.run),
+                # Возвраты: платёжка не ответила — вернуть ещё раз с тем же ключом; деньги
+                # вернулись, а панель не ответила — снять дни (задача 21)
+                PeriodicJob(
+                    "refund_retries",
+                    REFUND_RETRIES_INTERVAL,
+                    refunds.retry_unfinished,
+                    run_at_start=True,
+                ),
                 PeriodicJob(
                     "remnawave_reconcile",
                     RECONCILE_INTERVAL,

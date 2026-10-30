@@ -42,6 +42,13 @@ def stats_text(texts: Texts, stats: Stats) -> str:
         texts.get("admin.stats.title", at=format_moscow(stats.collected_at)),
         _sales(texts, "admin.stats.sales_today", stats.sales_today),
         _sales(texts, "admin.stats.sales_month", stats.sales_month),
+        texts.get(
+            "admin.stats.refunds",
+            today_count=stats.sales_today.refunds.count,
+            today_amount=format_rubles(stats.sales_today.refunds.amount),
+            month_count=stats.sales_month.refunds.count,
+            month_amount=format_rubles(stats.sales_month.refunds.amount),
+        ),
     ]
     subscriptions = stats.subscriptions
     if subscriptions is None:

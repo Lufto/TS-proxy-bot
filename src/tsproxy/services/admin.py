@@ -58,6 +58,8 @@ class AdminActionKind(StrEnum):
     TRIAL_RESET = "trial_reset"  # сброс пробного периода
     DEVICE_DELETED = "device_deleted"  # удалено устройство клиента
     LINK_REVOKED = "link_revoked"  # перевыпущена ссылка подписки
+    REFUND = "refund"  # возврат оплаты по обращению в поддержку (задача 21)
+    SUBSCRIPTION_TRANSFERRED = "subscription_transferred"  # перенос подписки (задача 21)
     OUTAGE_COMPENSATION = "outage_compensation"  # компенсация за сбой ноды (задача 20)
 
 

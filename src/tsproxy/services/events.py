@@ -39,10 +39,16 @@ class EventKind(StrEnum):
     TRIAL_EXTENDED = "trial_extended"  # пробный период продлён
     GRACE_STARTED = "grace_started"  # льготный период начался
     GRACE_ENDED = "grace_ended"  # льготный период закончился
-    REFUND_REQUESTED = "refund_requested"  # запрос на возврат
+    # Задача 21: возврат решён (администратором или клиентом — случайная вторая оплата)
     REFUND_APPROVED = "refund_approved"
-    REFUND_REJECTED = "refund_rejected"
-    REFUND_COMPLETED = "refund_completed"  # платёжка вернула деньги
+    REFUND_IN_REVIEW = "refund_in_review"  # платёжка отправила возврат на проверку
+    REFUND_COMPLETED = "refund_completed"  # платёжка вернула деньги (по нему — /stats)
+    REFUND_FAILED = "refund_failed"  # платёжка отказала в возврате
+    # срок «до X» после возврата — посчитан и записан до запроса к панели
+    REFUND_TERM_PLANNED = "refund_term_planned"
+    REFUND_TERM_SHORTENED = "refund_term_shortened"  # срок укорочен после возврата
+    # клиент нажал «Оставить» под сообщением о двойной оплате — вернуть только через поддержку
+    DOUBLE_PAYMENT_KEPT = "double_payment_kept"
     COMPENSATION_GRANTED = "compensation_granted"  # компенсация за сбой
     ADMIN_ACTION = "admin_action"  # любое действие администратора
     FAKE_PAYMENT_NOTIFICATION = "fake_payment_notification"  # отклонённое поддельное уведомление

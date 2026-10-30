@@ -24,7 +24,7 @@ from tsproxy.integrations.fakes import FakeRemnawave
 from tsproxy.integrations.remnawave_types import AccountStatus, RemnawaveUnavailable
 from tsproxy.services.events import EventKind
 from tsproxy.services.fakes import FakeClock
-from tsproxy.services.stats import SalesTotal, StatsService
+from tsproxy.services.stats import RefundsTotal, SalesTotal, StatsService
 
 # NOW = 24.10.2026 12:00 UTC = 15:00 МСК; день по Москве начался 23.10 в 21:00 UTC
 TODAY_EARLY = NOW - timedelta(hours=14)  # 24.10 01:00 МСК — сегодня
@@ -266,3 +266,40 @@ async def test_clients_total_and_blocked(stats: StatsService, session: AsyncSess
     result = await stats.collect()
 
     assert (result.clients.total, result.clients.blocked) == (2, 1)
+
+
+# --- Возвраты (задача 21) ---
+
+
+async def refund_event(session: AsyncSession, client: Client, at: object, amount: str) -> None:
+    """Платёжка вернула деньги — так пишет `services.refunds` (событие с суммой)."""
+    session.add(
+        Event(
+            occurred_at=at,
+            kind=EventKind.REFUND_COMPLETED.value,
+            client_id=client.id,
+            details={"request_id": 1, "amount": amount},
+        )
+    )
+    await session.commit()
+
+
+async def test_refunds_are_subtracted_by_time_of_refund(
+    stats: StatsService, session: AsyncSession
+) -> None:
+    client = await add_client(session, 111)
+    await add_paid_order(session, client, LAST_MONTH, price="405")
+    await add_paid_order(session, client, TODAY_EARLY, price="150")
+    # возврат оплаты прошлого месяца — вчера; возврат сегодняшней — сегодня
+    await refund_event(session, client, YESTERDAY, "300.00")
+    await refund_event(session, client, TODAY_EARLY, "149.50")
+    await refund_event(session, client, LAST_MONTH, "10.00")
+
+    result = await stats.collect()
+
+    assert result.sales_today == SalesTotal(
+        count=1, amount=Decimal("0.50"), refunds=RefundsTotal(1, Decimal("149.50"))
+    )
+    assert result.sales_month == SalesTotal(
+        count=1, amount=Decimal("-299.50"), refunds=RefundsTotal(2, Decimal("449.50"))
+    )

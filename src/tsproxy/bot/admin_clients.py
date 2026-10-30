@@ -26,6 +26,7 @@ from tsproxy.bot.admin_callbacks import (
     AdminExtendCallback,
     stamp_expire,
 )
+from tsproxy.bot.admin_refund_screens import refund_list_screen
 from tsproxy.bot.admin_screens import AdminScreen, AdminScreens
 from tsproxy.bot.context import BotContext
 from tsproxy.domain.admin import GrantDaysOutOfRange, parse_client_query
@@ -83,7 +84,7 @@ async def _send(message: Message, screen: AdminScreen) -> None:
     await message.answer(screen.text, reply_markup=screen.markup)
 
 
-async def _send_from(
+async def send_from(
     callback: CallbackQuery, bot: Bot, ctx: BotContext, screen: AdminScreen
 ) -> None:
     """Новым сообщением рядом с сообщением, под которым нажали кнопку."""
@@ -94,12 +95,14 @@ async def _send_from(
     await bot.send_message(ctx.access.admin_chat_id, screen.text, reply_markup=screen.markup)
 
 
-async def _replace(callback: CallbackQuery, bot: Bot, ctx: BotContext, screen: AdminScreen) -> None:
+async def replace_screen(
+    callback: CallbackQuery, bot: Bot, ctx: BotContext, screen: AdminScreen
+) -> None:
     """Заменить сообщение с кнопками итогом: кнопки подтверждения больше не нажать."""
     if isinstance(callback.message, Message):
         await callback.message.edit_text(screen.text, reply_markup=screen.markup)
         return
-    await _send_from(callback, bot, ctx, screen)
+    await send_from(callback, bot, ctx, screen)
 
 
 # --- Команды ---
@@ -165,7 +168,7 @@ async def on_extend(
     await callback.answer()
     telegram_id, days = callback_data.telegram_id, callback_data.days
     if not callback_data.confirm:
-        await _send_from(callback, bot, ctx, await _preview_screen(ctx, telegram_id, days))
+        await send_from(callback, bot, ctx, await _preview_screen(ctx, telegram_id, days))
         return
     screens = _screens(ctx)
     try:
@@ -178,7 +181,7 @@ async def on_extend(
     except RemnawaveUnavailable as error:
         # Сообщение с «✅ Да» оставляем: шаги выдачи абсолютные, повтор безопасен
         logger.warning("Ручная выдача клиенту %s: панель не ответила: %s", telegram_id, error)
-        await _send_from(callback, bot, ctx, screens.panel_unavailable())
+        await send_from(callback, bot, ctx, screens.panel_unavailable())
         return
     match result.outcome:
         case ExtensionOutcome.EXTENDED if result.expire_at is not None:
@@ -187,7 +190,7 @@ async def on_extend(
             screen = screens.extend_changed(telegram_id, result.expire_at)
         case _:
             screen = screens.client_not_found(telegram_id)
-    await _replace(callback, bot, ctx, screen)
+    await replace_screen(callback, bot, ctx, screen)
 
 
 async def on_client_action(
@@ -199,28 +202,28 @@ async def on_client_action(
     try:
         match callback_data.action:
             case AdminAction.CARD:
-                await _send_from(callback, bot, ctx, await _card_screen(ctx, telegram_id))
+                await send_from(callback, bot, ctx, await _card_screen(ctx, telegram_id))
             case AdminAction.DEVICES:
-                await _send_from(callback, bot, ctx, await _devices_screen(ctx, telegram_id))
+                await send_from(callback, bot, ctx, await _devices_screen(ctx, telegram_id))
             case AdminAction.RESET_TRIAL_ASK:
-                await _send_from(callback, bot, ctx, screens.reset_trial_ask(telegram_id))
+                await send_from(callback, bot, ctx, screens.reset_trial_ask(telegram_id))
             case AdminAction.REVOKE_ASK:
-                await _send_from(callback, bot, ctx, screens.revoke_ask(telegram_id))
+                await send_from(callback, bot, ctx, screens.revoke_ask(telegram_id))
             case AdminAction.RESET_TRIAL:
                 outcome = await ctx.admin.reset_trial(callback.from_user.id, telegram_id)
-                await _replace(
+                await replace_screen(
                     callback, bot, ctx, screens.result(RESET_TEXTS[outcome], telegram_id)
                 )
             case AdminAction.REVOKE:
                 revoked = await ctx.admin.revoke_link(callback.from_user.id, telegram_id)
-                await _replace(
+                await replace_screen(
                     callback, bot, ctx, screens.result(REVOKE_TEXTS[revoked], telegram_id)
                 )
             case AdminAction.CANCEL:
-                await _replace(callback, bot, ctx, screens.cancelled())
+                await replace_screen(callback, bot, ctx, screens.cancelled())
     except RemnawaveUnavailable as error:
         logger.warning("Админка, клиент %s: панель не ответила: %s", telegram_id, error)
-        await _send_from(callback, bot, ctx, screens.panel_unavailable())
+        await send_from(callback, bot, ctx, screens.panel_unavailable())
 
 
 async def _devices_screen(ctx: BotContext, telegram_id: int) -> AdminScreen:
@@ -243,14 +246,14 @@ async def on_delete_device(
         )
     except RemnawaveUnavailable as error:
         logger.warning("Удаление устройства клиента %s: панель не ответила: %s", telegram_id, error)
-        await _send_from(callback, bot, ctx, screens.panel_unavailable())
+        await send_from(callback, bot, ctx, screens.panel_unavailable())
         return
     if result is None:
         screen = screens.result("admin.devices.no_account", telegram_id)
     else:
         notice = "admin.devices.deleted" if result.deleted else "admin.devices.not_found"
         screen = screens.devices(telegram_id, result.devices, notice_key=notice)
-    await _replace(callback, bot, ctx, screen)
+    await replace_screen(callback, bot, ctx, screen)
 
 
 async def on_foreign_press(callback: CallbackQuery, ctx: BotContext) -> None:
@@ -266,7 +269,8 @@ async def on_foreign_press(callback: CallbackQuery, ctx: BotContext) -> None:
 
 
 class AdminCardClientActions:
-    """«➕ Продлить» и «📱 Устройства» в карточке обращения — те же экраны, что у `/client`.
+    """«➕ Продлить», «📱 Устройства» и «↩️ Вернуть» в карточке обращения — те же экраны,
+    что у `/client`.
 
     Права администратора уже проверил роутер поддержки; клиент — из обращения в базе.
     «Продлить» присылает карточку админки с кнопками «➕ 1 / 7 / 30 дн.»: выдача идёт
@@ -278,6 +282,10 @@ class AdminCardClientActions:
 
     async def devices(self, callback: CallbackQuery, ticket: TicketRef, ctx: BotContext) -> None:
         await self._show(callback, ctx, ticket.client_telegram_id, _devices_screen)
+
+    async def refund(self, callback: CallbackQuery, ticket: TicketRef, ctx: BotContext) -> None:
+        """«↩️ Вернуть» — оплаты клиента за 30 дней (задача 21), дальше — `bot.admin_refunds`."""
+        await self._show(callback, ctx, ticket.client_telegram_id, refund_list_screen)
 
     @staticmethod
     async def _show(
@@ -291,9 +299,9 @@ class AdminCardClientActions:
         if bot is None:
             raise RuntimeError("aiogram не передал бота в нажатие")
         try:
-            await _send_from(callback, bot, ctx, await screen(ctx, telegram_id))
+            await send_from(callback, bot, ctx, await screen(ctx, telegram_id))
         except RemnawaveUnavailable as error:
             logger.warning(
                 "Карточка обращения, клиент %s: панель не ответила: %s", telegram_id, error
             )
-            await _send_from(callback, bot, ctx, _screens(ctx).panel_unavailable())
+            await send_from(callback, bot, ctx, _screens(ctx).panel_unavailable())

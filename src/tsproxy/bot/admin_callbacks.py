@@ -59,6 +59,29 @@ class AdminDeviceCallback(CallbackData, prefix="admd"):
     ref: Annotated[str, Field(pattern=rf"^[0-9a-f]{{{DEVICE_REF_LENGTH}}}$")]
 
 
+class AdminRefundCallback(CallbackData, prefix="admr"):
+    """«↩️ Вернуть» (задача 21): `order_id=0` — список оплат клиента за 30 дней,
+    иначе `confirm=False` — вопрос «вернуть?», `True` — вернуть.
+
+    Номер заказа — не доступ: сервис ищет его только среди заказов этого клиента.
+    """
+
+    telegram_id: TelegramId
+    order_id: Annotated[int, Field(ge=0)] = 0
+    confirm: bool = False
+
+
+class AdminTransferCallback(CallbackData, prefix="admt"):
+    """«✅ Да, перенести» (задача 21). Откуда — клиент заказа `order_id` (подтверждённый
+    платёж); `from_stamp`/`to_stamp` — сроки обоих аккаунтов из предпросмотра (секунды Unix,
+    `NO_ACCOUNT_STAMP` — у нового аккаунта прокси-аккаунта не было)."""
+
+    to_telegram_id: TelegramId
+    order_id: Annotated[int, Field(gt=0)]
+    from_stamp: Annotated[int, Field(ge=0)]
+    to_stamp: Annotated[int, Field(ge=0)] = NO_ACCOUNT_STAMP
+
+
 def expire_stamp(expire_at: datetime | None) -> int:
     """Срок для кнопки подтверждения — с точностью до секунды."""
     return NO_ACCOUNT_STAMP if expire_at is None else int(expire_at.timestamp())
