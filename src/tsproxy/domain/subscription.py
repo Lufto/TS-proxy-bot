@@ -7,8 +7,6 @@ from tsproxy.domain.client_state import ClientSnapshot
 from tsproxy.domain.dates import require_aware
 from tsproxy.domain.grace import grace_ends_at
 
-NO_COMPENSATION = timedelta(0)
-
 
 class SubscriptionPhase(StrEnum):
     """В каком состоянии клиент сейчас."""
@@ -28,7 +26,7 @@ def subscription_phase(client: ClientSnapshot, now: datetime) -> SubscriptionPha
     if client.expire_at is None:
         return SubscriptionPhase.NEW
     if client.grace_started_at is not None:
-        in_grace = now < grace_ends_at(client.grace_started_at)
+        in_grace = now < grace_ends_at(client.grace_started_at, client.grace_extension)
         return SubscriptionPhase.GRACE if in_grace else SubscriptionPhase.EXPIRED
     if now >= client.expire_at:
         return SubscriptionPhase.EXPIRED
@@ -53,21 +51,16 @@ def new_period_start(
 
 
 def grant_target_expire_at(
-    client: ClientSnapshot,
-    paid_at: datetime,
-    duration: timedelta,
-    carried_compensation: timedelta = NO_COMPENSATION,
+    client: ClientSnapshot, paid_at: datetime, duration: timedelta
 ) -> datetime:
     """«Продлить до X» — абсолютная дата, которую считаем в момент оплаты и храним в заказе.
 
     В Remnawave передаём «поставь срок до X», поэтому повтор выдачи безопасен (задача 21 п. 6).
-    `carried_compensation` — компенсация за сбой, полученная в льготный период и
-    перенесённая на новый срок (см. `compensation.plan_compensation`).
+    Компенсация за сбой в льготный период продлевает сам льготный и к оплате не добавляется
+    (решение владельца 2026-10-26).
     """
     if duration <= timedelta(0):
         raise ValueError("оплаченный срок должен быть больше нуля")
-    if carried_compensation < timedelta(0):
-        raise ValueError("компенсация не может быть отрицательной")
     phase = subscription_phase(client, paid_at)
     start = new_period_start(phase, paid_at, client.expire_at)
-    return start + duration + carried_compensation
+    return start + duration

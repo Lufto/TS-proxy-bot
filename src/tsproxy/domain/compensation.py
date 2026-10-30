@@ -1,20 +1,19 @@
 """Компенсация при сбое ноды: простой + 1 день, один раз на инцидент (спецификация, аудит §7.7).
 
-Как устроен перенос компенсации из льготного периода (задача 21 п. 13):
+Кому и как (решение владельца 2026-10-26):
 
 - Клиент с оплаченной активной подпиской получает EXTEND: абсолютную дату
   «срок до X» = текущий срок + компенсация. Сервис записывает, кому начислено
   по этому инциденту, поэтому падение на середине рассылки не даст двойной компенсации.
-- Клиент в льготном периоде получает CARRY_OVER: срок в Remnawave и конец
-  льготного не меняются, а компенсация копится как «перенесённая» (несколько
-  инцидентов складываются). Хранится она в журнале событий: событие компенсации
-  с видом CARRY_OVER после отметки «льготный начался» (задача 20, без новой колонки).
-  При следующей оплате сервис передаёт эту сумму в
-  `subscription.grant_target_expire_at(carried_compensation=...)`, она добавляется
-  к новому сроку. Обнулять нечего: оплата снимает отметку льготного, а следующий
-  льготный начнётся позже этих событий. Так покупка «от момента оплаты» не затирает
-  компенсацию (аудит §7.5).
-- Пробный, новый, истёкший клиент — NOT_ELIGIBLE: компенсация только оплаченного срока.
+- Клиент в льготном периоде получает EXTEND_GRACE: продлевается сам льготный период,
+  «срок до X» = конец льготного (с прежними продлениями) + компенсация. Продление
+  хранится в журнале событий — события компенсации EXTEND_GRACE после отметки «льготный
+  начался» (без новой колонки); по ним обработчик льготного считает новый конец и не
+  откатывает срок. К следующей оплате компенсация не добавляется: оплата в льготный
+  считается от момента оплаты, как обычно.
+  Если срок в панели уже продлён дальше конца льготного (оплата или администратор, а
+  отметку ещё не сняли) — обычный EXTEND от этого срока.
+- Пробный, новый, истёкший, выключенный клиент — NOT_ELIGIBLE.
 """
 
 from collections.abc import Iterable
@@ -25,6 +24,7 @@ from enum import StrEnum
 from tsproxy.domain.client_state import ClientSnapshot
 from tsproxy.domain.constants import COMPENSATION_BONUS_DAYS, ONE_HOUR, OUTAGE_MERGE_GAP
 from tsproxy.domain.dates import require_aware
+from tsproxy.domain.grace import grace_ends_at
 from tsproxy.domain.subscription import SubscriptionPhase, subscription_phase
 
 COMPENSATION_BONUS = timedelta(days=COMPENSATION_BONUS_DAYS)
@@ -91,7 +91,7 @@ class CompensationAction(StrEnum):
     """Что сделать с клиентом при нажатии «Компенсировать»."""
 
     EXTEND = "extend"  # поставить срок до `extend_to`
-    CARRY_OVER = "carry_over"  # в льготном: запомнить `carry_over` до следующей оплаты
+    EXTEND_GRACE = "extend_grace"  # в льготном: продлить льготный, срок до `extend_to`
     ALREADY_COMPENSATED = "already_compensated"  # по этому инциденту уже начислено
     NOT_ELIGIBLE = "not_eligible"  # нет оплаченной подписки
 
@@ -102,7 +102,6 @@ class CompensationPlan:
 
     action: CompensationAction
     extend_to: datetime | None = None
-    carry_over: timedelta | None = None
 
 
 def plan_compensation(
@@ -116,8 +115,13 @@ def plan_compensation(
     phase = subscription_phase(client, now)
     if phase is SubscriptionPhase.ACTIVE and client.expire_at is not None:
         return CompensationPlan(CompensationAction.EXTEND, extend_to=client.expire_at + amount)
-    if phase is SubscriptionPhase.GRACE:
-        return CompensationPlan(CompensationAction.CARRY_OVER, carry_over=amount)
+    if phase is SubscriptionPhase.GRACE and client.grace_started_at is not None:
+        ends_at = grace_ends_at(client.grace_started_at, client.grace_extension)
+        if client.expire_at is not None and client.expire_at > ends_at + EXPIRY_MATCH_TOLERANCE:
+            # Срок уже продлили дальше льготного (оплата, администратор), а отметку ещё
+            # не сняли: продлеваем срок — «до конца льготного + N» его бы укоротило
+            return CompensationPlan(CompensationAction.EXTEND, extend_to=client.expire_at + amount)
+        return CompensationPlan(CompensationAction.EXTEND_GRACE, extend_to=ends_at + amount)
     return CompensationPlan(CompensationAction.NOT_ELIGIBLE)
 
 

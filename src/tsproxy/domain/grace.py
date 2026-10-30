@@ -9,17 +9,21 @@
 Пока идёт льготный период, раз в сутки клиенту положено одно сообщение
 (`grace_notice`): в первый день — «подписка кончилась», затем напоминания,
 в «последний день» — большое предупреждение, после — одно финальное.
+
+Компенсация за сбой во время льготного (задача 20, решение владельца 2026-10-26) продлевает
+сам льготный период: конец сдвигается на `extension`, «последний день» — последние сутки
+перед новым концом.
 """
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
 
-from tsproxy.domain.client_state import ClientSnapshot
+from tsproxy.domain.client_state import NO_GRACE_EXTENSION, ClientSnapshot
 from tsproxy.domain.constants import GRACE_DAYS, LAST_CHANCE_DAYS, ONE_DAY
 from tsproxy.domain.dates import require_aware
 
-LAST_CHANCE_STARTS_AFTER = timedelta(days=GRACE_DAYS)
+LAST_CHANCE = timedelta(days=LAST_CHANCE_DAYS)
 GRACE_PERIOD = timedelta(days=GRACE_DAYS + LAST_CHANCE_DAYS)
 
 
@@ -43,13 +47,31 @@ class GraceDecision:
     grace_ends_at: datetime | None = None
 
 
-def grace_ends_at(grace_started_at: datetime) -> datetime:
-    """Когда кончается льготный период, начатый в `grace_started_at`."""
-    return grace_started_at + GRACE_PERIOD
+def grace_ends_at(
+    grace_started_at: datetime, extension: timedelta = NO_GRACE_EXTENSION
+) -> datetime:
+    """Когда кончается льготный период, начатый в `grace_started_at` и продлённый на `extension`."""
+    if extension < timedelta(0):
+        raise ValueError("продление льготного не может быть отрицательным")
+    return grace_started_at + GRACE_PERIOD + extension
 
 
-def _in_grace(started_at: datetime) -> GraceDecision:
-    return GraceDecision(GraceAction.ALREADY_IN_GRACE, started_at, grace_ends_at(started_at))
+def observed_grace_extension(grace_started_at: datetime | None, expire_at: datetime) -> timedelta:
+    """Продление льготного по сроку в панели — для экранов, которые не читают журнал.
+
+    В льготный период бот держит срок в панели равным концу льготного (с продлением),
+    поэтому всё, что позже обычного конца, — продление. Обработчик льготного так не
+    считает: он берёт продление из журнала (`services.compensation_log.grace_extension`).
+    """
+    if grace_started_at is None:
+        return NO_GRACE_EXTENSION
+    return max(expire_at - grace_ends_at(grace_started_at), NO_GRACE_EXTENSION)
+
+
+def _in_grace(started_at: datetime, extension: timedelta) -> GraceDecision:
+    return GraceDecision(
+        GraceAction.ALREADY_IN_GRACE, started_at, grace_ends_at(started_at, extension)
+    )
 
 
 def decide_on_expiry(client: ClientSnapshot, now: datetime) -> GraceDecision:
@@ -66,8 +88,8 @@ def decide_on_expiry(client: ClientSnapshot, now: datetime) -> GraceDecision:
         return GraceDecision(GraceAction.NOT_EXPIRED)
     expired = now >= client.expire_at
     if client.grace_started_at is not None:
-        if now < grace_ends_at(client.grace_started_at):
-            return _in_grace(client.grace_started_at)
+        if now < grace_ends_at(client.grace_started_at, client.grace_extension):
+            return _in_grace(client.grace_started_at, client.grace_extension)
         # Льготный прошёл, но срок в панели позже — его продлили, не выключаем
         return GraceDecision(GraceAction.END_GRACE if expired else GraceAction.NOT_EXPIRED)
     if not expired:
@@ -78,11 +100,14 @@ def decide_on_expiry(client: ClientSnapshot, now: datetime) -> GraceDecision:
     return GraceDecision(GraceAction.START_GRACE, started_at, grace_ends_at(started_at))
 
 
-def is_last_chance(grace_started_at: datetime, now: datetime) -> bool:
+def is_last_chance(
+    grace_started_at: datetime, now: datetime, extension: timedelta = NO_GRACE_EXTENSION
+) -> bool:
     """Идёт ли «последний день» льготного периода — время для большого предупреждения."""
     require_aware(grace_started_at)
     require_aware(now)
-    return grace_started_at + LAST_CHANCE_STARTS_AFTER <= now < grace_ends_at(grace_started_at)
+    ends_at = grace_ends_at(grace_started_at, extension)
+    return ends_at - LAST_CHANCE <= now < ends_at
 
 
 class GraceStage(StrEnum):
@@ -103,20 +128,24 @@ class GraceNotice:
     due_at: datetime
 
 
-def grace_notice(grace_started_at: datetime, now: datetime) -> GraceNotice:
+def grace_notice(
+    grace_started_at: datetime, now: datetime, extension: timedelta = NO_GRACE_EXTENSION
+) -> GraceNotice:
     """Сообщение, положенное клиенту сейчас: одно на каждые льготные сутки.
 
+    «Последний день» — последние сутки перед концом (с продлением компенсацией).
     Если бот лежал и пропустил дни — только сегодняшнее, без пачки пропущенных.
     """
     require_aware(grace_started_at)
     require_aware(now)
-    ends_at = grace_ends_at(grace_started_at)
+    ends_at = grace_ends_at(grace_started_at, extension)
     if now >= ends_at:
         return GraceNotice(GraceStage.ENDED, ends_at)
+    last_chance_at = ends_at - LAST_CHANCE
+    if now >= last_chance_at:
+        return GraceNotice(GraceStage.LAST_DAY, last_chance_at)
     day = max((now - grace_started_at) // ONE_DAY, 0)
     due_at = grace_started_at + day * ONE_DAY
     if day == 0:
         return GraceNotice(GraceStage.STARTED, due_at)
-    if day < GRACE_DAYS:
-        return GraceNotice(GraceStage.REMINDER, due_at)
-    return GraceNotice(GraceStage.LAST_DAY, due_at)
+    return GraceNotice(GraceStage.REMINDER, due_at)

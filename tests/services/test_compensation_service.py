@@ -1,5 +1,6 @@
 """Компенсация при сбое ноды (задача 20): один раз на инцидент и на клиента, только клиентам
-бота с оплаченной подпиской, перенос в льготный период, продолжение после сбоя посреди."""
+бота с оплаченной подпиской или в льготном периоде (льготный продлевается), продолжение
+после сбоя посреди, список сбоев для `/outages`."""
 
 import asyncio
 from dataclasses import dataclass, field
@@ -17,12 +18,14 @@ from tsproxy.db.enums import OrderStatus
 from tsproxy.db.models import Client, Event, NodeOutage, Order
 from tsproxy.domain.compensation import CompensationAction, Outage
 from tsproxy.domain.constants import BYTES_PER_GB, PAID_DEVICE_LIMIT, UNLIMITED_TRAFFIC_BYTES
+from tsproxy.domain.grace import GraceStage
 from tsproxy.integrations.fakes import FakeRemnawave
 from tsproxy.integrations.remnawave_types import (
     AccountStatus,
     ProxyAccount,
     RemnawaveUnavailable,
 )
+from tsproxy.services.account_checks import AccountCheck, CheckSource
 from tsproxy.services.compensation import (
     Apology,
     ClientOutcome,
@@ -31,10 +34,11 @@ from tsproxy.services.compensation import (
     CompensationRun,
     CompensationService,
     StartOutcome,
-    carried_compensation,
 )
+from tsproxy.services.compensation_log import grace_extension
 from tsproxy.services.events import EventKind, EventLog
 from tsproxy.services.fakes import FakeAlertSender, FakeClock
+from tsproxy.services.grace import GraceHandler
 from tsproxy.services.locks import KeyedLocks
 from tsproxy.services.masking import Masker
 from tsproxy.services.nodes import NodeMonitor
@@ -97,6 +101,13 @@ class FakeApologies:
         if self.error is not None:
             raise self.error
         self.sent.append((telegram_id, apology))
+        return True
+
+
+class FakeGraceMessenger:
+    async def send_grace_notice(
+        self, telegram_id: int, stage: GraceStage, access_until: datetime
+    ) -> bool:
         return True
 
 
@@ -182,6 +193,11 @@ async def grant_events(s: Setup) -> list[Event]:
         )
 
 
+async def account_check(s: Setup, telegram_id: int) -> AccountCheck:
+    account = await s.remnawave.get_account(telegram_id)
+    return AccountCheck(telegram_id, account, CheckSource.RECONCILIATION, None, s.clock.now)
+
+
 async def start(s: Setup, outage_id: int) -> CompensationRun:
     started = await s.service.compensate(outage_id, ADMIN_ID)
     assert started.run is not None
@@ -255,31 +271,96 @@ async def test_trial_expired_and_disabled_clients_get_nothing(s: Setup) -> None:
     assert await grant_events(s) == []
 
 
-async def test_grace_client_keeps_term_and_gets_carry_over(s: Setup) -> None:
-    grace_started = NOW - DAY
-    grace_client = await add_client(s, GRACE_ID, grace_started_at=grace_started)
-    grace_end = grace_started + timedelta(days=4)
-    await paid_account(s, GRACE_ID, grace_end)
+GRACE_STARTED = NOW - DAY
+GRACE_END = GRACE_STARTED + timedelta(days=4)  # 3 дня + «последний день»
+
+
+async def grace_client(s: Setup) -> Client:
+    """Льготный идёт сутки: срок в панели — до конца льготного, как ставит обработчик."""
+    client = await add_client(s, GRACE_ID, grace_started_at=GRACE_STARTED)
+    await paid_account(s, GRACE_ID, GRACE_END)
+    return client
+
+
+async def test_grace_client_gets_grace_period_extended(s: Setup) -> None:
+    client = await grace_client(s)
     run = await start(s, await add_outage(s))
 
     report = await s.service.run(run)
 
-    assert report.counts[ClientOutcome.CARRIED_OVER] == 1
-    assert await expire_of(s, GRACE_ID) == grace_end  # конец льготного не сдвигаем
-    assert s.apologies.sent == [(GRACE_ID, Apology(CompensationAction.CARRY_OVER, AMOUNT))]
+    assert report.counts[ClientOutcome.GRACE_EXTENDED] == 1
+    assert await expire_of(s, GRACE_ID) == GRACE_END + AMOUNT
+    assert s.apologies.sent == [
+        (GRACE_ID, Apology(CompensationAction.EXTEND_GRACE, AMOUNT, GRACE_END + AMOUNT))
+    ]
+    [event] = await grant_events(s)
+    assert event.details is not None
+    assert event.details["action"] == CompensationAction.EXTEND_GRACE
+    assert event.details["applied_at"] is not None
     async with s.session_factory() as session:
-        assert await carried_compensation(session, grace_client.id, grace_started) == AMOUNT
+        assert await grace_extension(session, client.id, GRACE_STARTED) == AMOUNT
 
 
-async def test_carried_compensation_counts_only_current_grace(s: Setup) -> None:
-    grace_client = await add_client(s, GRACE_ID, grace_started_at=NOW - DAY)
-    await paid_account(s, GRACE_ID, NOW + 3 * DAY)
+async def test_extended_grace_is_not_rolled_back_by_grace_check(
+    s: Setup, mask: Masker, clock: FakeClock
+) -> None:
+    await grace_client(s)
+    await s.service.run(await start(s, await add_outage(s)))
+    handler = GraceHandler(
+        s.session_factory, s.remnawave, EventLog(clock, mask), FakeGraceMessenger(), clock
+    )
+    clock.now = GRACE_END + timedelta(hours=1)  # обычный льготный уже кончился бы
+
+    await handler.handle(await account_check(s, GRACE_ID))
+
+    account = await s.remnawave.get_account(GRACE_ID)
+    assert account.expire_at == GRACE_END + AMOUNT
+    assert account.status is AccountStatus.ACTIVE
+
+
+async def test_two_incidents_in_grace_add_up(s: Setup) -> None:
+    await grace_client(s)
+    await s.service.run(await start(s, await add_outage(s)))
+    earlier = OUTAGE_START - timedelta(hours=5)  # дальше склейки «мигания» — другой инцидент
+    second_id = await add_outage(s, earlier, earlier + timedelta(minutes=30))
+
+    await s.service.run(await start(s, second_id))
+
+    assert await expire_of(s, GRACE_ID) == GRACE_END + AMOUNT + timedelta(hours=1) + DAY
+
+
+async def test_failed_grace_extension_is_finished_by_next_press(s: Setup) -> None:
+    await grace_client(s)
+    s.remnawave.expiry_failures = 1
+    run = await start(s, await add_outage(s))
+
+    assert (await s.service.run(run)).counts[ClientOutcome.FAILED] == 1
+    report = await s.service.run(run)
+
+    assert report.counts[ClientOutcome.GRACE_EXTENDED] == 1
+    assert await expire_of(s, GRACE_ID) == GRACE_END + AMOUNT
+    assert len(s.apologies.sent) == 1
+
+
+async def test_grace_client_with_term_already_extended_gets_term_extended(s: Setup) -> None:
+    # оплатил в льготный, а отметку ещё не сняли — продлеваем оплаченный срок
+    await add_client(s, GRACE_ID, grace_started_at=GRACE_STARTED)
+    await paid_account(s, GRACE_ID, ACTIVE_EXPIRE)
+
+    report = await s.service.run(await start(s, await add_outage(s)))
+
+    assert report.counts[ClientOutcome.EXTENDED] == 1
+    assert await expire_of(s, GRACE_ID) == ACTIVE_EXPIRE + AMOUNT
+
+
+async def test_grace_extension_counts_only_current_grace(s: Setup) -> None:
+    client = await grace_client(s)
     await s.service.run(await start(s, await add_outage(s)))
 
     async with s.session_factory() as session:
-        # следующий льготный период начнётся позже — старый перенос в нём не считается
-        assert await carried_compensation(session, grace_client.id, NOW + DAY) == timedelta(0)
-        assert await carried_compensation(session, grace_client.id, None) == timedelta(0)
+        # следующий льготный период начнётся позже — старое продление в нём не считается
+        assert await grace_extension(session, client.id, NOW + DAY) == timedelta(0)
+        assert await grace_extension(session, client.id, None) == timedelta(0)
 
 
 async def test_blocked_client_is_compensated_without_message(s: Setup) -> None:
@@ -553,3 +634,52 @@ async def test_restored_node_offers_compensation(s: Setup, mask: Masker, clock: 
     assert offer.incident == Outage(OUTAGE_START, OUTAGE_END)
     assert offer.amount == AMOUNT
     assert len(alerts.sent) == 2  # «потеряла связь» и «восстановлена» — как раньше
+
+
+# --- Список сбоев для /outages ---
+
+
+async def test_recent_outages_newest_first_with_what_a_press_would_give(
+    s: Setup, active: Client
+) -> None:
+    compensated_id = await add_outage(s)
+    await s.service.run(await start(s, compensated_id))
+    earlier = OUTAGE_START - timedelta(hours=5)  # дальше склейки «мигания» — другой инцидент
+    waiting_id = await add_outage(s, earlier, earlier + timedelta(minutes=30), "node-2")
+    open_id = await add_outage(s, NOW - timedelta(minutes=10), None, "node-3")
+    s.remnawave.nodes = [make_node(connected=False, changed_at=None, uuid="node-3")]
+
+    outages = await s.service.recent_outages()
+
+    assert [outage.outage_id for outage in outages] == [open_id, compensated_id, waiting_id]
+    still_down, compensated, waiting = outages
+    assert still_down.ended_at is None
+    assert still_down.amount == timedelta(0)
+    assert still_down.node_name == "Нидерланды-1"
+    assert waiting.compensated_at is None
+    assert waiting.amount == timedelta(hours=1) + DAY
+    assert waiting.node_name is None  # ноды нет в панели — покажем её uuid
+    assert compensated.compensated_at == NOW
+    assert compensated.compensated_by_admin_id == ADMIN_ID
+    assert compensated.amount == timedelta(0)
+
+
+async def test_recent_outages_are_limited(s: Setup) -> None:
+    for hour in range(4):
+        start_at = OUTAGE_START - timedelta(days=hour)
+        await add_outage(s, start_at, start_at + timedelta(minutes=5))
+
+    outages = await s.service.recent_outages(limit=2)
+
+    assert [outage.started_at for outage in outages] == [OUTAGE_START, OUTAGE_START - DAY]
+
+
+async def test_recent_outages_without_panel_still_listed(s: Setup) -> None:
+    outage_id = await add_outage(s)
+    s.remnawave.fail_next(RemnawaveUnavailable("panel down"))
+
+    [outage] = await s.service.recent_outages()
+
+    assert outage.outage_id == outage_id
+    assert outage.node_name is None
+    assert outage.amount == AMOUNT
