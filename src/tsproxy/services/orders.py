@@ -203,6 +203,7 @@ class OrderService:
                     amount=order.price,
                     description=self._texts.get("payment.description", title=tariff.title),
                     idempotency_key=order.idempotency_key,
+                    telegram_id=client.telegram_id,
                 )
             )
             return await self._attach_payment(order.id, tariff, payments.name, created, now)

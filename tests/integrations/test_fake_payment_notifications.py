@@ -13,6 +13,7 @@ from tsproxy.integrations.fake_payments import (
 )
 from tsproxy.integrations.payments_types import (
     InvalidNotification,
+    PaymentNotice,
     PaymentRequest,
     PaymentStatus,
     PaymentUnavailable,
@@ -37,10 +38,19 @@ def request(order_id: int) -> PaymentRequest:
     return PaymentRequest(order_id, Decimal("150"), "TS Proxy, 1 месяц", f"key-{order_id}")
 
 
-def test_notification_gives_only_payment_id(provider: FakePaymentProvider) -> None:
-    assert provider.parse_notification(notification_body("fake_1"), NO_HEADERS) == "fake_1"
+def test_notification_gives_payment_id_and_hints(provider: FakePaymentProvider) -> None:
+    first = provider.parse_notification(notification_body("fake_1"), NO_HEADERS)
+    assert first == PaymentNotice("fake_1", PaymentStatus.SUCCEEDED)
     body = notification_body("fake_2", CANCELED_EVENT)
-    assert provider.parse_notification(body, NO_HEADERS) == "fake_2"
+    assert provider.parse_notification(body, NO_HEADERS) == PaymentNotice(
+        "fake_2", PaymentStatus.CANCELED
+    )
+    refund = notification_body("fake_3", "payment.refunded", refund_id="r1")
+    assert provider.parse_notification(refund, NO_HEADERS) == PaymentNotice(
+        "fake_3", PaymentStatus.REFUNDED, "r1"
+    )
+    unknown = notification_body("fake_4", "refund.succeeded")
+    assert provider.parse_notification(unknown, NO_HEADERS) == PaymentNotice("fake_4")
 
 
 @pytest.mark.parametrize(

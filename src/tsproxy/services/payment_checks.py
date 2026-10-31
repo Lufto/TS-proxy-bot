@@ -22,6 +22,20 @@
   от 2 до 72 часов вместе с «отменён» — реже (`check_stale`). Платёж отменён у платёжки —
   заказ «отменён» (его оплата всё ещё засчитается, если придёт).
 
+Задача 15 (Platega):
+- **Статус изменился после оплаты** (спор через банк, возврат, проверка). Уведомление
+  по засчитанному заказу о статусе «оплачен» — повтор, без запроса. О другом статусе
+  (`PaymentNotice.status`) — перепроверка у платёжки, и решает `PaymentStatusChanges`.
+  Подсказка в уведомлении решает только «спросить или нет»: подлинность колбэка Platega
+  проверена по секрету, а что делать — по ответу платёжки. Неожиданный статус у заказа,
+  который ещё ждёт оплаты (спор, возврат), — тоже туда: тревога, не зачёт.
+- **Возвраты «на проверке у платёжки»** (`check_refunds`): итог Platega шлёт колбэком
+  `CHARGEBACKED`, а об отказе в возврате всей суммы не сообщает вовсе. Раз в 10 минут бот
+  спрашивает платёжку сам: деньги вернулись — снимает дни; больше суток без итога — одна
+  тревога «проверьте возврат в кабинете».
+- **Платёжка отказала в проверке** (неверные ключи и т. п.) — одна склеенная тревога,
+  заказ остаётся ждать: проверим снова, когда она ответит.
+
 Оплата выключена (`PAYMENTS_MODE=off`) — платёжки нет, проверять не у кого: фоновые
 проверки ничего не делают, адрес уведомлений не подключается (`tsproxy.app`).
 
@@ -37,19 +51,24 @@ from enum import StrEnum
 from sqlalchemy import Select, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from tsproxy.content.amounts import paid_text
 from tsproxy.content.loader import Texts
-from tsproxy.db.enums import OrderStatus
-from tsproxy.db.models import Order
+from tsproxy.db.enums import OrderStatus, RefundStatus
+from tsproxy.db.models import Event, Order, RefundRequest
 from tsproxy.db.repository import CREDITABLE_ORDER_STATUSES
 from tsproxy.domain.constants import (
     FRESH_ORDER_AGE,
+    ONE_HOUR,
     RECENT_PAYMENTS_LIMIT,
     RECENT_PAYMENTS_WINDOW,
+    REFUND_REVIEW_OVERDUE,
     STALE_ORDER_AGE,
 )
 from tsproxy.integrations.payments_types import (
     PaymentNotFound,
+    PaymentNotice,
     PaymentProvider,
+    PaymentRejected,
     PaymentState,
     PaymentStatus,
     PaymentUnavailable,
@@ -59,6 +78,7 @@ from tsproxy.services.clock import Clock, utc_now
 from tsproxy.services.crediting import CreditingService, PaymentMismatch, PaymentOutcome
 from tsproxy.services.events import EventKind, EventLog
 from tsproxy.services.orders import PaymentsDisabled
+from tsproxy.services.payment_status import PaymentStatusChanges
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +91,12 @@ FORGED_NOTIFICATION_ALERT = "payment_notification_forged"
 PAYMENT_CHECKS_UNAVAILABLE_ALERT = "payment_checks_unavailable"
 # Сколько символов присланного номера платежа сохранять в журнал подделок
 FORGED_ID_DETAIL_LENGTH = 64
+# Платёжка отказала ответить на проверку (неверные ключи) — одна склеенная тревога (задача 15)
+PAYMENT_CHECK_REFUSED_ALERT = "payment_check_refused"
+# Статусы, которые обычная проверка разбирает сама; остальные — `PaymentStatusChanges`
+ORDINARY_STATUSES = (PaymentStatus.SUCCEEDED, PaymentStatus.CANCELED, PaymentStatus.PENDING)
+# Уведомление с таким статусом по засчитанному заказу — повтор, к платёжке не идём
+REPEAT_HINTS = (None, PaymentStatus.SUCCEEDED)
 
 
 class CheckOutcome(StrEnum):
@@ -82,6 +108,9 @@ class CheckOutcome(StrEnum):
     CANCELED = "canceled"  # платёж отменён или ссылка истекла, оплаты нет
     NOT_FOUND = "not_found"  # нет такого заказа (у этого клиента) или платежа
     REJECTED = "rejected"  # платёжка говорит «оплачено», но платёж не сходится — тревога
+    # задача 15: статус изменился после оплаты (спор, возврат) — разобрано, у засчитанного
+    # заказа — без зачёта; у незасчитанного — тревога
+    STATUS_CHANGED = "status_changed"
 
 
 class ForgedReason(StrEnum):
@@ -105,6 +134,7 @@ class PaymentChecks:
         clock: Clock,
         *,
         test_payments: bool,  # ждём тестовые платежи (разработка) или настоящие (бой)
+        status_changes: PaymentStatusChanges,  # задача 15: статус изменился после оплаты
     ) -> None:
         self._session_factory = session_factory
         self._payments = payments
@@ -114,24 +144,36 @@ class PaymentChecks:
         self._admin_texts = admin_texts
         self._clock = clock
         self._test_payments = test_payments
+        self._status_changes = status_changes
 
     # --- Уведомление платёжки ---
 
-    async def handle_notification(self, payment_id: str, source: str | None) -> CheckOutcome:
-        """Уведомление о платеже `payment_id`. `source` — адрес отправителя, только для журнала.
+    async def handle_notification(self, notice: PaymentNotice, source: str | None) -> CheckOutcome:
+        """Уведомление о платеже. `source` — адрес отправителя, только для журнала.
 
         Платёжка не ответила на перепроверку — `PaymentUnavailable`: ответить ей ошибкой,
         она пришлёт уведомление ещё раз (а фоновая проверка найдёт оплату и без него).
         """
         payments = self._require_payments()
-        order = await self._order_by_payment(payments.name, payment_id)
+        order = await self._order_by_payment(payments.name, notice.payment_id)
         if order is None:
-            await self.record_forged(ForgedReason.UNKNOWN_PAYMENT, payment_id, source)
+            await self.record_forged(ForgedReason.UNKNOWN_PAYMENT, notice.payment_id, source)
             return CheckOutcome.NOT_FOUND
-        if order.status not in CREDITABLE_ORDER_STATUSES:
+        if order.status in CREDITABLE_ORDER_STATUSES:
+            return await self.settle(order, notice)
+        if notice.status in REPEAT_HINTS:
             logger.info("Уведомление по заказу %s: уже засчитан — повтор", order.id)
             return CheckOutcome.ALREADY_CREDITED
-        return await self.settle(order)
+        return await self._recheck_credited(order, notice)
+
+    async def _recheck_credited(self, order: Order, notice: PaymentNotice) -> CheckOutcome:
+        """Засчитанный заказ, а платёжка сообщает другой статус: спросить её и разобрать."""
+        state = await self._ask(order)
+        if state is None:
+            return CheckOutcome.NOT_FOUND
+        change = await self._status_changes.changed(order, state, notice)
+        logger.info("Заказ %s: статус оплаты %s — %s", order.id, state.status_name, change.value)
+        return CheckOutcome.STATUS_CHANGED
 
     async def record_forged(
         self, reason: ForgedReason, payment_id: str | None, source: str | None
@@ -259,8 +301,27 @@ class PaymentChecks:
 
     # --- Общая перепроверка ---
 
-    async def settle(self, order: Order) -> CheckOutcome:
+    async def settle(self, order: Order, notice: PaymentNotice | None = None) -> CheckOutcome:
         """Спросить платёжку о платеже заказа и поступить по ответу.
+
+        Платёжка не ответила — `PaymentUnavailable`.
+        """
+        state = await self._ask(order)
+        if state is None:
+            return CheckOutcome.NOT_FOUND
+        if state.status not in ORDINARY_STATUSES:
+            # спор, возврат или незнакомый статус у заказа, который мы не засчитывали
+            await self._status_changes.changed(order, state, notice)
+            return CheckOutcome.STATUS_CHANGED
+        if state.status is PaymentStatus.SUCCEEDED:
+            return await self._credit(order, state)
+        if state.status is PaymentStatus.CANCELED:
+            await self._mark_canceled(order.id)
+            return CheckOutcome.CANCELED
+        return CheckOutcome.NOT_PAID
+
+    async def _ask(self, order: Order) -> PaymentState | None:
+        """Платёж заказа у платёжки. `None` — платёжка его не знает или отказала (тревога).
 
         Платёжка не ответила — `PaymentUnavailable`.
         """
@@ -268,17 +329,83 @@ class PaymentChecks:
         if order.payment_id is None:
             raise ValueError(f"заказ {order.id} без платежа")
         try:
-            state = await payments.get_payment(order.payment_id)
+            return await payments.get_payment(order.payment_id)
         except PaymentNotFound:
             logger.error("Платёжка не знает платёж %s заказа %s", order.payment_id, order.id)
             await self._alert_rejected(order, order.payment_id, "платёжка не знает такого платежа")
-            return CheckOutcome.NOT_FOUND
-        if state.status is PaymentStatus.SUCCEEDED:
-            return await self._credit(order, state)
-        if state.status is PaymentStatus.CANCELED:
-            await self._mark_canceled(order.id)
-            return CheckOutcome.CANCELED
-        return CheckOutcome.NOT_PAID
+        except PaymentRejected as error:
+            logger.error("Платёжка отказала в проверке заказа %s: %s", order.id, error)
+            await self._alerter.raise_alert(
+                PAYMENT_CHECK_REFUSED_ALERT,
+                self._admin_texts.get("alerts.payment_check_refused", error=str(error)),
+            )
+        return None
+
+    # --- Возвраты «на проверке у платёжки» (задача 15) ---
+
+    async def check_refunds(self) -> None:
+        """Раз в 10 минут: спросить платёжку о возвратах, которые ждут её итога."""
+        payments = self._payments
+        if payments is None:
+            return  # оплата выключена — спросить не у кого
+        async with self._session_factory() as session:
+            rows = (
+                await session.execute(
+                    select(RefundRequest, Order)
+                    .join(Order, Order.id == RefundRequest.order_id)
+                    .where(
+                        RefundRequest.status == RefundStatus.IN_REVIEW,
+                        Order.payment_provider == payments.name,
+                        Order.payment_id.is_not(None),
+                    )
+                    .order_by(RefundRequest.id)
+                    .limit(CHECK_BATCH_SIZE)
+                )
+            ).all()
+        for refund, order in rows:
+            try:
+                state = await self._ask(order)
+            except PaymentUnavailable as error:
+                logger.warning("Проверка возвратов: платёжка не ответила: %s", error)
+                return
+            if state is not None and state.status is PaymentStatus.REFUNDED:
+                await self._status_changes.changed(order, state, None)
+            else:
+                await self._alert_overdue(refund)
+
+    async def _alert_overdue(self, refund: RefundRequest) -> None:
+        """Возврат дольше суток без итога — одна тревога (Platega об отказе может промолчать)."""
+        waited = utc_now(self._clock) - refund.requested_at
+        if waited < REFUND_REVIEW_OVERDUE:
+            return
+        async with self._session_factory() as session:
+            alerted = await session.scalar(
+                select(Event.id).where(
+                    Event.order_id == refund.order_id,
+                    Event.kind == EventKind.REFUND_REVIEW_OVERDUE.value,
+                )
+            )
+            if alerted is not None:
+                return
+            await self._events.record(
+                session,
+                EventKind.REFUND_REVIEW_OVERDUE,
+                client_id=refund.client_id,
+                order_id=refund.order_id,
+                details={"request_id": refund.id},
+            )
+            await session.commit()
+        logger.warning("Возврат %s: больше суток на проверке у платёжки", refund.id)
+        await self._alerter.raise_alert(
+            f"refund_review_overdue:{refund.id}",
+            self._admin_texts.get(
+                "alerts.refund_review_overdue",
+                request_id=refund.id,
+                order_id=refund.order_id,
+                amount=paid_text(self._admin_texts, refund.amount, None),
+                hours=waited // ONE_HOUR,
+            ),
+        )
 
     async def _credit(self, order: Order, state: PaymentState) -> CheckOutcome:
         if state.test is not self._test_payments:

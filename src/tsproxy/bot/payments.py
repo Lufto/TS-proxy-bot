@@ -3,6 +3,9 @@
 Задача 14: «доступ задерживается» (не выдан за 30 минут) и «получили две оплаты»
 (с кнопками «Вернуть вторую оплату» и «Оставить» — задача 21).
 
+Задача 15: «доступ отключён — платёж оспорен через банк» (реализует
+`services.payment_status.DisputeMessages`), с кнопкой «💬 Поддержка».
+
 Реализует `services.crediting.PaymentMessages`. Оплата к этому моменту уже засчитана,
 поэтому сбой Telegram не бросается дальше, а пишется в лог: подписку клиент всё равно
 увидит в «🚀 Подключиться».
@@ -64,6 +67,16 @@ class PaymentScreens:
         """Доступ не выдан за 30 минут: «задерживается, разбираемся» (задача 14)."""
         return self._with_back(self._texts.get("payment.delayed"))
 
+    def disputed(self) -> Screen:
+        """Доступ отключён: платёж оспорен через банк (задача 15). Вопросы — в поддержку."""
+        support = InlineKeyboardButton(
+            text=self._texts.get("buttons.support"),
+            callback_data=MenuCallback(screen=ScreenId.SUPPORT).pack(),
+        )
+        return Screen(
+            self._texts.get("payment.disputed"), InlineKeyboardMarkup(inline_keyboard=[[support]])
+        )
+
     def double(self, order_id: int, refund_until: datetime) -> Screen:
         """Две оплаты подряд: дни сложены; «↩️ Вернуть вторую оплату» (до `refund_until`)
         и «Оставить» — задача 21, обрабатывает `bot.refunds`."""
@@ -118,6 +131,9 @@ class TelegramPaymentMessages:
         self, telegram_id: int, order_id: int, refund_until: datetime
     ) -> None:
         await self._send(telegram_id, self._screens.double(order_id, refund_until))
+
+    async def payment_disputed(self, telegram_id: int) -> None:
+        await self._send(telegram_id, self._screens.disputed())
 
     async def _send(self, telegram_id: int, screen: Screen) -> None:
         try:

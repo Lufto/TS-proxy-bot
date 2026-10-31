@@ -286,6 +286,7 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         "payment.screen",
         "payment.too_many",
         "payment.unavailable",
+        "payment.disputed",  # задача 15: спор через банк
         # задача 29: оплата выключена
         "tariffs.off_title",
         "tariffs.off_trial",
@@ -561,6 +562,27 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
         "alerts.payment_checks_unavailable",
         "alerts.payments_reconcile",
         "alerts.payments_reconcile_unavailable",
+        # задача 15: Platega — отказы, спор через банк, изменения статуса оплаты
+        "alerts.payments_reconcile_failed",
+        "alerts.payment_create_rejected",
+        "alerts.payment_check_refused",
+        "alerts.payment_chargeback",
+        *(f"alerts.chargeback_access.{key}" for key in ("disabled", "no_account", "failed")),
+        "alerts.payment_refunded_outside_bot",
+        "alerts.payment_status_changed",
+        "alerts.refund_review_overdue",
+        *(
+            f"payments.status.{key}"
+            for key in (
+                "pending",
+                "succeeded",
+                "canceled",
+                "refunded",
+                "partially_refunded",
+                "disputed",
+                "unknown",
+            )
+        ),
         *(
             f"payments.reconcile.{key}"
             for key in (

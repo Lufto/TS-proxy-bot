@@ -12,9 +12,10 @@
 - 503 — платёжка не ответила на перепроверку, 500 — не записалось в базу: платёжка
   пришлёт уведомление ещё раз, а фоновая проверка найдёт оплату и без него.
 
-Формат тела у каждой платёжки свой — его разбирает сама платёжка (`parse_notification`).
-Ответ «200 без тела» подходит поддельной платёжке и ЮKassa; если настоящей платёжке нужен
-особый ответ (Robokassa ждёт `OK<номер>`), его добавит задача 15.
+Формат тела у каждой платёжки свой — его разбирает сама платёжка (`parse_notification`):
+у Platega это ещё и проверка заголовков `X-MerchantId` / `X-Secret` (чужие — 400, задача 15).
+Platega ждёт «200 OK», тело ответа не читает; не дождалась (таймаут, ошибка) — повторит
+через 5, 10 и 15 минут, поэтому обработка повтора безопасна (`PaymentChecks`).
 """
 
 import logging
@@ -62,13 +63,14 @@ class PaymentNotificationWebhook:
         # IP — только справка в журнал подделок: по нему ничего не отбрасываем
         source = None if request.client is None else request.client.host
         try:
-            payment_id = self.payments.parse_notification(body, request.headers)
+            notice = self.payments.parse_notification(body, request.headers)
         except InvalidNotification as error:
             logger.warning("Уведомление об оплате не разобрано: %s", error)
             await self.checks.record_forged(ForgedReason.UNPARSED, None, source)
             return Response(status_code=status.HTTP_400_BAD_REQUEST)
+        payment_id = notice.payment_id
         try:
-            outcome = await self.checks.handle_notification(payment_id, source)
+            outcome = await self.checks.handle_notification(notice, source)
         except PaymentUnavailable as error:
             logger.warning("Уведомление об оплате %s: платёжка не ответила: %s", payment_id, error)
             return Response(status_code=status.HTTP_503_SERVICE_UNAVAILABLE)

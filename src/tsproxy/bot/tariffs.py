@@ -7,6 +7,9 @@
 «Купить» сначала ищет оплату прошлых заказов: нашлась — она засчитана, вместо ссылки —
 «Мы нашли вашу оплату», а «✅ Оплачено» приходит отдельным сообщением ниже.
 
+Задача 15: платёжка отказала создать платёж (например, потребовала email клиента) — клиенту
+«платёжный сервис не отвечает», администраторам — тревога с текстом отказа.
+
 Оплата выключена (`PAYMENTS_MODE=off`, задача 29) — вместо кнопок тарифов их список текстом
 и «Оплата скоро появится» (+ «🎁 Попробовать бесплатно», если пробный доступен). Старая
 кнопка тарифа показывает тот же экран: заказ не создаётся, к платёжке запросов нет.
@@ -37,7 +40,7 @@ from tsproxy.content.loader import Tariff, Texts
 from tsproxy.db.models import Client
 from tsproxy.domain.dates import format_moscow
 from tsproxy.domain.money import format_rubles
-from tsproxy.integrations.payments_types import PaymentUnavailable
+from tsproxy.integrations.payments_types import PaymentRejected, PaymentUnavailable
 from tsproxy.services.orders import (
     Checkout,
     EarlierPaymentFound,
@@ -53,6 +56,8 @@ logger = logging.getLogger(__name__)
 BUY_COMMAND = "buy"
 # Ключ склейки тревоги «платёжка не отвечает» — общий для всего бота
 PAYMENTS_UNAVAILABLE_ALERT = "payments_unavailable"
+# Платёжка отказала создать платёж — одна склеенная тревога с текстом отказа (задача 15)
+PAYMENT_CREATE_REJECTED_ALERT = "payment_create_rejected"
 PARAGRAPH = "\n\n"
 # Ответ на «🔄 Проверить оплату» — текст экрана и нужна ли кнопка «проверить ещё раз»
 CHECK_RESULTS: dict[CheckOutcome, tuple[str, bool]] = {
@@ -62,6 +67,7 @@ CHECK_RESULTS: dict[CheckOutcome, tuple[str, bool]] = {
     CheckOutcome.CANCELED: ("payment.check_canceled", False),
     CheckOutcome.NOT_FOUND: ("payment.check_not_found", False),
     CheckOutcome.REJECTED: ("payment.check_problem", False),
+    CheckOutcome.STATUS_CHANGED: ("payment.check_problem", False),
 }
 # Почему заказ не создан — общее для СБП и звёзд (задача 33)
 ORDER_REFUSALS = (
@@ -70,6 +76,7 @@ ORDER_REFUSALS = (
     EarlierPaymentFound,
     TooManyPayments,
     PaymentUnavailable,
+    PaymentRejected,
 )
 
 
@@ -269,6 +276,13 @@ async def refusal_screen(ctx: BotContext, client: Client, error: Exception) -> S
             logger.warning("Платёжка не ответила для клиента %s: %s", telegram_id, error)
             await ctx.alerter.raise_alert(
                 PAYMENTS_UNAVAILABLE_ALERT, ctx.admin_texts.get("alerts.payments_unavailable")
+            )
+            return screens.notice("payment.unavailable")
+        case PaymentRejected():
+            logger.error("Платёжка отказала создать платёж клиенту %s: %s", telegram_id, error)
+            await ctx.alerter.raise_alert(
+                PAYMENT_CREATE_REJECTED_ALERT,
+                ctx.admin_texts.get("alerts.payment_create_rejected", error=str(error)),
             )
             return screens.notice("payment.unavailable")
     raise TypeError(f"неожиданная ошибка заказа: {error!r}")

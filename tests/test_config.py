@@ -24,6 +24,19 @@ def make() -> Settings:
     return Settings(_env_file=None)  # type: ignore[call-arg]
 
 
+# Выдуманные ключи Platega: настоящие живут только в `.env` (задача 15)
+PLATEGA_ENV = {
+    "PLATEGA_MERCHANT_ID": "merchant-for-tests",
+    "PLATEGA_SECRET": "secret-for-tests",
+    "BOT_USERNAME": "ts_proxy_test_bot",
+}
+
+
+def set_platega(env: pytest.MonkeyPatch) -> None:
+    for key, value in PLATEGA_ENV.items():
+        env.setenv(key, value)
+
+
 def test_settings_from_env(env: pytest.MonkeyPatch) -> None:
     settings = make()
     assert settings.admin_ids == frozenset({111, 222})
@@ -51,8 +64,9 @@ def test_fake_payments_refuse_prod(env: pytest.MonkeyPatch) -> None:
     with pytest.raises(ValidationError, match="PAYMENTS_MODE=fake"):
         make()
 
-    env.setenv("PAYMENTS_MODE", "real")
-    assert make().payments_mode is PaymentsMode.REAL
+    env.setenv("PAYMENTS_MODE", "platega")
+    set_platega(env)
+    assert make().payments_mode is PaymentsMode.PLATEGA
 
 
 def test_prod_requires_remnawave_webhook_secret(env: pytest.MonkeyPatch) -> None:
@@ -60,7 +74,8 @@ def test_prod_requires_remnawave_webhook_secret(env: pytest.MonkeyPatch) -> None
     env.setenv("RUN_MODE", "prod")
     env.setenv("PUBLIC_BASE_URL", "https://bot.ts-proxy.com")
     env.setenv("TELEGRAM_WEBHOOK_SECRET", "A" * 40)
-    env.setenv("PAYMENTS_MODE", "real")
+    env.setenv("PAYMENTS_MODE", "platega")
+    set_platega(env)
     with pytest.raises(ValidationError, match="REMNAWAVE_WEBHOOK_SECRET"):
         make()
 
@@ -78,3 +93,48 @@ def test_payments_off_is_allowed_everywhere(env: pytest.MonkeyPatch, run_mode: s
     env.setenv("PAYMENTS_MODE", "off")
 
     assert make().payments_mode is PaymentsMode.OFF
+
+
+# --- Platega (задача 15) ---
+
+
+@pytest.mark.parametrize("missing", list(PLATEGA_ENV))
+def test_platega_needs_keys_and_bot_name(env: pytest.MonkeyPatch, missing: str) -> None:
+    env.setenv("PAYMENTS_MODE", "platega")
+    set_platega(env)
+    env.delenv(missing)
+    with pytest.raises(ValidationError, match="PAYMENTS_MODE=platega"):
+        make()
+
+
+def test_platega_bot_name_without_at(env: pytest.MonkeyPatch) -> None:
+    env.setenv("PAYMENTS_MODE", "platega")
+    set_platega(env)
+    env.setenv("BOT_USERNAME", "@ts_proxy_bot")
+    with pytest.raises(ValidationError, match="BOT_USERNAME"):
+        make()
+
+
+def test_platega_keys_are_masked(env: pytest.MonkeyPatch) -> None:
+    env.setenv("PAYMENTS_MODE", "platega")
+    set_platega(env)
+    settings = make()
+    assert settings.payments_mode is PaymentsMode.PLATEGA
+    assert {"merchant-for-tests", "secret-for-tests"} <= set(settings.secret_values())
+    assert "secret-for-tests" not in repr(settings)
+
+
+def test_platega_test_account_refuses_prod(env: pytest.MonkeyPatch) -> None:
+    """Аудит R08: в бою засчитываются только настоящие платежи — тестовый кабинет нельзя."""
+    env.setenv("RUN_MODE", "prod")
+    env.setenv("PUBLIC_BASE_URL", "https://bot.ts-proxy.com")
+    env.setenv("TELEGRAM_WEBHOOK_SECRET", "A" * 40)
+    env.setenv("REMNAWAVE_WEBHOOK_SECRET", "R" * 40)
+    env.setenv("PAYMENTS_MODE", "platega")
+    set_platega(env)
+    env.setenv("PLATEGA_TEST_ACCOUNT", "true")
+    with pytest.raises(ValidationError, match="PLATEGA_TEST_ACCOUNT"):
+        make()
+
+    env.setenv("PLATEGA_TEST_ACCOUNT", "false")
+    assert make().platega_test_account is False

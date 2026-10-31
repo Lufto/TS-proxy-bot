@@ -13,7 +13,7 @@ from tsproxy.db.engine import create_session_factory
 from tsproxy.db.enums import OrderStatus
 from tsproxy.db.models import Client
 from tsproxy.domain.constants import RECENT_PAYMENTS_LIMIT, RECENT_PAYMENTS_WINDOW
-from tsproxy.integrations.payments_types import PaymentUnavailable
+from tsproxy.integrations.payments_types import PaymentNotice, PaymentUnavailable
 from tsproxy.services.events import EventLog
 from tsproxy.services.fakes import FakeClock
 from tsproxy.services.locks import KeyedLocks
@@ -144,7 +144,7 @@ async def test_checkout_and_notification_at_once_credit_once(
     results = await asyncio.wait_for(
         asyncio.gather(
             orders.checkout(client, "m1"),
-            s.checks.handle_notification(payment_id, None),
+            s.checks.handle_notification(PaymentNotice(payment_id), None),
             return_exceptions=True,
         ),
         timeout=5,

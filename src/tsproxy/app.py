@@ -35,6 +35,7 @@ from collections.abc import Awaitable, Callable, Generator, Sequence
 from dataclasses import dataclass
 from datetime import time, timedelta
 
+import httpx
 import uvicorn
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -77,6 +78,7 @@ from tsproxy.db.engine import create_engine, create_session_factory
 from tsproxy.domain.monitoring import DAILY_JOB_STALE_AFTER, next_daily_run, periodic_stale_after
 from tsproxy.integrations.fake_payments import FakePaymentLedger, FakePaymentProvider
 from tsproxy.integrations.payments_types import PaymentProvider
+from tsproxy.integrations.platega import PlategaPaymentProvider, create_platega_http_client
 from tsproxy.integrations.refunds import refund_router
 from tsproxy.integrations.remnawave import RemnawaveApiClient, create_http_client
 from tsproxy.integrations.remnawave_types import RemnawaveUnavailable
@@ -106,6 +108,7 @@ from tsproxy.services.orders import OrderService
 from tsproxy.services.panel_backups import PanelBackupMonitor
 from tsproxy.services.payment_checks import PaymentChecks
 from tsproxy.services.payment_reconciliation import PaymentReconciliation
+from tsproxy.services.payment_status import PaymentStatusChanges
 from tsproxy.services.profile import ProfileService
 from tsproxy.services.reconciliation import Reconciliation
 from tsproxy.services.refunds import RefundService
@@ -143,6 +146,8 @@ STALE_PAYMENT_CHECK_INTERVAL = timedelta(minutes=30)
 PAYMENTS_RECONCILE_AT = time(9, 0)  # по Москве, до ежедневного отчёта
 # Возвраты после сбоя платёжки или панели доделываются раз в минуту (задача 21)
 REFUND_RETRIES_INTERVAL = timedelta(minutes=1)
+# Возвраты «на проверке у платёжки» — спросить её раз в 10 минут (задача 15)
+REFUND_REVIEWS_INTERVAL = timedelta(minutes=10)
 # Забытые обращения (нет ответа дольше часа) — проверка раз в 5 минут (задача 17)
 SUPPORT_REMINDERS_INTERVAL = timedelta(minutes=5)
 # Сверка с Remnawave — страховка от потерянных вебхуков (задача 09: «каждые 5–10 минут»)
@@ -274,6 +279,8 @@ class Application:
     alerter: Alerter
     jobs: PeriodicJobs
     broadcasts: BroadcastService  # рассылка (задача 19): при остановке бота — прервать с отчётом
+    # HTTP-клиент Platega (задача 15) — закрыть при остановке; `None` — другая платёжка
+    payments_http: httpx.AsyncClient | None = None
 
 
 def build_application(
@@ -312,7 +319,14 @@ def build_application(
     )
     clients = ClientService(session_factory, clock)
     events = EventLog(clock, mask)
-    provider = payments if payments is not None else _payment_provider(settings, clock)
+    payments_http = (
+        create_platega_http_client(settings.platega_base_url)
+        if payments is None and settings.payments_mode is PaymentsMode.PLATEGA
+        else None
+    )
+    provider = (
+        payments if payments is not None else _payment_provider(settings, clock, payments_http)
+    )
     profiles = ProfileService(remnawave, clock)
     screens = Screens(content.texts)
     delivery = ClientDelivery(bot, clients)
@@ -325,6 +339,7 @@ def build_application(
     payments_topic = AdminTopic(
         TelegramAlertSender(bot), settings.admin_chat_id, settings.payments_thread_id
     )
+    payment_messages = TelegramPaymentMessages(delivery, PaymentScreens(content.texts, screens))
     crediting = CreditingService(
         session_factory,
         remnawave,
@@ -332,8 +347,36 @@ def build_application(
         alerter,
         payments_topic,
         content.admin_texts,
-        TelegramPaymentMessages(delivery, PaymentScreens(content.texts, screens)),
+        payment_messages,
         clock,
+        term_locks,
+    )
+    # Задача 33: звёзды Telegram — второй способ оплаты. Возврат звёзд — через Telegram,
+    # он работает и при выключенной оплате (вернуть уже оплаченное звёздами)
+    stars_refunds = TelegramStarsRefunds(bot)
+    # Возвраты (задача 21): деньги — тем же способом, которым платили (платёжка или звёзды),
+    # срок — под той же блокировкой
+    refunds = RefundService(
+        session_factory,
+        remnawave,
+        refund_router(provider, **{STARS_PROVIDER: stars_refunds}),
+        events,
+        alerter,
+        payments_topic,
+        content.admin_texts,
+        TelegramRefundMessages(delivery, RefundScreens(content.texts)),
+        clock,
+        term_locks,
+    )
+    # Задача 15: статус оплаты изменился после оплаты — спор через банк, наш возврат, проверка
+    status_changes = PaymentStatusChanges(
+        session_factory,
+        remnawave,
+        refunds,
+        events,
+        alerter,
+        content.admin_texts,
+        payment_messages,
         term_locks,
     )
     # Уведомления платёжки, «Проверить оплату», фоновая проверка, «Купить» (задача 14)
@@ -346,6 +389,7 @@ def build_application(
         content.admin_texts,
         clock,
         test_payments=_expects_test_payments(settings),
+        status_changes=status_changes,
     )
     # Замки заказов: «Купить» берёт сначала их, потом (внутри зачёта) — замок срока
     orders = OrderService(
@@ -361,9 +405,7 @@ def build_application(
     payments_reconciliation = PaymentReconciliation(
         session_factory, provider, payment_checks, alerter, content.admin_texts, clock
     )
-    # Задача 33: звёзды Telegram — второй способ оплаты. Возврат звёзд — через Telegram,
-    # он работает и при выключенной оплате (вернуть уже оплаченное звёздами)
-    stars_refunds = TelegramStarsRefunds(bot)
+    # Задача 33: звёзды Telegram — второй способ оплаты
     stars = StarsPayments(
         session_factory,
         orders,
@@ -374,20 +416,6 @@ def build_application(
         content.admin_texts,
         clock,
         content.stars_rub_rate,
-    )
-    # Возвраты (задача 21): деньги — тем же способом, которым платили (платёжка или звёзды),
-    # срок — под той же блокировкой
-    refunds = RefundService(
-        session_factory,
-        remnawave,
-        refund_router(provider, **{STARS_PROVIDER: stars_refunds}),
-        events,
-        alerter,
-        payments_topic,
-        content.admin_texts,
-        TelegramRefundMessages(delivery, RefundScreens(content.texts)),
-        clock,
-        term_locks,
     )
     # Выключатель пробных (задача 28): состояние — последнее событие в журнале
     trial_switch = TrialSwitch(session_factory, events, alerter, content.admin_texts, clock)
@@ -521,6 +549,7 @@ def build_application(
         ),
         alerter=alerter,
         broadcasts=broadcasts,
+        payments_http=payments_http,
         jobs=PeriodicJobs(
             [
                 PeriodicJob("alerts_flush", ALERT_FLUSH_INTERVAL, alerter.flush_repeats),
@@ -559,6 +588,13 @@ def build_application(
                     "refund_retries",
                     REFUND_RETRIES_INTERVAL,
                     refunds.retry_unfinished,
+                    run_at_start=True,
+                ),
+                # Возвраты «на проверке у платёжки»: потерянный итог и молчаливый отказ (задача 15)
+                PeriodicJob(
+                    "refund_reviews",
+                    REFUND_REVIEWS_INTERVAL,
+                    payment_checks.check_refunds,
                     run_at_start=True,
                 ),
                 PeriodicJob(
@@ -665,16 +701,37 @@ def _bot_backup_job(
     return BotBackupJob(backup)
 
 
-def _payment_provider(settings: Settings, clock: Clock) -> PaymentProvider | None:
+def _payment_provider(
+    settings: Settings, clock: Clock, platega_http: httpx.AsyncClient | None
+) -> PaymentProvider | None:
     """Платёжка по `PAYMENTS_MODE`. Поддельная в боевом режиме не стартует (проверяют настройки).
 
     `None` — оплата выключена (задача 29): заказы и платежи не создаются.
     """
-    if settings.payments_mode is PaymentsMode.OFF:
-        return None
-    if settings.payments_mode is PaymentsMode.FAKE:
-        return FakePaymentProvider(clock, FakePaymentLedger(settings.fake_payments_file))
-    raise ValueError("PAYMENTS_MODE=real: настоящая платёжка ещё не подключена (задача 15)")
+    match settings.payments_mode:
+        case PaymentsMode.OFF:
+            return None
+        case PaymentsMode.FAKE:
+            return FakePaymentProvider(clock, FakePaymentLedger(settings.fake_payments_file))
+        case PaymentsMode.PLATEGA:
+            return _platega(settings, clock, platega_http)
+
+
+def _platega(
+    settings: Settings, clock: Clock, http: httpx.AsyncClient | None
+) -> PlategaPaymentProvider:
+    """Platega (задача 15): ключи из `.env`, после оплаты — обратно в бота по ссылке t.me."""
+    merchant_id, secret = settings.platega_merchant_id, settings.platega_secret
+    if http is None or merchant_id is None or secret is None or settings.bot_username is None:
+        raise ValueError("PAYMENTS_MODE=platega: нет ключей Platega или BOT_USERNAME")
+    return PlategaPaymentProvider(
+        http,
+        merchant_id.get_secret_value(),
+        secret.get_secret_value(),
+        f"https://t.me/{settings.bot_username}",
+        clock,
+        test=settings.platega_test_account,
+    )
 
 
 def _expects_test_payments(settings: Settings) -> bool:
@@ -779,7 +836,11 @@ async def close_application(app: Application) -> None:
         try:
             await app.remnawave.aclose()
         finally:
-            await app.engine.dispose()
+            try:
+                if app.payments_http is not None:
+                    await app.payments_http.aclose()
+            finally:
+                await app.engine.dispose()
 
 
 async def run_application(app: Application) -> None:

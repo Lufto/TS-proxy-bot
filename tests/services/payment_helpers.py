@@ -15,7 +15,7 @@ from tsproxy.db.enums import OrderStatus
 from tsproxy.db.models import Client, Event, Order
 from tsproxy.integrations.fake_payments import FakePaymentProvider
 from tsproxy.integrations.fakes import FakeRemnawave
-from tsproxy.integrations.payments_types import PaymentRequest, PaymentState
+from tsproxy.integrations.payments_types import PaymentRequest, PaymentState, RefundOutcome
 from tsproxy.services.admin_topics import AdminTopic
 from tsproxy.services.alerts import Alerter
 from tsproxy.services.crediting import CreditingService, GrantedAccess
@@ -24,6 +24,7 @@ from tsproxy.services.fakes import FakeAlertSender, FakeClock
 from tsproxy.services.locks import KeyedLocks
 from tsproxy.services.masking import Masker
 from tsproxy.services.payment_checks import PaymentChecks
+from tsproxy.services.payment_status import PaymentStatusChanges
 
 ADMIN_TEXTS = Path(__file__).parent.parent.parent / "content" / ADMIN_TEXTS_FILE
 ADMIN_CHAT_ID = -100500
@@ -42,6 +43,7 @@ class FakePaymentMessages:
     pending: list[int] = field(default_factory=list)
     delayed: list[int] = field(default_factory=list)
     doubles: list[tuple[int, int, datetime]] = field(default_factory=list)
+    disputed: list[int] = field(default_factory=list)  # задача 15: спор через банк
 
     async def access_granted(self, granted: GrantedAccess) -> None:
         self.granted.append(granted)
@@ -56,6 +58,19 @@ class FakePaymentMessages:
         self, telegram_id: int, order_id: int, refund_until: datetime
     ) -> None:
         self.doubles.append((telegram_id, order_id, refund_until))
+
+    async def payment_disputed(self, telegram_id: int) -> None:
+        self.disputed.append(telegram_id)
+
+
+@dataclass
+class FakeRefundReviews:
+    """Итоги возвратов «на проверке» — запоминаем вместо `RefundService` (задача 15)."""
+
+    settled: list[tuple[int, RefundOutcome]] = field(default_factory=list)
+
+    async def settle_review(self, request_id: int, outcome: RefundOutcome) -> None:
+        self.settled.append((request_id, outcome))
 
 
 def flaky_commits(
@@ -110,6 +125,7 @@ class PaymentSetup:
     session_factory: async_sessionmaker[AsyncSession]
     clock: FakeClock
     alerter: Alerter
+    reviews: FakeRefundReviews
 
     async def order(
         self,
@@ -196,6 +212,10 @@ def build_payment_setup(
         KeyedLocks(),
         write_retry_delay=CREDIT_NO_DELAY,
     )
+    reviews = FakeRefundReviews()
+    status_changes = PaymentStatusChanges(
+        session_factory, remnawave, reviews, events, alerter, admin_texts, messages, KeyedLocks()
+    )
     checks = PaymentChecks(
         session_factory,
         None if payments_off else payments,
@@ -205,6 +225,7 @@ def build_payment_setup(
         admin_texts,
         clock,
         test_payments=test_payments,
+        status_changes=status_changes,
     )
     return PaymentSetup(
         checks,
@@ -218,4 +239,5 @@ def build_payment_setup(
         session_factory,
         clock,
         alerter,
+        reviews,
     )

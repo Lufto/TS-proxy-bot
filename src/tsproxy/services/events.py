@@ -60,6 +60,12 @@ class EventKind(StrEnum):
     TRIALS_ENABLED = "trials_enabled"  # пробные снова включены администратором
     # задача 33: оплата звёздами пришла, а засчитать её некуда; вернули ли звёзды — `returned`
     STARS_PAYMENT_RETURNED = "stars_payment_returned"
+    # задача 15: статус оплаты изменился после оплаты (Platega)
+    PAYMENT_CHARGEBACK = "payment_chargeback"  # спор через банк: деньги вернули, доступ отключён
+    PAYMENT_REFUNDED_OUTSIDE_BOT = "payment_refunded_outside_bot"  # возврат в кабинете платёжки
+    PAYMENT_STATUS_CHANGED = "payment_status_changed"  # спор, частичный возврат, другое
+    # возврат бота долго «на проверке у платёжки» — тревога один раз
+    REFUND_REVIEW_OVERDUE = "refund_review_overdue"
 
 
 class EventLog:
