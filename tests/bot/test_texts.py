@@ -47,7 +47,6 @@ TEXT_PLACEHOLDERS: dict[str, set[str]] = {
     "buttons.pay": {"price"},
     "tariffs.button": {"title", "price"},
     "tariffs.button_discount": {"title", "price", "discount"},
-    "tariffs.button_hidden": {"title", "price"},
     "payment.description": {"title"},
     "payment.screen": {"title", "price", "expires_at"},
     # задача 13: оплата засчитана
@@ -68,7 +67,6 @@ TEXT_PLACEHOLDERS: dict[str, set[str]] = {
     "units.rubles": {"amount"},
     "units.stars": {"stars"},
     "tariffs.screen": {"title", "price", "stars"},
-    "tariffs.screen_sbp_only": {"title", "price"},
     "stars.invoice_title": {"title"},
     "stars.invoice_description": {"title"},
     "stars.price_label": {"title"},

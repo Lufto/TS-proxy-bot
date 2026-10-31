@@ -175,7 +175,6 @@ def ctx(
         events,
         content.texts,
         content.tariffs,
-        frozenset({ADMIN_ID}),
         clock,
         KeyedLocks(),
         payment_checks,

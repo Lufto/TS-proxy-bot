@@ -35,7 +35,6 @@ ADMIN_ID = 900
 TARIFFS = (
     Tariff("m1", "1 месяц", 30, Decimal("150")),
     Tariff("m3", "3 месяца", 90, Decimal("405")),
-    Tariff("test15", "Тест — 1 день", 1, Decimal("15"), hidden=True),
 )
 CHARGE = "stxCharge-1"
 
@@ -78,7 +77,6 @@ def setup(engine: AsyncEngine, clock: FakeClock, mask: Masker) -> Setup:
         events,
         Texts({"payment.description": "TS Proxy, {title}"}, "test"),
         TARIFFS,
-        frozenset({ADMIN_ID}),
         clock,
         KeyedLocks(),
         FakeEarlierPayments(),
@@ -108,7 +106,6 @@ async def load(setup: Setup, order_id: int) -> Order:
 def test_prices_in_stars_follow_rate(setup: Setup) -> None:
     assert setup.stars.price(TARIFFS[0]) == 100
     assert setup.stars.price(TARIFFS[1]) == 270
-    assert setup.stars.price(TARIFFS[2]) is None  # скрытый тестовый — только СБП
 
 
 async def test_invoice_creates_stars_order_with_payload(setup: Setup, client: Client) -> None:
@@ -128,13 +125,13 @@ async def test_each_press_is_new_order(setup: Setup, client: Client) -> None:
     assert first.order_id != second.order_id
 
 
-async def test_hidden_tariff_is_not_sold_for_stars(setup: Setup, session: AsyncSession) -> None:
+async def test_unknown_tariff_is_not_sold_for_stars(setup: Setup, session: AsyncSession) -> None:
     admin = Client(telegram_id=ADMIN_ID)
     session.add(admin)
     await session.commit()
 
     with pytest.raises(TariffUnavailable):
-        await setup.stars.invoice(admin, "test15")
+        await setup.stars.invoice(admin, "test15")  # тестового тарифа больше нет (задача 15)
 
 
 async def test_sbp_checkout_does_not_reuse_stars_order(setup: Setup, client: Client) -> None:
@@ -157,7 +154,6 @@ async def test_payments_off_means_no_stars(
         EventLog(clock, mask),
         Texts({}, "test"),
         TARIFFS,
-        frozenset(),
         clock,
         KeyedLocks(),
         FakeEarlierPayments(),

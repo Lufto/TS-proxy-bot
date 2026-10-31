@@ -354,7 +354,6 @@ def build_application(
         events,
         content.texts,
         content.tariffs,
-        settings.admin_ids,
         clock,
         KeyedLocks(),
         payment_checks,

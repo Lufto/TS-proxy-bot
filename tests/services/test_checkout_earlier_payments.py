@@ -48,7 +48,6 @@ def orders(s: PaymentSetup, mask: Masker) -> OrderService:
         EventLog(s.clock, mask),
         TEXTS,
         TARIFFS,
-        frozenset(),
         s.clock,
         KeyedLocks(),
         s.checks,

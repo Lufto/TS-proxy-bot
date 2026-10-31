@@ -24,7 +24,8 @@ def test_repo_content_loads() -> None:
     content = load_content(REPO_CONTENT)
     assert content.tariff("m3") is not None
     assert content.tariff("m3").price == Decimal("405")
-    assert [t.id for t in content.tariffs if t.hidden] == ["test15"]
+    # задача 15: тестового тарифа за 15 ₽ нет, все тарифы — от минимума Platega (50 ₽)
+    assert [t.id for t in content.tariffs] == ["m1", "m3", "m6", "m12"]
 
 
 def test_texts_are_flattened_by_screen(tmp_path: Path) -> None:
@@ -79,9 +80,10 @@ def test_duplicate_tariff_id_is_error(tmp_path: Path) -> None:
         load_tariffs(write(tmp_path / "tariffs.yaml", "tariffs:\n" + one + one))
 
 
-def test_only_hidden_tariffs_is_error(tmp_path: Path) -> None:
+def test_hidden_field_is_gone(tmp_path: Path) -> None:
+    """Задача 15: скрытых тарифов больше нет — поле `hidden` в файле — ошибка."""
     text = TARIFF.format(price=150) + "    hidden: true\n"
-    with pytest.raises(ContentError, match="для клиентов"):
+    with pytest.raises(ContentError, match="лишние"):
         load_tariffs(write(tmp_path / "tariffs.yaml", text))
 
 

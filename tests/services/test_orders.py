@@ -35,7 +35,6 @@ TARIFFS = (
     Tariff("m3", "3 месяца", 90, Decimal("405")),
     Tariff("m6", "6 месяцев", 180, Decimal("765")),
     Tariff("m12", "12 месяцев", 365, Decimal("1440")),
-    Tariff("test15", "Тест — 1 день", 1, Decimal("15"), hidden=True),
 )
 TEXTS = Texts({"payment.description": "TS Proxy, {title}"}, "test")
 
@@ -63,7 +62,6 @@ def make_service(
         EventLog(clock, mask),
         TEXTS,
         tariffs,
-        frozenset({ADMIN_TELEGRAM_ID}),
         clock,
         KeyedLocks(),
         FakeEarlierPayments(),
@@ -102,7 +100,7 @@ async def event_kinds(session_factory: async_sessionmaker[AsyncSession]) -> list
 
 
 def test_client_sees_visible_tariffs_with_discounts(orders: OrderService) -> None:
-    offers = orders.offers(telegram_id=111)
+    offers = orders.offers()
 
     assert [(o.tariff.id, o.discount_percent) for o in offers] == [
         ("m1", 0),
@@ -112,13 +110,6 @@ def test_client_sees_visible_tariffs_with_discounts(orders: OrderService) -> Non
     ]
 
 
-def test_admin_also_sees_hidden_test_tariff(orders: OrderService) -> None:
-    offers = orders.offers(telegram_id=ADMIN_TELEGRAM_ID)
-
-    assert [o.tariff.id for o in offers] == ["m1", "m3", "m6", "m12", "test15"]
-    assert offers[-1].discount_percent == 0
-
-
 def test_no_monthly_tariff_means_no_discounts(
     session_factory: async_sessionmaker[AsyncSession],
     payments: FakePaymentProvider,
@@ -126,7 +117,7 @@ def test_no_monthly_tariff_means_no_discounts(
     mask: Masker,
 ) -> None:
     service = make_service(session_factory, payments, clock, mask, tariffs=TARIFFS[1:4])
-    assert [o.discount_percent for o in service.offers(telegram_id=111)] == [0, 0, 0]
+    assert [o.discount_percent for o in service.offers()] == [0, 0, 0]
 
 
 # --- Заказ и платёж ---
@@ -262,22 +253,18 @@ async def test_unknown_tariff_is_refused(
     assert await all_orders(session_factory) == []
 
 
-async def test_hidden_tariff_is_refused_for_client(
+async def test_removed_test_tariff_is_refused(
     orders: OrderService,
     payments: FakePaymentProvider,
-    client: Client,
+    admin: Client,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Подменённая кнопка со скрытым тарифом: проверка в сервисе, а не только в клавиатуре."""
+    """Задача 15: тестового тарифа за 15 ₽ больше нет — его старая кнопка не работает
+    ни у кого, и у администратора тоже."""
     with pytest.raises(TariffUnavailable):
-        await orders.checkout(client, "test15")
+        await orders.checkout(admin, "test15")
     assert await all_orders(session_factory) == []
     assert payments.ledger.all() == []
-
-
-async def test_hidden_tariff_for_admin(orders: OrderService, admin: Client) -> None:
-    checkout = await orders.checkout(admin, "test15")
-    assert checkout.tariff.price == Decimal("15")
 
 
 async def test_provider_down_then_retry_uses_same_order_and_key(
@@ -346,7 +333,7 @@ def test_tariffs_are_shown_while_payments_off(
     """Витрина та же: клиент видит цены, хотя купить пока нельзя."""
     service = make_service(session_factory, None, clock, mask)
 
-    assert [o.tariff.id for o in service.offers(telegram_id=111)] == ["m1", "m3", "m6", "m12"]
+    assert [o.tariff.id for o in service.offers()] == ["m1", "m3", "m6", "m12"]
 
 
 async def test_checkout_while_payments_off_creates_nothing(

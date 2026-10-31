@@ -3,9 +3,11 @@
 Клиент выбирает тариф → бот создаёт **заказ** с ценой и днями из `tariffs.yaml`
 (кнопка передаёт только id тарифа) → создаёт **платёж** у платёжки и отдаёт ссылку.
 
-- Ссылка живёт час. Тот же тариф, пока ссылка жива, — та же ссылка, новый платёж не создаётся.
-  Другой тариф — новый заказ и платёж.
-- Скрытый тариф (тест за 15 ₽) — только администраторам; проверка здесь, а не в клавиатуре.
+- Ссылка живёт столько, сколько сказала платёжка (у Platega — `expiresIn`, обычно 30 минут),
+  но не дольше часа. Тот же тариф, пока ссылка жива, — та же ссылка, новый платёж
+  не создаётся. Другой тариф — новый заказ и платёж.
+- Тариф — только из `tariffs.yaml`: кнопка с чужим или старым id отклоняется здесь,
+  а не только в клавиатуре.
 - Новых платежей у одного клиента — не больше `NEW_PAYMENTS_LIMIT` за `NEW_PAYMENTS_WINDOW`
   (аудит R29: каждое «Купить» — запрос к платёжке от нашего имени).
 - Платёжка не ответила — заказ остаётся без платежа; следующее нажатие повторяет запрос
@@ -29,8 +31,10 @@
 способа оплаты `payment_provider = "telegram_stars"` с самого создания. Платежа у платёжки
 нет: счёт — сообщение Telegram, номер платежа появляется только после оплаты
 (`services.stars`). Каждое «⭐ Stars» — новый заказ и новый счёт (тот же предел частоты);
-две оплаченные — случайная двойная оплата, как у СБП. Скрытый тестовый тариф звёздами
-не продаётся (решение владельца 2026-10-30). Заказы звёздами СБП не подхватывает.
+две оплаченные — случайная двойная оплата, как у СБП. Заказы звёздами СБП не подхватывает.
+
+Задача 15: скрытого тестового тарифа больше нет (решение владельца 2026-10-30) — все тарифы
+видят все клиенты.
 """
 
 import logging
@@ -62,7 +66,7 @@ NEW_PAYMENTS_WINDOW = timedelta(minutes=10)
 
 
 class TariffUnavailable(Exception):
-    """Такого тарифа нет или он скрыт от этого клиента (устаревшая или подменённая кнопка)."""
+    """Такого тарифа нет (устаревшая или подменённая кнопка)."""
 
 
 class TooManyPayments(Exception):
@@ -127,7 +131,6 @@ class OrderService:
         events: EventLog,
         texts: Texts,
         tariffs: Sequence[Tariff],
-        admin_ids: frozenset[int],
         clock: Clock,
         locks: KeyedLocks,
         earlier_payments: EarlierPayments,
@@ -138,7 +141,6 @@ class OrderService:
         self._events = events
         self._texts = texts
         self._tariffs = tuple(tariffs)
-        self._admin_ids = admin_ids
         self._clock = clock
         self._locks = locks
 
@@ -149,27 +151,21 @@ class OrderService:
 
     # --- Витрина ---
 
-    def offers(self, telegram_id: int) -> tuple[TariffOffer, ...]:
-        """Тарифы, которые видит клиент. Скрытые — только администраторам."""
-        monthly = next(
-            (t.price for t in self._tariffs if not t.hidden and t.days == MONTH_DAYS), None
-        )
+    def offers(self) -> tuple[TariffOffer, ...]:
+        """Тарифы на витрине — одинаковые для всех клиентов."""
+        monthly = next((t.price for t in self._tariffs if t.days == MONTH_DAYS), None)
         return tuple(
             TariffOffer(
                 tariff,
                 0 if monthly is None else discount_percent(tariff.days, tariff.price, monthly),
             )
             for tariff in self._tariffs
-            if self._visible(tariff, telegram_id)
         )
-
-    def _visible(self, tariff: Tariff, telegram_id: int) -> bool:
-        return not tariff.hidden or telegram_id in self._admin_ids
 
     def _tariff_for(self, telegram_id: int, tariff_id: str) -> Tariff:
         """Тариф по id из кнопки — только из белого списка `tariffs.yaml`."""
         for tariff in self._tariffs:
-            if tariff.id == tariff_id and self._visible(tariff, telegram_id):
+            if tariff.id == tariff_id:
                 return tariff
         raise TariffUnavailable(f"тариф {tariff_id!r} недоступен клиенту {telegram_id}")
 
@@ -214,14 +210,12 @@ class OrderService:
     async def stars_order(self, client: Client, tariff_id: str) -> StarsOrder:
         """Новый заказ на оплату звёздами (задача 33): счёт за него выставит бот.
 
-        Те же проверки, что у `checkout`: оплата включена, тариф доступен (скрытый звёздами
-        не продаётся), нет незасчитанной оплаты прошлого заказа, не слишком часто.
+        Те же проверки, что у `checkout`: оплата включена, тариф есть в `tariffs.yaml`,
+        нет незасчитанной оплаты прошлого заказа, не слишком часто.
         """
         if self._payments is None:
             raise PaymentsDisabled(f"оплата выключена, клиент {client.telegram_id}")
         tariff = self._tariff_for(client.telegram_id, tariff_id)
-        if tariff.hidden:
-            raise TariffUnavailable(f"тариф {tariff_id!r} звёздами не продаётся")
         async with self._locks.hold(client.id):
             paid_order_id = await self._earlier_payments.find_paid(client.id)
             if paid_order_id is not None:

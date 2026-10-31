@@ -126,10 +126,8 @@ class StarsPayments:
         self._clock = clock
         self._rate = rate
 
-    def price(self, tariff: Tariff) -> int | None:
-        """Цена тарифа в звёздах. `None` — звёздами не продаётся (скрытый тестовый)."""
-        if tariff.hidden:
-            return None
+    def price(self, tariff: Tariff) -> int:
+        """Цена тарифа в звёздах."""
         return stars_price(tariff.price, self._rate)
 
     # --- Счёт ---

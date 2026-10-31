@@ -1,6 +1,6 @@
 """«💳 Тарифы», `/buy` и экран оплаты (задача 12).
 
-Кнопка тарифа несёт только его id. Цену, доступность скрытого тарифа и «та же ссылка
+Кнопка тарифа несёт только его id. Цену, доступность тарифа и «та же ссылка
 или новая» решает `OrderService`; клиент — всегда `from_user.id` нажавшего.
 
 Задача 14: на экране оплаты — «🔄 Проверить оплату» (бот сам спрашивает платёжку).
@@ -12,8 +12,8 @@
 кнопка тарифа показывает тот же экран: заказ не создаётся, к платёжке запросов нет.
 
 Задача 33: тариф в списке открывает **экран тарифа** с двумя способами оплаты — «💳 СБП»
-(ссылка, как раньше) и «⭐ Stars» (счёт в звёздах, `bot.stars`). Скрытый тестовый тариф
-звёздами не продаётся — у него только СБП. Старые кнопки тарифов ведут сразу в СБП.
+(ссылка, как раньше) и «⭐ Stars» (счёт в звёздах, `bot.stars`). Старые кнопки тарифов
+ведут сразу в СБП.
 """
 
 import logging
@@ -89,8 +89,6 @@ class TariffScreens:
     def _offer_text(self, offer: TariffOffer) -> str:
         tariff = offer.tariff
         price = format_rubles(tariff.price)
-        if tariff.hidden:
-            return self._texts.get("tariffs.button_hidden", title=tariff.title, price=price)
         if offer.discount_percent > 0:
             return self._texts.get(
                 "tariffs.button_discount",
@@ -125,26 +123,24 @@ class TariffScreens:
             InlineKeyboardMarkup(inline_keyboard=rows),
         )
 
-    def tariff(self, tariff: Tariff, stars: int | None) -> Screen:
-        """Экран тарифа: «💳 СБП» и «⭐ Stars» (задача 33). `stars=None` — только СБП."""
+    def tariff(self, tariff: Tariff, stars: int) -> Screen:
+        """Экран тарифа: «💳 СБП» и «⭐ Stars» (задача 33)."""
         price = format_rubles(tariff.price)
-        sbp = InlineKeyboardButton(
-            text=self._texts.get("buttons.pay_sbp", price=price),
-            callback_data=TariffCallback(tariff_id=tariff.id).pack(),
-        )
-        rows = [[sbp]]
-        if stars is None:
-            text = self._texts.get("tariffs.screen_sbp_only", title=tariff.title, price=price)
-        else:
-            text = self._texts.get("tariffs.screen", title=tariff.title, price=price, stars=stars)
-            rows.append(
-                [
-                    InlineKeyboardButton(
-                        text=self._texts.get("buttons.pay_stars", stars=stars),
-                        callback_data=StarsCallback(tariff_id=tariff.id).pack(),
-                    )
-                ]
-            )
+        rows = [
+            [
+                InlineKeyboardButton(
+                    text=self._texts.get("buttons.pay_sbp", price=price),
+                    callback_data=TariffCallback(tariff_id=tariff.id).pack(),
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=self._texts.get("buttons.pay_stars", stars=stars),
+                    callback_data=StarsCallback(tariff_id=tariff.id).pack(),
+                )
+            ],
+        ]
+        text = self._texts.get("tariffs.screen", title=tariff.title, price=price, stars=stars)
         rows.append(self._menu_button("buttons.tariffs_back", ScreenId.TARIFFS))
         rows.append(self._menu_button("buttons.back", ScreenId.MAIN))
         return Screen(text, InlineKeyboardMarkup(inline_keyboard=rows))
@@ -218,7 +214,7 @@ def create_tariffs_router() -> Router:
 async def _tariffs_screen(ctx: BotContext, client: Client) -> Screen:
     """Тарифы с кнопками оплаты — или, если оплата выключена, списком (задача 29)."""
     screens = TariffScreens(ctx.texts)
-    offers = ctx.orders.offers(client.telegram_id)
+    offers = ctx.orders.offers()
     if ctx.orders.payments_enabled:
         return screens.tariffs(offers)
     return screens.payments_off(offers, trial_available=await ctx.clients.trial_offered(client))
@@ -244,9 +240,9 @@ async def offered_or_refused(callback: CallbackQuery, tariff_id: str, ctx: BotCo
     Если есть — на нажатие ещё не ответили: обработчик отвечает сам.
     """
     telegram_id = callback.from_user.id
-    if tariff_id in {offer.tariff.id for offer in ctx.orders.offers(telegram_id)}:
+    if tariff_id in {offer.tariff.id for offer in ctx.orders.offers()}:
         return True
-    # старая кнопка (тариф убрали из файла) или подменённая (скрытый тариф)
+    # старая кнопка (тариф убрали из файла) или подменённая
     logger.info("Клиент %s: тариф %r недоступен", telegram_id, tariff_id)
     await callback.answer(ctx.texts.get("tariffs.not_available"))
     client = await ctx.clients.resolve(profile_of(callback.from_user))
@@ -287,9 +283,7 @@ async def on_tariff_screen(
     await callback.answer()
     client = await ctx.clients.resolve(profile_of(callback.from_user))
     tariff = next(
-        offer.tariff
-        for offer in ctx.orders.offers(client.telegram_id)
-        if offer.tariff.id == callback_data.tariff_id
+        offer.tariff for offer in ctx.orders.offers() if offer.tariff.id == callback_data.tariff_id
     )
     if not ctx.orders.payments_enabled:
         # оплата выключена (задача 29): тот же экран, что у списка тарифов
