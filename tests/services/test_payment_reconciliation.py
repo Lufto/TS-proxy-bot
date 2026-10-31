@@ -11,7 +11,12 @@ from tsproxy.db.engine import create_session_factory
 from tsproxy.db.enums import OrderStatus
 from tsproxy.db.models import Client
 from tsproxy.domain.constants import PAYMENTS_RECONCILE_MARGIN
-from tsproxy.integrations.payments_types import PaymentRequest, PaymentUnavailable
+from tsproxy.integrations.payments_types import (
+    PaymentRejected,
+    PaymentRequest,
+    PaymentStatus,
+    PaymentUnavailable,
+)
 from tsproxy.services.alerts import Alerter
 from tsproxy.services.fakes import FakeClock
 from tsproxy.services.masking import Masker
@@ -129,6 +134,32 @@ async def test_provider_down_raises_alert(s: PaymentSetup, mask: Masker) -> None
 
     [alert] = s.alerts.sent
     assert s.admin_texts.get("alerts.payments_reconcile_unavailable") in alert.text
+
+
+async def test_provider_refusal_raises_alert_with_its_text(s: PaymentSetup, mask: Masker) -> None:
+    """Задача 15: выгрузка Platega ответила не по документации — тревога с её ответом."""
+    s.payments.fail_next(PaymentRejected("выгрузка Platega вернула не список платежей"))
+
+    await reconciliation(s, mask).run()
+
+    [alert] = s.alerts.sent
+    assert "не список платежей" in alert.text
+
+
+async def test_chargeback_outside_bot_is_listed(
+    s: PaymentSetup, mask: Masker, client: Client
+) -> None:
+    """Задача 15: деньги вернули мимо бота (спор через банк) — строка «возврат мимо бота»."""
+    order_id = await s.order(client, paid=True)
+    payment_id = await s.payment_id(order_id)
+    await s.crediting.credit(order_id, await s.payments.get_payment(payment_id))
+    s.payments.ledger.change_status(payment_id, PaymentStatus.REFUNDED)
+    next_day(s)
+
+    await reconciliation(s, mask).run()
+
+    [alert] = s.alerts.sent
+    assert "возврат" in alert.text and f"#{order_id}" in alert.text
 
 
 async def test_nothing_to_reconcile_when_payments_off(s: PaymentSetup, mask: Masker) -> None:

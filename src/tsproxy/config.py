@@ -23,11 +23,13 @@ WEBHOOK_SECRET_RE = re.compile(r"^[A-Za-z0-9_-]{32,256}$")
 # не меньше 32 символов, только латинские буквы и цифры (app-config/config.schema.ts).
 REMNAWAVE_WEBHOOK_SECRET_RE = re.compile(r"^[A-Za-z0-9]{32,}$")
 DEFAULT_WEB_PORT = 8080
+# Имя бота в Telegram: 5–32 символа A-Za-z0-9_, без @
+BOT_USERNAME_RE = re.compile(r"^[A-Za-z0-9_]{5,32}$")
 
 
 class PaymentsMode(StrEnum):
     FAKE = "fake"  # поддельная платёжка для разработки
-    REAL = "real"
+    PLATEGA = "platega"  # настоящая платёжка Platega (задача 15)
     # оплата выключена: тестовый запуск только с пробным, пока платёжка не выбрана (задача 29)
     OFF = "off"
 
@@ -76,6 +78,15 @@ class Settings(BaseSettings):
     # Поддельная платёжка (PAYMENTS_MODE=fake): файл с платежами, общий со скриптом
     # `scripts/simulate_payment.py`
     fake_payments_file: Path = Path("data/fake_payments.json")
+    # Platega (PAYMENTS_MODE=platega, задача 15): ключи из «Настроек» кабинета Platega.
+    # Тестовый кабинет — PLATEGA_TEST_ACCOUNT=true: его платежи засчитываются только
+    # в RUN_MODE=dev, а в prod тестовый кабинет запрещён (аудит R08)
+    platega_merchant_id: SecretStr | None = None
+    platega_secret: SecretStr | None = None
+    platega_base_url: str = "https://app.platega.io"
+    platega_test_account: bool = False
+    # Имя бота без @: после оплаты Platega возвращает клиента прямо в бота https://t.me/<имя>
+    bot_username: str | None = None
     log_level: str = "INFO"
 
     @field_validator("admin_ids", mode="before")
@@ -93,6 +104,9 @@ class Settings(BaseSettings):
         "panel_backup_log",
         "panel_backup_dir",
         "reports_thread_id",
+        "platega_merchant_id",
+        "platega_secret",
+        "bot_username",
         mode="before",
     )
     @classmethod
@@ -141,13 +155,29 @@ class Settings(BaseSettings):
             raise ValueError("PAYMENTS_MODE=fake нельзя в режиме prod")
         return self
 
+    @model_validator(mode="after")
+    def _check_platega(self) -> Self:
+        """Platega без ключей или имени бота не стартует; тестовый кабинет — не в бою."""
+        if self.payments_mode is not PaymentsMode.PLATEGA:
+            return self
+        if self.platega_merchant_id is None or self.platega_secret is None:
+            raise ValueError("PAYMENTS_MODE=platega: нужны PLATEGA_MERCHANT_ID и PLATEGA_SECRET")
+        if self.bot_username is None or not BOT_USERNAME_RE.fullmatch(self.bot_username):
+            raise ValueError("PAYMENTS_MODE=platega: нужен BOT_USERNAME — имя бота без @")
+        if self.run_mode is RunMode.PROD and self.platega_test_account:
+            raise ValueError("PLATEGA_TEST_ACCOUNT=true нельзя в режиме prod")
+        return self
+
     def secret_values(self) -> list[str]:
         """Все секреты — для маскировки в логах."""
         values = [self.bot_token.get_secret_value(), self.remnawave_token.get_secret_value()]
-        if self.telegram_webhook_secret is not None:
-            values.append(self.telegram_webhook_secret.get_secret_value())
-        if self.remnawave_webhook_secret is not None:
-            values.append(self.remnawave_webhook_secret.get_secret_value())
+        optional = (
+            self.telegram_webhook_secret,
+            self.remnawave_webhook_secret,
+            self.platega_merchant_id,
+            self.platega_secret,
+        )
+        values.extend(secret.get_secret_value() for secret in optional if secret is not None)
         return values
 
 

@@ -15,7 +15,7 @@ from tsproxy.bot.tariffs import TariffScreens
 from tsproxy.content.loader import REQUIRED_TEXTS, Content, Texts
 from tsproxy.db.models import Client, Order
 from tsproxy.integrations.fake_payments import FakePaymentProvider
-from tsproxy.integrations.payments_types import PaymentUnavailable
+from tsproxy.integrations.payments_types import PaymentRejected, PaymentUnavailable
 from tsproxy.services.fakes import FakeAlertSender
 from tsproxy.services.orders import NEW_PAYMENTS_LIMIT, Checkout, TariffOffer
 from tsproxy.services.payment_checks import CheckOutcome
@@ -49,7 +49,7 @@ async def orders_in_db(session_factory: async_sessionmaker[AsyncSession]) -> lis
         return list(await session.scalars(select(Order).order_by(Order.id)))
 
 
-async def test_client_sees_tariffs_with_discount_but_not_hidden(
+async def test_client_sees_tariffs_with_discount(
     dispatcher: Dispatcher, bot: Bot, telegram: FakeTelegramSession, content: Content
 ) -> None:
     data = MenuCallback(screen=ScreenId.TARIFFS).pack()
@@ -69,14 +69,16 @@ async def test_client_sees_tariffs_with_discount_but_not_hidden(
     assert shown[1][0] == "3 месяца — 405 ₽ · выгода 10%"
 
 
-async def test_admin_also_sees_hidden_test_tariff(
+async def test_admin_sees_same_tariffs_without_test_one(
     dispatcher: Dispatcher, bot: Bot, telegram: FakeTelegramSession
 ) -> None:
+    """Задача 15: тестового тарифа за 15 ₽ больше нет — и у администраторов тоже."""
     await dispatcher.feed_update(bot, message(user(ADMIN_ID), "/buy"))
 
     [sent] = telegram.sent(SendMessage)
     data = [d for _, d, _ in buttons(sent.reply_markup)]  # type: ignore[arg-type]
-    assert tariff_screen("test15") in data
+    assert tariff_screen("test15") not in data
+    assert tariff_screen("m1") in data
 
 
 async def test_buy_command_opens_tariffs(
@@ -133,7 +135,7 @@ async def test_double_press_gives_one_payment_other_tariff_new_one(
     assert len(payments.ledger.all()) == 2
 
 
-async def test_forged_hidden_tariff_button_is_refused(
+async def test_old_test_tariff_button_is_refused(
     dispatcher: Dispatcher,
     bot: Bot,
     telegram: FakeTelegramSession,
@@ -148,17 +150,6 @@ async def test_forged_hidden_tariff_button_is_refused(
     assert last_edit(telegram).text == content.texts.get("tariffs.title")
     assert payments.ledger.all() == []
     assert await orders_in_db(session_factory) == []
-
-
-async def test_admin_buys_hidden_test_tariff(
-    dispatcher: Dispatcher,
-    bot: Bot,
-    session_factory: async_sessionmaker[AsyncSession],
-) -> None:
-    await dispatcher.feed_update(bot, callback(user(ADMIN_ID), buy("test15")))
-
-    [order] = await orders_in_db(session_factory)
-    assert (order.tariff_id, order.price, order.days) == ("test15", Decimal("15"), 1)
 
 
 async def test_payments_down_apologizes_and_alerts(
@@ -176,6 +167,25 @@ async def test_payments_down_apologizes_and_alerts(
     assert last_edit(telegram).text == content.texts.get("payment.unavailable")
     [alert] = alert_sender.sent
     assert content.admin_texts.get("alerts.payments_unavailable") in alert.text
+
+
+async def test_payment_refused_alerts_with_provider_text(
+    dispatcher: Dispatcher,
+    bot: Bot,
+    telegram: FakeTelegramSession,
+    content: Content,
+    payments: FakePaymentProvider,
+    alert_sender: FakeAlertSender,
+) -> None:
+    """Задача 15: Platega отказала создать платёж (например, потребовала email) — тревога
+    с её текстом, клиенту — «платёжный сервис не отвечает»."""
+    payments.fail_next(PaymentRejected("Platega: HTTP 400, metadata.user_email required"))
+
+    await dispatcher.feed_update(bot, callback(user(CLIENT_ID), buy("m1")))
+
+    assert last_edit(telegram).text == content.texts.get("payment.unavailable")
+    [alert] = alert_sender.sent
+    assert "metadata.user_email required" in alert.text
 
 
 async def test_too_many_new_payments(

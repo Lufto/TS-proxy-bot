@@ -70,7 +70,7 @@ def test_discount_month_itself_is_zero() -> None:
 
 
 def test_more_expensive_than_month_is_zero_not_negative() -> None:
-    # Скрытый тестовый тариф 15 ₽ / 1 день дороже месячного в пересчёте
+    # Тариф 15 ₽ / 1 день дороже месячного в пересчёте
     assert discount_percent(1, Decimal("15"), Decimal("150")) == 0
 
 

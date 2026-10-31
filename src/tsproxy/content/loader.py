@@ -36,7 +36,6 @@ class Tariff:
     title: str
     days: int
     price: Decimal
-    hidden: bool = False  # виден только администраторам (тестовый тариф за 15 ₽)
 
 
 class Texts:
@@ -121,7 +120,7 @@ def _parse_tariff(item: object, index: int) -> Tariff:
     where = f"{TARIFFS_FILE}, тариф №{index + 1}"
     if not isinstance(item, dict):
         raise ContentError(f"{where}: ожидается набор полей id, title, days, price")
-    unknown = item.keys() - {"id", "title", "days", "price", "hidden"}
+    unknown = item.keys() - {"id", "title", "days", "price"}
     if unknown:
         raise ContentError(f"{where}: лишние поля {', '.join(sorted(unknown))}")
     try:
@@ -132,10 +131,7 @@ def _parse_tariff(item: object, index: int) -> Tariff:
         raise ContentError(f"{where}: id и title — непустые строки")
     if isinstance(days, bool) or not isinstance(days, int) or days <= 0:
         raise ContentError(f"{where}: days — целое число больше нуля")
-    hidden = item.get("hidden", False)
-    if not isinstance(hidden, bool):
-        raise ContentError(f"{where}: hidden — true или false")
-    return Tariff(tariff_id, title, days, _parse_price(item.get("price"), where), hidden)
+    return Tariff(tariff_id, title, days, _parse_price(item.get("price"), where))
 
 
 def load_stars_rate(path: Path) -> Decimal:
@@ -168,8 +164,6 @@ def load_tariffs(path: Path) -> tuple[Tariff, ...]:
     duplicates = sorted({i for i in ids if ids.count(i) > 1})
     if duplicates:
         raise ContentError(f"{TARIFFS_FILE}: повторяются id {', '.join(duplicates)}")
-    if all(t.hidden for t in tariffs):
-        raise ContentError(f"{TARIFFS_FILE}: нет ни одного тарифа для клиентов")
     return tariffs
 
 
@@ -287,12 +281,12 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         "tariffs.title",
         "tariffs.button",
         "tariffs.button_discount",
-        "tariffs.button_hidden",
         "tariffs.not_available",
         "payment.description",
         "payment.screen",
         "payment.too_many",
         "payment.unavailable",
+        "payment.disputed",  # задача 15: спор через банк
         # задача 29: оплата выключена
         "tariffs.off_title",
         "tariffs.off_trial",
@@ -354,7 +348,6 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         "units.rubles",
         "units.stars",
         "tariffs.screen",
-        "tariffs.screen_sbp_only",
         "stars.invoice_title",
         "stars.invoice_description",
         "stars.price_label",
@@ -569,6 +562,27 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
         "alerts.payment_checks_unavailable",
         "alerts.payments_reconcile",
         "alerts.payments_reconcile_unavailable",
+        # задача 15: Platega — отказы, спор через банк, изменения статуса оплаты
+        "alerts.payments_reconcile_failed",
+        "alerts.payment_create_rejected",
+        "alerts.payment_check_refused",
+        "alerts.payment_chargeback",
+        *(f"alerts.chargeback_access.{key}" for key in ("disabled", "no_account", "failed")),
+        "alerts.payment_refunded_outside_bot",
+        "alerts.payment_status_changed",
+        "alerts.refund_review_overdue",
+        *(
+            f"payments.status.{key}"
+            for key in (
+                "pending",
+                "succeeded",
+                "canceled",
+                "refunded",
+                "partially_refunded",
+                "disputed",
+                "unknown",
+            )
+        ),
         *(
             f"payments.reconcile.{key}"
             for key in (

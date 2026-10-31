@@ -9,6 +9,8 @@
 
 Уведомление поддельной платёжки — JSON как у ЮKassa: `{"event": "payment.succeeded",
 "object": {"id": "fake_…"}}` (`notification_body`). Скрипт шлёт его боту после «оплаты».
+Событие — `payment.<статус>` (`payment.refunded`, `payment.disputed`): по нему бот решает,
+спрашивать ли платёжку о засчитанном заказе (задача 15). `object.refund_id` — возврат продавца.
 
 В боевом режиме (`RUN_MODE=prod`) поддельная платёжка не запускается — это проверяют
 настройки (аудит R23).
@@ -38,6 +40,7 @@ from tsproxy.integrations.payments_types import (
     InvalidNotification,
     PaymentError,
     PaymentNotFound,
+    PaymentNotice,
     PaymentRejected,
     PaymentRequest,
     PaymentState,
@@ -51,9 +54,10 @@ FAKE_PAYMENT_ID_PREFIX = "fake_"
 # Ссылка ведёт на зарезервированный для примеров домен: оплатить по ней нельзя,
 # «оплату» делает скрипт `simulate_payment.py`
 FAKE_PAYMENT_URL = "https://example.com/tsproxy-fake-payment/{payment_id}"
-# События в уведомлениях — как у ЮKassa
-SUCCEEDED_EVENT = "payment.succeeded"
-CANCELED_EVENT = "payment.canceled"
+# События в уведомлениях — как у ЮKassa: `payment.<статус>`
+EVENT_PREFIX = "payment."
+SUCCEEDED_EVENT = f"{EVENT_PREFIX}{PaymentStatus.SUCCEEDED.value}"
+CANCELED_EVENT = f"{EVENT_PREFIX}{PaymentStatus.CANCELED.value}"
 # Номер платежа в уведомлении не длиннее, чем помещается в базу (`orders.payment_id`)
 MAX_NOTIFIED_PAYMENT_ID = 128
 
@@ -202,6 +206,13 @@ class FakePaymentLedger:
             payments[payment_id] = canceled = replace(payment, status=PaymentStatus.CANCELED)
             return canceled
 
+    def change_status(self, payment_id: str, status: PaymentStatus) -> FakePayment:
+        """«Платёжка сменила статус оплаченного платежа»: спор, чарджбэк (задача 15)."""
+        with self._payments() as payments:
+            payment = self._find(payments, payment_id)
+            payments[payment_id] = changed = replace(payment, status=status)
+            return changed
+
     def refund(self, payment_id: str, amount: Decimal, idempotency_key: str) -> FakeRefund:
         """Вернуть часть или всю оплату. Тот же ключ — тот же возврат."""
         with self._payments() as payments:
@@ -287,6 +298,7 @@ def _write_file(path: Path, payments: Payments) -> None:
 
 class _NotificationObject(BaseModel):
     id: str = Field(min_length=1, max_length=MAX_NOTIFIED_PAYMENT_ID)
+    refund_id: str | None = Field(default=None, max_length=MAX_NOTIFIED_PAYMENT_ID)
 
 
 class _Notification(BaseModel):
@@ -296,9 +308,24 @@ class _Notification(BaseModel):
     object: _NotificationObject
 
 
-def notification_body(payment_id: str, event: str = SUCCEEDED_EVENT) -> bytes:
+def notification_body(
+    payment_id: str, event: str = SUCCEEDED_EVENT, *, refund_id: str | None = None
+) -> bytes:
     """Тело уведомления поддельной платёжки — для скрипта и тестов."""
-    return json.dumps({"event": event, "object": {"id": payment_id}}).encode()
+    payment: dict[str, str] = {"id": payment_id}
+    if refund_id is not None:
+        payment["refund_id"] = refund_id
+    return json.dumps({"event": event, "object": payment}).encode()
+
+
+def _event_status(event: str) -> PaymentStatus | None:
+    """`payment.refunded` → `REFUNDED`; незнакомое событие — без подсказки."""
+    if not event.startswith(EVENT_PREFIX):
+        return None
+    try:
+        return PaymentStatus(event.removeprefix(EVENT_PREFIX))
+    except ValueError:
+        return None
 
 
 class FakePaymentProvider:
@@ -346,14 +373,19 @@ class FakePaymentProvider:
         self._review_next_refund = False
         return Refund(done.refund_id, payment_id, done.amount, outcome)
 
-    def parse_notification(self, body: bytes, headers: Mapping[str, str]) -> str:
+    def parse_notification(self, body: bytes, headers: Mapping[str, str]) -> PaymentNotice:
         """Подписи у поддельной платёжки нет, как у ЮKassa: правду бот узнаёт перезапросом."""
         try:
-            return _Notification.model_validate_json(body).object.id
+            notification = _Notification.model_validate_json(body)
         except ValidationError as error:
             raise InvalidNotification(
                 f"уведомление не разобрано: {error.error_count()} ошибок"
             ) from None
+        return PaymentNotice(
+            notification.object.id,
+            _event_status(notification.event),
+            notification.object.refund_id,
+        )
 
     async def list_payments(self, since: datetime, until: datetime) -> Sequence[PaymentState]:
         now = require_aware(self._clock())

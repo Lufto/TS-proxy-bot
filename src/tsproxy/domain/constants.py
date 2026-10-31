@@ -38,7 +38,9 @@ LAST_CHANCE_DAYS = 1  # ещё день с большим предупрежде
 MONTH_DAYS = 30  # «месяц» в тарифах — ровно 30 дней
 PRORATION_BONUS_HOURS = 2  # сверх пропорционального срока при оплате не на сумму тарифа
 KOPECK = Decimal("0.01")
-PAYMENT_LINK_LIFETIME = timedelta(hours=1)  # ссылка на оплату живёт час (правило 3)
+# ссылка на оплату живёт не дольше часа (правило 3); у Platega — сколько она скажет
+# (`expiresIn`, обычно 30 минут, задача 15)
+PAYMENT_LINK_LIFETIME = timedelta(hours=1)
 
 # --- Проверка оплат (задача 14; решения владельца 2026-10-25) ---
 # «Купить» сначала спрашивает платёжку о прошлых незасчитанных заказах клиента:
@@ -54,6 +56,9 @@ DOUBLE_PAYMENT_REFUND_WINDOW = timedelta(days=7)
 # Ежедневная сверка с платёжкой: платежи за сутки; самые свежие ещё могут быть в пути
 PAYMENTS_RECONCILE_WINDOW = ONE_DAY
 PAYMENTS_RECONCILE_MARGIN = timedelta(minutes=30)
+# задача 15: возврат дольше суток «на проверке у платёжки» — тревога (Platega может промолчать
+# об отказе в возврате всей суммы)
+REFUND_REVIEW_OVERDUE = ONE_DAY
 
 # --- Выдача доступа после оплаты (задача 04 п. 6, задача 21 п. 7) ---
 GRANT_FAST_RETRY_INTERVAL = timedelta(minutes=1)  # первые полчаса — каждую минуту

@@ -30,6 +30,12 @@ from tsproxy.web.telegram import TELEGRAM_WEBHOOK_PATH
 WEBHOOK_SECRET = "A" * 40
 REMNAWAVE_WEBHOOK_SECRET = "R" * 40
 PUBLIC_BASE_URL = "https://bot.ts-proxy.com"
+# Ключи Platega для настроек — выдуманные, не настоящие
+PLATEGA_SETTINGS: dict[str, object] = {
+    "platega_merchant_id": "merchant-for-tests",
+    "platega_secret": "secret-for-tests",
+    "bot_username": "ts_proxy_test_bot",
+}
 
 
 def make_settings(tmp_path: Path, **overrides: object) -> Settings:
@@ -50,7 +56,8 @@ def prod_settings(tmp_path: Path) -> Settings:
     return make_settings(
         tmp_path,
         run_mode=RunMode.PROD,
-        payments_mode=PaymentsMode.REAL,
+        payments_mode=PaymentsMode.PLATEGA,
+        **PLATEGA_SETTINGS,
         public_base_url=PUBLIC_BASE_URL,
         telegram_webhook_secret=WEBHOOK_SECRET,
         remnawave_webhook_secret=REMNAWAVE_WEBHOOK_SECRET,
@@ -126,7 +133,8 @@ def test_prod_requires_https_url_and_strong_secret(
 ) -> None:
     values: dict[str, object] = {
         "run_mode": RunMode.PROD,
-        "payments_mode": PaymentsMode.REAL,
+        "payments_mode": PaymentsMode.PLATEGA,
+        **PLATEGA_SETTINGS,
         "public_base_url": PUBLIC_BASE_URL,
         "telegram_webhook_secret": WEBHOOK_SECRET,
         "remnawave_webhook_secret": REMNAWAVE_WEBHOOK_SECRET,
@@ -168,10 +176,26 @@ async def test_periodic_job_survives_errors() -> None:
     assert calls >= 3
 
 
-def test_real_payments_without_provider_refuse_to_start(tmp_path: Path, content: Content) -> None:
-    """Настоящей платёжки ещё нет (задача 15): лучше не стартовать, чем принять заказ в никуда."""
-    with pytest.raises(ValueError, match="задача 15"):
-        build_application(prod_settings(tmp_path), content, telegram_session=FakeTelegramSession())
+async def test_platega_mode_builds_platega_and_closes_its_client(
+    tmp_path: Path, content: Content, telegram_session: FakeTelegramSession
+) -> None:
+    """Задача 15: `PAYMENTS_MODE=platega` — Platega за интерфейсом платёжки, без сети при
+    сборке; её HTTP-клиент закрывается при остановке. Колбэк без наших ключей — 400."""
+    app = build_application(prod_settings(tmp_path), content, telegram_session=telegram_session)
+    try:
+        async with app.engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        transport = httpx.ASGITransport(app=app.web)
+        async with httpx.AsyncClient(transport=transport, base_url="http://bot.test") as http:
+            response = await http.post(
+                PAYMENT_NOTIFICATION_PATH, json={"id": "x", "status": "CONFIRMED"}
+            )
+    finally:
+        await close_application(app)
+
+    assert response.status_code == httpx.codes.BAD_REQUEST
+    assert app.payments_http is not None and app.payments_http.is_closed
+    assert "refund_reviews" in {job.name for job in app.jobs._jobs}
 
 
 async def test_payment_notifications_are_accepted_in_fake_mode(

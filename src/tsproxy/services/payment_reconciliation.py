@@ -15,6 +15,11 @@
 
 Самые свежие платежи (последние полчаса) в сверку не входят: они ещё могут быть в пути.
 Оплата выключена — сверять не с кем.
+
+Задача 15 (Platega): список — выгрузка `POST /transaction/export/json`. Платёж, деньги
+по которому потом вернули (спор через банк, возврат), считается оплаченным с возвратом:
+если возврат сделан не через бота — строка «возврат мимо бота». Платёжка отказала или
+ответила не по документации — тревога с её ответом.
 """
 
 import logging
@@ -37,6 +42,8 @@ from tsproxy.domain.payments import (
     reconcile_payments,
 )
 from tsproxy.integrations.payments_types import (
+    PAID_STATUSES,
+    PaymentError,
     PaymentNotFound,
     PaymentProvider,
     PaymentState,
@@ -51,6 +58,9 @@ logger = logging.getLogger(__name__)
 
 RECONCILE_ALERT = "payments_reconcile"
 RECONCILE_UNAVAILABLE_ALERT = "payments_reconcile_unavailable"
+RECONCILE_FAILED_ALERT = "payments_reconcile_failed"
+# Возврат у платёжки: целиком (`REFUNDED`) или частично; сумму частичного Platega не сообщает
+REFUNDED_STATUSES = (PaymentStatus.REFUNDED, PaymentStatus.PARTIALLY_REFUNDED)
 # Столько расхождений перечисляем в тревоге, остальные — в логе
 MAX_LISTED_ISSUES = 20
 # Чем кончилась попытка засчитать найденную сверкой оплату
@@ -90,6 +100,13 @@ class PaymentReconciliation:
             await self._alerter.raise_alert(
                 RECONCILE_UNAVAILABLE_ALERT,
                 self._admin_texts.get("alerts.payments_reconcile_unavailable"),
+            )
+            return
+        except PaymentError as error:
+            logger.error("Сверка оплат: платёжка отказала: %s", error)
+            await self._alerter.raise_alert(
+                RECONCILE_FAILED_ALERT,
+                self._admin_texts.get("alerts.payments_reconcile_failed", error=str(error)),
             )
             return
         orders = await self._orders(payments.name, [p.payment_id for p in listed], since, until)
@@ -176,6 +193,6 @@ class PaymentReconciliation:
 def _provider_record(payment: PaymentState) -> ProviderRecord:
     return ProviderRecord(
         payment.payment_id,
-        paid=payment.status is PaymentStatus.SUCCEEDED,
-        refunded=payment.refunded > 0,
+        paid=payment.status in PAID_STATUSES,
+        refunded=payment.refunded > 0 or payment.status in REFUNDED_STATUSES,
     )

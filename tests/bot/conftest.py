@@ -39,6 +39,7 @@ from tsproxy.services.link_revoke import LinkRevokeService
 from tsproxy.services.locks import KeyedLocks
 from tsproxy.services.orders import OrderService
 from tsproxy.services.payment_checks import PaymentChecks
+from tsproxy.services.payment_status import PaymentStatusChanges
 from tsproxy.services.profile import ProfileService
 from tsproxy.services.refunds import RefundService
 from tsproxy.services.stars import StarsPayments
@@ -135,6 +136,7 @@ def ctx(
     trial_switch = TrialSwitch(session_factory, events, alerter, content.admin_texts, clock)
     screens = Screens(content.texts)
     delivery = ClientDelivery(bot, clients)
+    payment_messages = TelegramPaymentMessages(delivery, PaymentScreens(content.texts, screens))
     crediting = CreditingService(
         session_factory,
         remnawave,
@@ -142,19 +144,9 @@ def ctx(
         alerter,
         AdminTopic(alert_sender, ADMIN_CHAT_ID, PAYMENTS_THREAD_ID),
         content.admin_texts,
-        TelegramPaymentMessages(delivery, PaymentScreens(content.texts, screens)),
+        payment_messages,
         clock,
         KeyedLocks(),
-    )
-    payment_checks = PaymentChecks(
-        session_factory,
-        payments,
-        crediting,
-        events,
-        alerter,
-        content.admin_texts,
-        clock,
-        test_payments=True,
     )
     stars_refunds = TelegramStarsRefunds(bot)
     refunds = RefundService(
@@ -169,13 +161,32 @@ def ctx(
         clock,
         KeyedLocks(),
     )
+    payment_checks = PaymentChecks(
+        session_factory,
+        payments,
+        crediting,
+        events,
+        alerter,
+        content.admin_texts,
+        clock,
+        test_payments=True,
+        status_changes=PaymentStatusChanges(
+            session_factory,
+            remnawave,
+            refunds,
+            events,
+            alerter,
+            content.admin_texts,
+            payment_messages,
+            KeyedLocks(),
+        ),
+    )
     orders = OrderService(
         session_factory,
         payments,
         events,
         content.texts,
         content.tariffs,
-        frozenset({ADMIN_ID}),
         clock,
         KeyedLocks(),
         payment_checks,

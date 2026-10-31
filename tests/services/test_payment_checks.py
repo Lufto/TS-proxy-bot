@@ -15,13 +15,18 @@ from tsproxy.db.engine import create_session_factory
 from tsproxy.db.enums import OrderStatus
 from tsproxy.db.models import Client
 from tsproxy.domain.constants import FRESH_ORDER_AGE, PAYMENT_LINK_LIFETIME, STALE_ORDER_AGE
-from tsproxy.integrations.payments_types import PaymentUnavailable
+from tsproxy.integrations.payments_types import PaymentNotice, PaymentUnavailable
 from tsproxy.services.events import EventKind
 from tsproxy.services.fakes import FakeClock
 from tsproxy.services.masking import Masker
 from tsproxy.services.payment_checks import CheckOutcome, ForgedReason
 
 SOURCE = "203.0.113.7"
+
+
+async def notice_of(s: PaymentSetup, order_id: int) -> PaymentNotice:
+    """Уведомление о платеже заказа без подсказки о статусе."""
+    return PaymentNotice(await s.payment_id(order_id))
 
 
 @pytest.fixture
@@ -50,7 +55,7 @@ async def other(session: AsyncSession, clock: FakeClock) -> Client:
 async def test_notification_of_paid_order_credits_it(s: PaymentSetup, client: Client) -> None:
     order_id = await s.order(client, paid=True)
 
-    outcome = await s.checks.handle_notification(await s.payment_id(order_id), SOURCE)
+    outcome = await s.checks.handle_notification(await notice_of(s, order_id), SOURCE)
 
     assert outcome is CheckOutcome.CREDITED
     assert (await s.load(order_id)).status is OrderStatus.ACCESS_GRANTED
@@ -64,9 +69,9 @@ async def test_repeated_notification_is_dropped_without_asking_provider(
     """Б2: платёжка прислала уведомление дважды — одно сообщение клиенту, один запрос."""
     order_id = await s.order(client, paid=True)
     payment_id = await s.payment_id(order_id)
-    await s.checks.handle_notification(payment_id, SOURCE)
+    await s.checks.handle_notification(PaymentNotice(payment_id), SOURCE)
 
-    outcome = await s.checks.handle_notification(payment_id, SOURCE)
+    outcome = await s.checks.handle_notification(PaymentNotice(payment_id), SOURCE)
 
     assert outcome is CheckOutcome.ALREADY_CREDITED
     assert s.payments.asked == [payment_id]
@@ -80,7 +85,7 @@ async def test_forged_notifications_glue_into_one_record_and_one_alert(
     """Б6: выдуманные номера — к платёжке не идём, одна запись журнала и одна тревога."""
     await s.order(client)
     for number in range(3):
-        outcome = await s.checks.handle_notification(f"fake_forged_{number}", SOURCE)
+        outcome = await s.checks.handle_notification(PaymentNotice(f"fake_forged_{number}"), SOURCE)
         assert outcome is CheckOutcome.NOT_FOUND
     await s.checks.record_forged(ForgedReason.UNPARSED, None, SOURCE)
 
@@ -102,7 +107,7 @@ async def test_forged_paid_notification_for_real_unpaid_order_changes_nothing(
     """Б7: настоящий номер неоплаченного заказа — перепроверка видит «не оплачен»."""
     order_id = await s.order(client)
 
-    outcome = await s.checks.handle_notification(await s.payment_id(order_id), SOURCE)
+    outcome = await s.checks.handle_notification(await notice_of(s, order_id), SOURCE)
 
     assert outcome is CheckOutcome.NOT_PAID
     assert (await s.load(order_id)).status is OrderStatus.CREATED
@@ -115,7 +120,7 @@ async def test_forged_cancel_notification_does_not_close_paid_order(
     """Б8: «отмену» тоже перепроверяем — по ответу платёжки заказ оплачен."""
     order_id = await s.order(client, paid=True)
 
-    outcome = await s.checks.handle_notification(await s.payment_id(order_id), SOURCE)
+    outcome = await s.checks.handle_notification(await notice_of(s, order_id), SOURCE)
 
     assert outcome is CheckOutcome.CREDITED
 
@@ -126,7 +131,7 @@ async def test_late_payment_of_canceled_order_is_credited(s: PaymentSetup, clien
     await s.set_status(order_id, OrderStatus.CANCELED)
     s.clock.advance(timedelta(days=2))
 
-    outcome = await s.checks.handle_notification(await s.payment_id(order_id), SOURCE)
+    outcome = await s.checks.handle_notification(await notice_of(s, order_id), SOURCE)
 
     assert outcome is CheckOutcome.CREDITED
     assert (await s.load(order_id)).status is OrderStatus.ACCESS_GRANTED
@@ -142,7 +147,7 @@ async def test_test_payment_in_production_is_not_credited(
     s = build_payment_setup(session_factory, clock, mask, test_payments=False)
     order_id = await s.order(client, paid=True)
 
-    outcome = await s.checks.handle_notification(await s.payment_id(order_id), SOURCE)
+    outcome = await s.checks.handle_notification(await notice_of(s, order_id), SOURCE)
 
     assert outcome is CheckOutcome.REJECTED
     assert (await s.load(order_id)).status is OrderStatus.CREATED
@@ -157,7 +162,7 @@ async def test_provider_down_on_notification_leaves_order_for_later(
     s.payments.fail_next(PaymentUnavailable("таймаут"))
 
     with pytest.raises(PaymentUnavailable):
-        await s.checks.handle_notification(await s.payment_id(order_id), SOURCE)
+        await s.checks.handle_notification(await notice_of(s, order_id), SOURCE)
 
     assert (await s.load(order_id)).status is OrderStatus.CREATED
 
@@ -191,7 +196,7 @@ async def test_payment_not_recorded_is_picked_up_by_background_check(
     )
     order_id = await s.order(client, paid=True)
     with pytest.raises(OperationalError):
-        await s.checks.handle_notification(await s.payment_id(order_id), SOURCE)
+        await s.checks.handle_notification(await notice_of(s, order_id), SOURCE)
     assert (await s.load(order_id)).status is OrderStatus.CREATED
 
     s.clock.advance(timedelta(minutes=2))

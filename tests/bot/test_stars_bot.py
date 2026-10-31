@@ -148,20 +148,7 @@ async def test_tariff_screen_offers_sbp_and_stars(
     assert MenuCallback(screen=ScreenId.TARIFFS).pack() in buttons
 
 
-async def test_hidden_test_tariff_is_sbp_only(
-    dispatcher: Dispatcher, bot: Bot, telegram: FakeTelegramSession
-) -> None:
-    data = TariffScreenCallback(tariff_id="test15").pack()
-    await dispatcher.feed_update(bot, callback(user(ADMIN_ID), data))
-
-    screen = telegram.sent(EditMessageText)[-1]
-    buttons = markup_data(screen.reply_markup)
-    assert TariffCallback(tariff_id="test15").pack() in buttons
-    assert StarsCallback(tariff_id="test15").pack() not in buttons
-    assert "⭐" not in screen.text
-
-
-async def test_forged_stars_button_for_hidden_tariff_is_refused(
+async def test_stars_button_for_removed_test_tariff_is_refused(
     dispatcher: Dispatcher,
     bot: Bot,
     telegram: FakeTelegramSession,

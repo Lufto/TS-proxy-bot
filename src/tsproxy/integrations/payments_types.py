@@ -1,14 +1,16 @@
 """Общий язык для платёжки: интерфейс «создать платёж / узнать статус / вернуть деньги».
 
-Платёжка ещё не выбрана (спецификация, «Оплата»), поэтому бот знает только этот интерфейс.
-Сейчас за ним — поддельная платёжка (`fake_payments.py`, режим `PAYMENTS_MODE=fake`),
-настоящую напишем в задаче 15 за этим же интерфейсом.
+Бот знает только этот интерфейс. За ним — Platega (`platega.py`, `PAYMENTS_MODE=platega`,
+задача 15) или поддельная платёжка для разработки и тестов (`fake_payments.py`,
+`PAYMENTS_MODE=fake`). Остальной код по платёжке не ветвится.
 
 Правило для всех реализаций: платёжке не доверяем на слово. `get_payment` — источник правды
 о платеже, а уведомления платёжки — только повод его спросить (аудит §4.1).
 
 Формат уведомления у каждой платёжки свой, поэтому разбирает его сама реализация
-(`parse_notification`): наружу выходит только номер платежа (задача 14).
+(`parse_notification`): наружу выходят номер платежа и подсказки (`PaymentNotice`) —
+о каком статусе уведомление и был ли это возврат. По подсказкам бот решает только, нужно ли
+спросить платёжку о уже засчитанном заказе; что делать — решает ответ `get_payment`.
 """
 
 from collections.abc import Mapping, Sequence
@@ -27,6 +29,22 @@ class PaymentStatus(StrEnum):
     PENDING = "pending"  # ждёт оплаты
     SUCCEEDED = "succeeded"  # деньги получены
     CANCELED = "canceled"  # отменён или истёк — оплатить уже нельзя
+    # Задача 15 (статусы Platega): что бывает с платежом после оплаты
+    REFUNDED = "refunded"  # деньги вернули плательщику целиком (`CHARGEBACKED` у Platega)
+    PARTIALLY_REFUNDED = "partially_refunded"  # вернули часть — у нас частичных нет
+    DISPUTED = "disputed"  # платёж на проверке (спор): деньги зарезервированы до решения
+    UNKNOWN = "unknown"  # статус, которого бот не знает, — смотреть `provider_status`
+
+
+# Статусы, при которых деньги клиента до нас дошли (в том числе если потом их вернули)
+PAID_STATUSES = frozenset(
+    {
+        PaymentStatus.SUCCEEDED,
+        PaymentStatus.REFUNDED,
+        PaymentStatus.PARTIALLY_REFUNDED,
+        PaymentStatus.DISPUTED,
+    }
+)
 
 
 class RefundOutcome(StrEnum):
@@ -68,6 +86,9 @@ class PaymentRequest:
     amount: Decimal  # рубли
     description: str  # видит клиент на странице оплаты и в чеке
     idempotency_key: str  # повтор с тем же ключом не создаёт второй платёж
+    # Telegram ID плательщика. Платёжке не передаётся, пока не понадобится email клиента
+    # (решение владельца 2026-10-31; у Platega — `{telegram_id}@telegram.org`, задача 15)
+    telegram_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -92,6 +113,29 @@ class PaymentState:
     # Оплачено звёздами Telegram (задача 33): сколько звёзд. Тогда `amount` — рубли заказа,
     # которые покрывает эта оплата (`domain.stars.paid_rubles`), а `currency` — рубли
     stars: int | None = None
+    # Статус так, как его назвала платёжка (`CHARGEBACKED`) — для тревог; задача 15
+    provider_status: str | None = None
+
+    @property
+    def status_name(self) -> str:
+        """Имя статуса для тревог: как у платёжки, а если она не назвала — наше."""
+        return self.provider_status or self.status.value
+
+
+@dataclass(frozen=True)
+class PaymentNotice:
+    """Что платёжка сообщила уведомлением (задача 15). Подлинность уже проверена
+    (`parse_notification`), но статусу в теле всё равно не верим: это только подсказка,
+    спрашивать ли платёжку о заказе, который уже засчитан.
+
+    `status=None` — платёжка статус не сообщает (тогда считаем, что про оплату).
+    `refund_id` — уведомление о возврате, который сделал продавец (бот или кабинет),
+    а не банк плательщика.
+    """
+
+    payment_id: str
+    status: PaymentStatus | None = None
+    refund_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -129,7 +173,7 @@ class PaymentRefunds(Protocol):
 
 
 class PaymentProvider(Protocol):
-    """Платёжка. Реализации: `FakePaymentProvider`, настоящая — задача 15."""
+    """Платёжка. Реализации: `PlategaPaymentProvider` (задача 15), `FakePaymentProvider`."""
 
     @property
     def name(self) -> str:
@@ -152,10 +196,10 @@ class PaymentProvider(Protocol):
         """
         ...
 
-    def parse_notification(self, body: bytes, headers: Mapping[str, str]) -> str:
-        """Номер платежа из уведомления платёжки (задача 14). Остальному в теле не верим.
+    def parse_notification(self, body: bytes, headers: Mapping[str, str]) -> PaymentNotice:
+        """Номер платежа и подсказки из уведомления платёжки (задачи 14, 15).
 
-        Не тот формат или неверная подпись — `InvalidNotification`. Сеть не трогает.
+        Не тот формат, неверная подпись или секрет — `InvalidNotification`. Сеть не трогает.
         """
         ...
 

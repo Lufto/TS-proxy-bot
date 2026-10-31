@@ -52,7 +52,7 @@ async def test_tariffs_listed_without_buy_buttons_and_trial_offered(
     assert edited.text.startswith(content.texts.get("tariffs.off_title"))
     assert "1 месяц — 150 ₽" in edited.text
     assert "3 месяца — 405 ₽ · выгода 10%" in edited.text
-    assert "Тест — 1 день" not in edited.text  # скрытый тариф — только администраторам
+    assert "Тест — 1 день" not in edited.text  # тестового тарифа больше нет (задача 15)
     assert edited.text.endswith(content.texts.get("tariffs.off_trial"))
     assert button_data(edited.reply_markup) == [TRIAL, MAIN]  # type: ignore[arg-type]
 
@@ -80,7 +80,7 @@ async def test_buy_command_shows_payments_off_screen(
 
     [sent] = telegram.sent(SendMessage)
     assert sent.text.startswith(content.texts.get("tariffs.off_title"))
-    assert "Тест — 1 день" in sent.text  # администратор видит и скрытый тариф
+    assert "Тест — 1 день" not in sent.text  # тестового тарифа нет и у администратора
     assert not any(
         data and data.startswith("buy:")
         for data in button_data(sent.reply_markup)  # type: ignore[arg-type]
