@@ -184,6 +184,14 @@ async def test_stars_button_sends_invoice_in_stars(
     assert [price.amount for price in invoice.prices] == [270]
     assert len(invoice.title) <= INVOICE_TITLE_MAX
     assert len(invoice.description) <= INVOICE_DESCRIPTION_MAX
+    # из счёта можно уйти не платя: первой — оплата (так требует Telegram), под ней — назад
+    assert isinstance(invoice.reply_markup, InlineKeyboardMarkup)
+    pay, *back = [row[0] for row in invoice.reply_markup.inline_keyboard]
+    assert pay.pay is True and "270" in pay.text
+    assert [b.callback_data for b in back] == [
+        MenuCallback(screen=ScreenId.TARIFFS).pack(),
+        MenuCallback(screen=ScreenId.MAIN).pack(),
+    ]
     assert telegram.sent(EditMessageText)[-1].text == content.texts.get(
         "stars.invoice_sent", stars=270
     )

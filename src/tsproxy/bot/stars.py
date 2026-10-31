@@ -47,8 +47,25 @@ PAID_NOTICES = {
 
 
 def invoice_of(texts: Texts, invoice: StarsInvoice) -> Invoice:
-    """Счёт в звёздах из текстов `stars.*`."""
+    """Счёт в звёздах из текстов `stars.*`.
+
+    Под кнопкой оплаты — «К тарифам» и «В меню»: иначе из счёта некуда уйти, кроме оплаты.
+    """
     title = invoice.tariff.title
+    rows = [
+        [InlineKeyboardButton(text=texts.get("stars.pay_button", stars=invoice.stars), pay=True)],
+        *(
+            [
+                InlineKeyboardButton(
+                    text=texts.get(key), callback_data=MenuCallback(screen=screen).pack()
+                )
+            ]
+            for key, screen in (
+                ("buttons.tariffs_back", ScreenId.TARIFFS),
+                ("buttons.back", ScreenId.MAIN),
+            )
+        ),
+    ]
     return Invoice(
         title=texts.get("stars.invoice_title", title=title),
         description=texts.get("stars.invoice_description", title=title),
@@ -56,6 +73,7 @@ def invoice_of(texts: Texts, invoice: StarsInvoice) -> Invoice:
         currency=STARS_CURRENCY,
         label=texts.get("stars.price_label", title=title),
         amount=invoice.stars,
+        markup=InlineKeyboardMarkup(inline_keyboard=rows),
     )
 
 

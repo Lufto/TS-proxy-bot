@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
-from aiogram.types import CallbackQuery, LabeledPrice, Message
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, LabeledPrice, Message
 
 from tsproxy.bot.screens import Screen
 from tsproxy.services.clients import ClientService
@@ -37,6 +37,8 @@ class Invoice:
     currency: str
     label: str
     amount: int
+    # кнопки под счётом: первой Telegram требует кнопку оплаты (`pay=True`)
+    markup: InlineKeyboardMarkup | None = None
 
 
 class ClientDelivery:
@@ -79,6 +81,7 @@ class ClientDelivery:
                 currency=invoice.currency,
                 prices=[LabeledPrice(label=invoice.label, amount=invoice.amount)],
                 provider_token="",
+                reply_markup=invoice.markup,
             ),
         )
 

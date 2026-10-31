@@ -72,6 +72,7 @@ TEXT_PLACEHOLDERS: dict[str, set[str]] = {
     "stars.invoice_description": {"title"},
     "stars.price_label": {"title"},
     "stars.invoice_sent": {"stars"},
+    "stars.pay_button": {"stars"},
     "stars.returned": {"stars"},
     "stars.return_failed": {"stars"},
     "stars.unrecorded": {"stars"},

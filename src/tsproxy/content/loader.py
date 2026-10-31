@@ -353,6 +353,7 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         "stars.invoice_title",
         "stars.invoice_description",
         "stars.price_label",
+        "stars.pay_button",
         "stars.invoice_sent",
         *(
             f"stars.refused.{key}"
