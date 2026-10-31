@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Тарифы — TS Proxy</title>
+  <meta name="description" content="Тарифы TS Proxy: 1 месяц — 150 ₽, 3 месяца — 405 ₽, 6 месяцев — 765 ₽, 12 месяцев — 1440 ₽. До 3 устройств, трафик без ограничений.">
+  <link rel="icon" href="/assets/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/style.css">
+  <script src="/assets/status.js" defer></script>
+</head>
+<body>
+  <div class="status-banner" id="status-banner" role="status" hidden>Возможны неполадки, мы уже разбираемся</div>
+
+  <header class="site-header">
+    <div class="wrap">
+      <a class="logo" href="/"><img class="logo-mark" src="/assets/logo.svg" alt="" width="28" height="28">TS Proxy</a>
+      <nav class="nav" aria-label="Разделы сайта">
+        <a href="/tariffs/" aria-current="page">Тарифы</a>
+        <a href="/help/">Инструкции</a>
+        <a href="/support/">Поддержка</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <div class="wrap">
+      <h1>Тарифы</h1>
+      <p class="lead">В любом тарифе — до 3 устройств и трафик без ограничений. Чем дольше срок, тем выгоднее.</p>
+
+      <!-- Цены — как в content/tariffs.yaml бота. Поменяли там — поменяйте и здесь. -->
+      <div class="price-grid">
+        <div class="card price">
+          <span class="term">1 месяц</span>
+          <span class="amount">150 ₽</span>
+          <span class="per-month">30 дней</span>
+        </div>
+        <div class="card price">
+          <span class="term">3 месяца</span>
+          <span class="amount">405 ₽</span>
+          <span class="per-month">90 дней · 135 ₽ в месяц</span>
+          <span class="badge">выгода 10%</span>
+        </div>
+        <div class="card price">
+          <span class="term">6 месяцев</span>
+          <span class="amount">765 ₽</span>
+          <span class="per-month">180 дней · 127,5 ₽ в месяц</span>
+          <span class="badge">выгода 15%</span>
+        </div>
+        <div class="card price">
+          <span class="term">12 месяцев</span>
+          <span class="amount">1440 ₽</span>
+          <span class="per-month">365 дней · 120 ₽ в месяц</span>
+          <span class="badge">выгода 20%</span>
+        </div>
+      </div>
+
+      <div class="actions">
+        <!-- TODO(владелец): имя бота — заменить TODO_BOT_USERNAME во всех файлах сайта (см. README) -->
+        <a class="btn btn-primary" href="https://t.me/TODO_BOT_USERNAME">Выбрать тариф в боте</a>
+      </div>
+
+      <h2>Что входит в подписку</h2>
+      <ul class="checklist">
+        <li>Доступ к прокси-сервису на выбранный срок.</li>
+        <li>До 3 устройств по одной подписке: телефоны, планшеты, компьютеры. Устройства можно менять в боте: «👤 Мой профиль» → «📱 Мои устройства».</li>
+        <li>Трафик без ограничений.</li>
+        <li>Подключение через приложение Happ (запасное — v2RayTun) на iPhone и iPad, Android, Windows и macOS.</li>
+        <li>Поддержка в Telegram-боте и по почте.</li>
+      </ul>
+
+      <h2>Оплата</h2>
+      <ul class="checklist">
+        <li><b>СБП</b> — Система быстрых платежей, цена в рублях. Оплата проходит на странице платёжного сервиса.</li>
+        <li><b>Telegram Stars</b> — звёзды Telegram. Цену в звёздах бот показывает перед оплатой.</li>
+        <li>Если подписка ещё идёт, новые дни добавляются к её окончанию. Ссылка подписки остаётся прежней — заново ничего настраивать не нужно.</li>
+        <li>Автоматических списаний нет: подписка продлевается только когда вы сами оплачиваете тариф.</li>
+      </ul>
+
+      <h2>Пробный период</h2>
+      <p>Новым клиентам — 7 дней и 7 ГБ трафика бесплатно, до 3 устройств. Без оплаты и без карты, один раз на Telegram-аккаунт. Включается кнопкой «🎁 Попробовать бесплатно» в боте.</p>
+
+      <h2>Возврат</h2>
+      <p>Попросить вернуть деньги можно в течение 30 дней с оплаты: напишите в <a href="/support/">поддержку</a>. Решение о возврате принимает администратор. Подробно — в разделе «Возврат денег» <a href="/terms/#refunds">пользовательского соглашения</a>.</p>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <div>© 2026 TS Proxy · <!-- почта поддержки, см. README --><a href="mailto:tsarewalex2006@gmail.com">tsarewalex2006@gmail.com</a></div>
+      <nav aria-label="Документы">
+        <a href="/terms/">Пользовательское соглашение</a>
+        <a href="/privacy/">Политика конфиденциальности</a>
+        <a href="/support/">Поддержка</a>
+      </nav>
+    </div>
+  </footer>
+</body>
+</html>

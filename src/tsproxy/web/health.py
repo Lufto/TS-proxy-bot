@@ -2,7 +2,8 @@
 
 Наружу — только «ok» (200) или «проблема» (503): ни имён задач, ни ошибок, ни версий.
 Подробности пишет в лог сама проверка (`services/health.py`). HEAD тоже принимается:
-UptimeRobot по умолчанию проверяет им.
+UptimeRobot по умолчанию проверяет им. Ответ разрешено читать с любого сайта: по нему
+сайт `ts-proxy.com` показывает плашку «неполадки» (задача 25); тайн в нём нет.
 """
 
 from dataclasses import dataclass
@@ -14,8 +15,9 @@ from fastapi.responses import PlainTextResponse
 HEALTH_PATH = "/health"
 HEALTHY_BODY = "ok"
 UNHEALTHY_BODY = "проблема"
-# Ответ не кэшируют посредники: иначе сторож увидит старое «ok»
-NO_CACHE_HEADERS = {"Cache-Control": "no-store"}
+# Ответ не кэшируют посредники: иначе сторож увидит старое «ok».
+# Access-Control-Allow-Origin — чтобы браузер дал сайту на другом домене прочитать ответ
+RESPONSE_HEADERS = {"Cache-Control": "no-store", "Access-Control-Allow-Origin": "*"}
 
 
 class HealthProbe(Protocol):
@@ -35,9 +37,9 @@ class HealthEndpoint:
 
     async def health(self) -> PlainTextResponse:
         if await self.probe.is_healthy():
-            return PlainTextResponse(HEALTHY_BODY, headers=NO_CACHE_HEADERS)
+            return PlainTextResponse(HEALTHY_BODY, headers=RESPONSE_HEADERS)
         return PlainTextResponse(
             UNHEALTHY_BODY,
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            headers=NO_CACHE_HEADERS,
+            headers=RESPONSE_HEADERS,
         )

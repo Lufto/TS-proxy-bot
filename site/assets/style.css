@@ -1,0 +1,449 @@
+/* TS Proxy — общий стиль сайта. Без шрифтов и библиотек со сторонних сайтов.
+   Тема — по системной настройке (светлая / тёмная). */
+
+:root {
+  color-scheme: light dark;
+  --bg: #f6f7fb;
+  --surface: #ffffff;
+  --surface-2: #eef1f7;
+  --text: #141824;
+  --muted: #5a6275;
+  --border: #dde2ec;
+  --accent: #2f6bff;
+  --accent-hover: #1f56e0;
+  --accent-text: #ffffff;
+  --accent-soft: #e6eeff;
+  --warn-bg: #fff4d6;
+  --warn-text: #5c4300;
+  --warn-border: #f0d68a;
+  --placeholder-bg: repeating-linear-gradient(135deg, #eef1f7 0 12px, #e6e9f1 12px 24px);
+  --radius: 14px;
+  --shadow: 0 1px 2px rgb(20 24 36 / 6%), 0 4px 16px rgb(20 24 36 / 6%);
+  --max: 960px;
+  --gutter: 16px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1218;
+    --surface: #171b24;
+    --surface-2: #1f2430;
+    --text: #e8ebf2;
+    --muted: #9aa3b5;
+    --border: #2a3040;
+    --accent: #5b8cff;
+    --accent-hover: #7aa2ff;
+    --accent-text: #0b1020;
+    --accent-soft: #1c2a4d;
+    --warn-bg: #3a2f10;
+    --warn-text: #ffe39a;
+    --warn-border: #5e4b17;
+    --placeholder-bg: repeating-linear-gradient(135deg, #1f2430 0 12px, #232938 12px 24px);
+    --shadow: none;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  overflow-wrap: break-word;
+}
+
+a {
+  color: var(--accent);
+}
+
+a:hover {
+  color: var(--accent-hover);
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+h1,
+h2,
+h3 {
+  line-height: 1.25;
+  margin: 1.6em 0 0.6em;
+}
+
+h1 {
+  font-size: clamp(1.75rem, 5vw, 2.6rem);
+  margin-top: 0.4em;
+}
+
+h2 {
+  font-size: clamp(1.3rem, 3.5vw, 1.6rem);
+}
+
+h3 {
+  font-size: 1.1rem;
+}
+
+.wrap {
+  max-width: var(--max);
+  margin: 0 auto;
+  padding: 0 var(--gutter);
+}
+
+/* Плашка «возможны неполадки» — показывает assets/status.js */
+.status-banner {
+  background: var(--warn-bg);
+  color: var(--warn-text);
+  border-bottom: 1px solid var(--warn-border);
+  text-align: center;
+  padding: 10px var(--gutter);
+  font-weight: 600;
+}
+
+.status-banner[hidden] {
+  display: none;
+}
+
+/* Шапка */
+.site-header {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.site-header .wrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+
+.logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 800;
+  font-size: 1.15rem;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.logo:hover {
+  color: var(--text);
+}
+
+.logo-mark {
+  width: 28px;
+  height: 28px;
+}
+
+.nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+
+.nav a {
+  color: var(--muted);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.nav a:hover,
+.nav a[aria-current="page"] {
+  color: var(--text);
+}
+
+main {
+  padding: 24px 0 48px;
+}
+
+/* Кнопки */
+.btn {
+  display: inline-block;
+  padding: 12px 22px;
+  border-radius: 999px;
+  font-weight: 600;
+  text-decoration: none;
+  border: 1px solid transparent;
+  text-align: center;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.btn-primary:hover {
+  background: var(--accent-hover);
+  color: var(--accent-text);
+}
+
+.btn-secondary {
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.btn-secondary:hover {
+  color: var(--text);
+  border-color: var(--muted);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 24px 0;
+}
+
+/* Главная */
+.hero {
+  padding: 24px 0 8px;
+}
+
+.lead {
+  font-size: 1.15rem;
+  color: var(--muted);
+  max-width: 40em;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  box-shadow: var(--shadow);
+}
+
+.card h3 {
+  margin-top: 0;
+}
+
+.card p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.card p + p {
+  margin-top: 8px;
+}
+
+.steps {
+  counter-reset: step;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.steps > li {
+  counter-increment: step;
+  position: relative;
+  padding-left: 48px;
+  min-height: 34px;
+}
+
+.steps > li::before {
+  content: counter(step);
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+}
+
+/* Тарифы */
+.price-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin: 24px 0;
+}
+
+.price {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.price .term {
+  font-weight: 600;
+}
+
+.price .amount {
+  font-size: 2rem;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.price .per-month {
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.badge {
+  align-self: flex-start;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.checklist {
+  padding-left: 1.2em;
+}
+
+.checklist li {
+  margin: 6px 0;
+}
+
+/* Инструкции */
+.toc {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 16px 0 8px;
+}
+
+.toc a {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 14px;
+  text-decoration: none;
+  color: var(--text);
+}
+
+.platform {
+  scroll-margin-top: 16px;
+}
+
+.howto {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 16px;
+}
+
+.howto > li {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  display: grid;
+  gap: 12px;
+}
+
+.howto .step-title {
+  font-weight: 600;
+}
+
+.shot {
+  margin: 0;
+  border: 2px dashed var(--border);
+  border-radius: 10px;
+  background: var(--placeholder-bg);
+  min-height: 160px;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.shot strong {
+  display: block;
+  color: var(--text);
+}
+
+.note {
+  background: var(--surface-2);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin: 16px 0;
+}
+
+/* Документы */
+.doc {
+  max-width: 46em;
+}
+
+.doc .edition {
+  color: var(--muted);
+  margin-top: -0.4em;
+}
+
+.doc h2 {
+  font-size: 1.25rem;
+}
+
+.doc ol,
+.doc ul {
+  padding-left: 1.4em;
+}
+
+.doc li {
+  margin: 6px 0;
+}
+
+/* Подвал */
+.site-footer {
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.site-footer .wrap {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px 24px;
+  padding-top: 20px;
+  padding-bottom: 20px;
+}
+
+.site-footer nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+
+.site-footer a {
+  color: var(--muted);
+}
+
+.site-footer a:hover {
+  color: var(--text);
+}
