@@ -58,6 +58,8 @@ class EventKind(StrEnum):
     # задача 28: выключатель пробных. Последнее из двух — источник правды, вкл или выкл
     TRIALS_DISABLED = "trials_disabled"  # пробные выключены (администратором или при спаме)
     TRIALS_ENABLED = "trials_enabled"  # пробные снова включены администратором
+    # задача 33: оплата звёздами пришла, а засчитать её некуда; вернули ли звёзды — `returned`
+    STARS_PAYMENT_RETURNED = "stars_payment_returned"
 
 
 class EventLog:

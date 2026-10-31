@@ -29,10 +29,10 @@ from tsproxy.bot.callbacks import (
 from tsproxy.bot.context import BotContext
 from tsproxy.bot.delivery import ClientDelivery
 from tsproxy.bot.screens import Screen
+from tsproxy.content.amounts import paid_text
 from tsproxy.content.loader import Texts
 from tsproxy.domain.constants import ONE_DAY
 from tsproxy.domain.dates import format_moscow
-from tsproxy.domain.money import format_rubles
 from tsproxy.domain.profile import plural_form
 from tsproxy.services.refunds import (
     RefundablePayment,
@@ -78,7 +78,7 @@ class RefundScreens:
 
     def double_ask(self, payment: RefundablePayment) -> Screen:
         """Сумма и «точно вернуть?»: «✅ Да, вернуть» и «Оставить»."""
-        amount = format_rubles(payment.amount)
+        amount = paid_text(self._texts, payment.amount, payment.stars)
         text = self._texts.get(
             "refund.double_ask",
             amount=amount,
@@ -119,12 +119,13 @@ class RefundScreens:
             [self._button("buttons.back", ScreenId.MAIN)],
         )
 
-    def completed(self, amount: Decimal, expire_at: datetime | None) -> Screen:
+    def completed(self, amount: Decimal, expire_at: datetime | None, stars: int | None) -> Screen:
+        refunded = paid_text(self._texts, amount, stars)
         if expire_at is None:
-            text = self._texts.get("refund.completed_access_ended", amount=format_rubles(amount))
+            text = self._texts.get("refund.completed_access_ended", amount=refunded)
             return self._screen(text, [self._button("buttons.tariffs", ScreenId.TARIFFS)])
         text = self._texts.get(
-            "refund.completed", amount=format_rubles(amount), expire_at=format_moscow(expire_at)
+            "refund.completed", amount=refunded, expire_at=format_moscow(expire_at)
         )
         return self._screen(text, [self._button("buttons.profile", ScreenId.PROFILE)])
 
@@ -141,10 +142,11 @@ class TelegramRefundMessages:
         self._screens = screens
 
     async def refund_completed(
-        self, telegram_id: int, amount: Decimal, expire_at: datetime | None
+        self, telegram_id: int, amount: Decimal, expire_at: datetime | None, *, stars: int | None
     ) -> None:
+        screen = self._screens.completed(amount, expire_at, stars)
         try:
-            await self._delivery.send(telegram_id, self._screens.completed(amount, expire_at))
+            await self._delivery.send(telegram_id, screen)
         except TelegramAPIError:
             logger.exception("Не удалось сообщить клиенту %s о возврате", telegram_id)
 

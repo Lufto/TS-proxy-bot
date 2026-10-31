@@ -89,6 +89,9 @@ class PaymentState:
     test: bool  # тестовый платёж (поддельная платёжка, тестовый магазин)
     paid_at: datetime | None
     refunded: Decimal  # сколько уже вернули клиенту по этому платежу (задача 14: сверка)
+    # Оплачено звёздами Telegram (задача 33): сколько звёзд. Тогда `amount` — рубли заказа,
+    # которые покрывает эта оплата (`domain.stars.paid_rubles`), а `currency` — рубли
+    stars: int | None = None
 
 
 @dataclass(frozen=True)
@@ -97,6 +100,32 @@ class Refund:
     payment_id: str
     amount: Decimal
     outcome: RefundOutcome
+
+
+@dataclass(frozen=True)
+class PaidPayment:
+    """Оплата, которую возвращаем: чья она (`provider` из заказа), номер у платёжки и кто платил.
+
+    Telegram Stars возвращает по паре «клиент + номер платежа» (`refundStarPayment`),
+    поэтому возврату нужен и Telegram ID плательщика (задача 33).
+    """
+
+    provider: str
+    payment_id: str
+    telegram_id: int
+
+
+class PaymentRefunds(Protocol):
+    """Возврат оплаты. Реализации: `integrations.refunds.ProviderRefunds` (платёжка),
+    `integrations.telegram_stars.TelegramStarsRefunds` (звёзды) и `RefundRouter` над ними.
+
+    Ошибки — как у платёжки: `PaymentUnavailable` — повторить позже, другие `PaymentError` —
+    отказ. Тот же `idempotency_key` — тот же возврат.
+    """
+
+    async def refund(self, payment: PaidPayment, amount: Decimal, idempotency_key: str) -> Refund:
+        """Вернуть `amount` рублей заказа по оплате `payment` (звёзды возвращаются целиком)."""
+        ...
 
 
 class PaymentProvider(Protocol):

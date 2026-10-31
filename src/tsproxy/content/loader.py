@@ -17,6 +17,7 @@ import yaml
 TEXTS_FILE = "texts.yaml"
 ADMIN_TEXTS_FILE = "admin_texts.yaml"
 TARIFFS_FILE = "tariffs.yaml"
+STARS_RATE_KEY = "stars_rub_rate"  # курс звезды Telegram в рублях (задача 33)
 # Быстрые ответы поддержки в admin_texts.yaml: quick_replies.<имя>.button и .text (задача 17)
 QUICK_REPLIES_GROUP = "quick_replies"
 QUICK_PARTS = ("button", "text")
@@ -137,6 +138,26 @@ def _parse_tariff(item: object, index: int) -> Tariff:
     return Tariff(tariff_id, title, days, _parse_price(item.get("price"), where), hidden)
 
 
+def load_stars_rate(path: Path) -> Decimal:
+    """Курс звезды Telegram в рублях (`stars_rub_rate`, задача 33). Не больше нуля — не стартуем.
+
+    Цены в звёздах бот считает из рублёвых по этому курсу (`domain.stars.stars_price`).
+    """
+    raw = _read_yaml(path)
+    value = raw.get(STARS_RATE_KEY) if isinstance(raw, dict) else None
+    where = f"{TARIFFS_FILE}: {STARS_RATE_KEY}"
+    # 1.5 из YAML — float; через строку он превращается в точное Decimal("1.5")
+    if isinstance(value, bool) or not isinstance(value, int | float | str):
+        raise ContentError(f"{where} — курс звезды в рублях, например 1.5, а не {value!r}")
+    try:
+        rate = Decimal(str(value))
+    except InvalidOperation:
+        raise ContentError(f"{where} {value!r} — не число") from None
+    if not rate.is_finite() or rate <= 0:
+        raise ContentError(f"{where} должен быть больше нуля, а не {value!r}")
+    return rate
+
+
 def load_tariffs(path: Path) -> tuple[Tariff, ...]:
     raw = _read_yaml(path)
     items = raw.get("tariffs") if isinstance(raw, dict) else None
@@ -157,6 +178,7 @@ class Content:
     texts: Texts
     admin_texts: Texts
     tariffs: tuple[Tariff, ...]
+    stars_rub_rate: Decimal  # курс звезды Telegram в рублях (задача 33)
 
     def tariff(self, tariff_id: str) -> Tariff | None:
         return next((t for t in self.tariffs if t.id == tariff_id), None)
@@ -325,6 +347,25 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         "refund.completed",
         "refund.completed_access_ended",
         "transfer.received",
+        # задача 33: оплата звёздами Telegram
+        "commands.paysupport",
+        "buttons.pay_sbp",
+        "buttons.pay_stars",
+        "units.rubles",
+        "units.stars",
+        "tariffs.screen",
+        "tariffs.screen_sbp_only",
+        "stars.invoice_title",
+        "stars.invoice_description",
+        "stars.price_label",
+        "stars.invoice_sent",
+        *(
+            f"stars.refused.{key}"
+            for key in ("not_found", "already_paid", "expired", "amount_mismatch", "error")
+        ),
+        "stars.returned",
+        "stars.return_failed",
+        "stars.unrecorded",
     }
 )
 REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
@@ -686,7 +727,21 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
                 "duration_minutes",
                 "duration_hours",
                 "duration_under_minute",
+                "stars_today",  # задача 33
+                "stars_month",
             )
+        ),
+        # задача 33: оплата звёздами Telegram
+        "units.rubles",
+        "units.stars",
+        "payments.stars",
+        "report.payments_stars",
+        "alerts.stars_returned",
+        "alerts.stars_not_returned",
+        "alerts.stars_unrecorded",
+        *(
+            f"alerts.stars_reason.{key}"
+            for key in ("unknown_order", "other_charge", "not_credited")
         ),
         *(
             f"admin.broadcast.{key}"
@@ -758,6 +813,7 @@ def load_content(directory: Path) -> Content:
         texts=load_texts(directory / TEXTS_FILE),
         admin_texts=load_texts(directory / ADMIN_TEXTS_FILE),
         tariffs=load_tariffs(directory / TARIFFS_FILE),
+        stars_rub_rate=load_stars_rate(directory / TARIFFS_FILE),
     )
     content.texts.require(REQUIRED_TEXTS)
     content.admin_texts.require(REQUIRED_ADMIN_TEXTS)

@@ -24,6 +24,8 @@ from tsproxy.db.engine import create_engine, create_session_factory
 from tsproxy.db.models import Base
 from tsproxy.integrations.fake_payments import FakePaymentProvider
 from tsproxy.integrations.fakes import FakeRemnawave
+from tsproxy.integrations.refunds import refund_router
+from tsproxy.integrations.telegram_stars import STARS_PROVIDER, TelegramStarsRefunds
 from tsproxy.logging_setup import MaskingFilter
 from tsproxy.services.admin import AdminService
 from tsproxy.services.admin_topics import AdminTopic
@@ -39,6 +41,7 @@ from tsproxy.services.orders import OrderService
 from tsproxy.services.payment_checks import PaymentChecks
 from tsproxy.services.profile import ProfileService
 from tsproxy.services.refunds import RefundService
+from tsproxy.services.stars import StarsPayments
 from tsproxy.services.support import SupportService
 from tsproxy.services.trial import TrialService
 from tsproxy.services.trial_switch import TrialSwitch
@@ -153,10 +156,11 @@ def ctx(
         clock,
         test_payments=True,
     )
+    stars_refunds = TelegramStarsRefunds(bot)
     refunds = RefundService(
         session_factory,
         remnawave,
-        payments,
+        refund_router(payments, **{STARS_PROVIDER: stars_refunds}),
         events,
         alerter,
         AdminTopic(alert_sender, ADMIN_CHAT_ID, PAYMENTS_THREAD_ID),
@@ -164,6 +168,17 @@ def ctx(
         TelegramRefundMessages(delivery, RefundScreens(content.texts)),
         clock,
         KeyedLocks(),
+    )
+    orders = OrderService(
+        session_factory,
+        payments,
+        events,
+        content.texts,
+        content.tariffs,
+        frozenset({ADMIN_ID}),
+        clock,
+        KeyedLocks(),
+        payment_checks,
     )
     return BotContext(
         texts=content.texts,
@@ -179,17 +194,7 @@ def ctx(
         profiles=ProfileService(remnawave, clock),
         support=SupportService(session_factory, clock, mask, events),
         support_guard=SupportGuard(support_rate_limiter(monotonic)),
-        orders=OrderService(
-            session_factory,
-            payments,
-            events,
-            content.texts,
-            content.tariffs,
-            frozenset({ADMIN_ID}),
-            clock,
-            KeyedLocks(),
-            payment_checks,
-        ),
+        orders=orders,
         client_cards=ClientCardService(session_factory, ProfileService(remnawave, clock)),
         admin=AdminService(
             session_factory,
@@ -203,6 +208,17 @@ def ctx(
         trial_switch=trial_switch,
         payment_checks=payment_checks,
         refunds=refunds,
+        stars=StarsPayments(
+            session_factory,
+            orders,
+            crediting,
+            stars_refunds,
+            events,
+            alerter,
+            content.admin_texts,
+            clock,
+            content.stars_rub_rate,
+        ),
     )
 
 

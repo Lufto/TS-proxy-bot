@@ -77,8 +77,21 @@ class DoublePaymentCallback(CallbackData, prefix="dbl"):
     order_id: Annotated[int, Field(gt=0)]
 
 
+class TariffScreenCallback(CallbackData, prefix="tariff"):
+    """Тариф в списке «💳 Тарифы» — экран тарифа с выбором способа оплаты (задача 33)."""
+
+    tariff_id: str
+
+
 class TariffCallback(CallbackData, prefix="buy"):
-    """«Купить тариф». Только id тарифа: цену и доступность проверяет сервис заказов."""
+    """«💳 СБП» на экране тарифа — ссылка на оплату. Только id тарифа: цену и доступность
+    проверяет сервис заказов. Старые кнопки тарифов (до задачи 33) — тоже СБП."""
+
+    tariff_id: str
+
+
+class StarsCallback(CallbackData, prefix="stars"):
+    """«⭐ Stars» на экране тарифа — счёт в звёздах Telegram (задача 33)."""
 
     tariff_id: str
 

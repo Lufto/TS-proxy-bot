@@ -42,6 +42,8 @@ from tsproxy.services.support import MessageContent, TicketRef
 logger = logging.getLogger(__name__)
 
 SUPPORT_COMMAND = "support"
+# Задача 33: обязательна по правилам Telegram для ботов с оплатой — тот же экран поддержки
+PAYSUPPORT_COMMAND = "paysupport"
 # Ключ склейки тревоги «не создаётся тема обращения»
 SUPPORT_TOPIC_ALERT = "support_topic_failed"
 # Ответ Telegram, если тему обращения удалили вручную
@@ -96,7 +98,9 @@ def create_support_router(access: AdminAccess, client_actions: CardClientActions
     router = Router(name="support")
     private = F.chat.type == ChatType.PRIVATE
     private_button = F.message.chat.type == ChatType.PRIVATE
-    router.message.register(on_support_command, private, Command(SUPPORT_COMMAND))
+    router.message.register(
+        on_support_command, private, Command(SUPPORT_COMMAND, PAYSUPPORT_COMMAND)
+    )
     router.callback_query.register(
         on_support_screen, private_button, MenuCallback.filter(F.screen == ScreenId.SUPPORT)
     )

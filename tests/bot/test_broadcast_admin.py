@@ -7,6 +7,7 @@
 
 from dataclasses import dataclass, field
 from datetime import timedelta
+from decimal import Decimal
 from itertools import count
 
 import pytest
@@ -59,6 +60,7 @@ from tsproxy.services.clients import ClientService
 from tsproxy.services.fakes import FakeClock
 from tsproxy.services.stats import StatsService
 
+STARS_RATE = Decimal("1.5")  # курс звезды, задача 33
 ADMIN_GROUP = Chat(id=ADMIN_CHAT_ID, type="supergroup", title="Лично не публично", is_forum=True)
 TOPIC_ID = 55  # тема группы, где администратор пишет /broadcast
 PREVIEW_MESSAGE_ID = 3001
@@ -104,7 +106,9 @@ def admin_dispatcher(
         ctx,
         limiter,
         extra_routers=[
-            create_admin_stats_router(ctx.access, StatsService(session_factory, remnawave, clock)),
+            create_admin_stats_router(
+                ctx.access, StatsService(session_factory, remnawave, clock, STARS_RATE)
+            ),
             create_admin_broadcast_router(ctx.access, broadcasts),
         ],
     )
@@ -687,6 +691,10 @@ async def test_stats_command(
     [sent] = telegram.sent(SendMessage)
     assert content.admin_texts.get("admin.stats.clients", total=0, blocked=0) in sent.text
     assert content.admin_texts.get("admin.stats.trials_none") in sent.text
+    # задача 33: оплаты звёздами — отдельной строкой
+    stars = {"count": 0, "stars": 0, "rubles": "0", "refunds": 0}
+    assert content.admin_texts.get("admin.stats.stars_today", **stars) in sent.text
+    assert content.admin_texts.get("admin.stats.stars_month", **stars) in sent.text
 
 
 def test_duration_is_rendered_in_hours_and_minutes(content: Content) -> None:

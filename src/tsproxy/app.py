@@ -77,8 +77,10 @@ from tsproxy.db.engine import create_engine, create_session_factory
 from tsproxy.domain.monitoring import DAILY_JOB_STALE_AFTER, next_daily_run, periodic_stale_after
 from tsproxy.integrations.fake_payments import FakePaymentLedger, FakePaymentProvider
 from tsproxy.integrations.payments_types import PaymentProvider
+from tsproxy.integrations.refunds import refund_router
 from tsproxy.integrations.remnawave import RemnawaveApiClient, create_http_client
 from tsproxy.integrations.remnawave_types import RemnawaveUnavailable
+from tsproxy.integrations.telegram_stars import STARS_PROVIDER, TelegramStarsRefunds
 from tsproxy.jobs.backup import DatabaseBackup
 from tsproxy.jobs.daily_report import BotBackupJob, DailyReport, ReportDestination
 from tsproxy.logging_setup import MaskingFilter
@@ -110,6 +112,7 @@ from tsproxy.services.refunds import RefundService
 from tsproxy.services.reminders import ReminderService
 from tsproxy.services.remnawave_signals import RemnawaveSignals
 from tsproxy.services.service_proof import ServiceProofService
+from tsproxy.services.stars import StarsPayments
 from tsproxy.services.stats import StatsService
 from tsproxy.services.support import SupportService
 from tsproxy.services.term_guard import TermLockedHandlers
@@ -359,11 +362,26 @@ def build_application(
     payments_reconciliation = PaymentReconciliation(
         session_factory, provider, payment_checks, alerter, content.admin_texts, clock
     )
-    # Возвраты (задача 21): деньги — через ту же платёжку, срок — под той же блокировкой
+    # Задача 33: звёзды Telegram — второй способ оплаты. Возврат звёзд — через Telegram,
+    # он работает и при выключенной оплате (вернуть уже оплаченное звёздами)
+    stars_refunds = TelegramStarsRefunds(bot)
+    stars = StarsPayments(
+        session_factory,
+        orders,
+        crediting,
+        stars_refunds,
+        events,
+        alerter,
+        content.admin_texts,
+        clock,
+        content.stars_rub_rate,
+    )
+    # Возвраты (задача 21): деньги — тем же способом, которым платили (платёжка или звёзды),
+    # срок — под той же блокировкой
     refunds = RefundService(
         session_factory,
         remnawave,
-        provider,
+        refund_router(provider, **{STARS_PROVIDER: stars_refunds}),
         events,
         alerter,
         payments_topic,
@@ -395,6 +413,7 @@ def build_application(
         trial_switch=trial_switch,
         payment_checks=payment_checks,
         refunds=refunds,
+        stars=stars,
     )
     # Статистика и рассылка (задача 19)
     broadcasts = BroadcastService(
@@ -416,7 +435,7 @@ def build_application(
         clock,
         term_locks,
     )
-    stats = StatsService(session_factory, remnawave, clock)  # /stats и отчёт 10:00
+    stats = StatsService(session_factory, remnawave, clock, content.stars_rub_rate)  # /stats, отчёт
     dispatcher = create_dispatcher(
         ctx,
         RateLimiter(),

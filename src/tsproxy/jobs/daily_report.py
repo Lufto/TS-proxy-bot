@@ -107,9 +107,10 @@ class DailyReport:
 
     async def build(self) -> str:
         day = previous_moscow_day(utc_now(self._clock))
+        now_stats = await self._stats.collect()
         lines = [
-            *await self._day_lines(day),
-            *await self._now_lines(),
+            *await self._day_lines(day, now_stats),
+            *self._now_lines(now_stats),
             self._alerts_line(day),
             await self._bot_backup_line(),
             await self._panel_backup_line(),
@@ -117,8 +118,8 @@ class DailyReport:
         ]
         return "\n".join(lines)
 
-    async def _day_lines(self, day: ReportDay) -> list[str]:
-        stats = await day_stats(self._session_factory, day)
+    async def _day_lines(self, day: ReportDay, now_stats: Stats) -> list[str]:
+        stats = await day_stats(self._session_factory, day, now_stats.stars_rate)
         sales = stats.sales
         lines = [
             self._texts.get("report.title", day=day.date.strftime(REPORT_DATE_FORMAT)),
@@ -128,13 +129,23 @@ class DailyReport:
                 "report.payments", count=sales.count, amount=format_rubles(sales.amount)
             ),
         ]
+        stars = sales.stars
+        if stars.count or stars.refunds:
+            # задача 33: оплаты звёздами — отдельной строкой, только если были
+            lines.append(
+                self._texts.get(
+                    "report.payments_stars",
+                    count=stars.count,
+                    stars=stars.stars,
+                    rubles=format_rubles(stars.rubles),
+                )
+            )
         if stats.unfinished_orders:
             lines.append(self._texts.get("report.unfinished_orders", count=stats.unfinished_orders))
         return lines
 
-    async def _now_lines(self) -> list[str]:
+    def _now_lines(self, stats: Stats) -> list[str]:
         """Подписки, обращения и клиенты сейчас — теми же строками, что в `/stats`."""
-        stats = await self._stats.collect()
         subscriptions = stats.subscriptions
         if subscriptions is None:
             subscriptions_line = self._texts.get("admin.stats.subscriptions_unknown")

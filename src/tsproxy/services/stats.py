@@ -15,14 +15,20 @@
 - поддержка — открытые сейчас (по `status`: `closed_at` остаётся при переоткрытии),
   ждущие первого ответа, открытые за месяц и время первого ответа по ним;
 - клиенты бота всего и сколько заблокировали бота.
+
+Задача 33: оплаты звёздами Telegram — отдельной строкой. В рублёвые продажи и возвраты они
+не входят (рубли заказа у них — расчётные). Звёзды — из события «оплата получена»
+(`crediting.STARS_DETAIL`), за вычетом звёзд, возвращённых за тот же период (по времени
+возврата, как у рублей); «примерно в рублях» — по нынешнему курсу из `tariffs.yaml`.
 """
 
 import logging
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
+from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from tsproxy.db.enums import TicketStatus
@@ -30,6 +36,7 @@ from tsproxy.db.models import Client, Event, Order, SupportTicket
 from tsproxy.domain.client_state import ClientSnapshot
 from tsproxy.domain.constants import UNLIMITED_TRAFFIC_BYTES
 from tsproxy.domain.grace import observed_grace_extension
+from tsproxy.domain.stars import stars_in_rubles
 from tsproxy.domain.stats import (
     ResponseTimes,
     SubscriptionCounts,
@@ -46,7 +53,9 @@ from tsproxy.integrations.remnawave_types import (
     RemnawaveClient,
     RemnawaveUnavailable,
 )
+from tsproxy.integrations.telegram_stars import STARS_PROVIDER
 from tsproxy.services.clock import Clock, utc_now
+from tsproxy.services.crediting import paid_stars
 from tsproxy.services.events import EventKind
 
 logger = logging.getLogger(__name__)
@@ -64,12 +73,28 @@ NO_REFUNDS = RefundsTotal(0, Decimal(0))
 
 
 @dataclass(frozen=True)
+class StarsSales:
+    """Оплаты звёздами Telegram за период (задача 33). `stars` — за вычетом возвращённых
+    за тот же период (может быть меньше нуля), `rubles` — они же примерно в рублях по курсу."""
+
+    count: int
+    stars: int
+    refunds: int  # сколько оплат звёздами возвращено за период
+    rubles: Decimal
+
+
+NO_STARS = StarsSales(0, 0, 0, Decimal(0))
+
+
+@dataclass(frozen=True)
 class SalesTotal:
-    """Оплаты за период. `amount` — поступило за вычетом `refunds` (может быть меньше нуля)."""
+    """Оплаты рублями за период. `amount` — поступило за вычетом `refunds` (может быть меньше
+    нуля). Оплаты звёздами — отдельно, в `stars` (задача 33)."""
 
     count: int
     amount: Decimal
     refunds: RefundsTotal = NO_REFUNDS
+    stars: StarsSales = NO_STARS
 
 
 @dataclass(frozen=True)
@@ -104,6 +129,7 @@ class Stats:
     trials: TrialStats
     support: SupportStats
     clients: ClientTotals
+    stars_rate: Decimal  # курс звезды в рублях, по которому посчитаны `stars.rubles`
 
 
 class StatsService:
@@ -114,22 +140,33 @@ class StatsService:
         session_factory: async_sessionmaker[AsyncSession],
         remnawave: RemnawaveClient,
         clock: Clock,
+        stars_rate: Decimal,  # курс звезды в рублях (`stars_rub_rate` из tariffs.yaml)
     ) -> None:
         self._session_factory = session_factory
         self._remnawave = remnawave
         self._clock = clock
+        self._stars_rate = stars_rate
 
     async def collect(self) -> Stats:
         now = utc_now(self._clock)
         month_start = moscow_month_start(now)
         async with self._session_factory() as session:
-            sales_today = await _sales(session, moscow_day_start(now), now)
-            sales_month = await _sales(session, month_start, now)
+            sales_today = await _sales(session, moscow_day_start(now), now, self._stars_rate)
+            sales_month = await _sales(session, month_start, now, self._stars_rate)
             trials = await _trials(session)
             support = await _support(session, month_start)
             clients = await _clients(session)
             subscriptions = await self._subscriptions(session, now)
-        return Stats(now, sales_today, sales_month, subscriptions, trials, support, clients)
+        return Stats(
+            now,
+            sales_today,
+            sales_month,
+            subscriptions,
+            trials,
+            support,
+            clients,
+            self._stars_rate,
+        )
 
     async def _subscriptions(
         self, session: AsyncSession, now: datetime
@@ -167,35 +204,84 @@ def _snapshot(account: ProxyAccount, client: Client | None) -> ClientSnapshot:
     )
 
 
-async def sales_between(session: AsyncSession, since: datetime, until: datetime) -> SalesTotal:
+async def sales_between(
+    session: AsyncSession, since: datetime, until: datetime, stars_rate: Decimal
+) -> SalesTotal:
     """Оплаты с `since` по `until` включительно — для ежедневного отчёта (задача 22)."""
-    return await _sales(session, since, until)
+    return await _sales(session, since, until, stars_rate)
 
 
-async def _sales(session: AsyncSession, since: datetime, until: datetime) -> SalesTotal:
+# Заказ оплачен звёздами Telegram (задача 33) — или нет
+_PAID_WITH_STARS = Order.payment_provider == STARS_PROVIDER
+_PAID_WITH_RUBLES = or_(Order.payment_provider.is_(None), Order.payment_provider != STARS_PROVIDER)
+
+
+async def _sales(
+    session: AsyncSession, since: datetime, until: datetime, stars_rate: Decimal
+) -> SalesTotal:
     rows = await session.execute(
         select(Order.paid_amount, Order.price).where(
-            Order.paid_at.is_not(None), Order.paid_at >= since, Order.paid_at <= until
+            _PAID_WITH_RUBLES,
+            Order.paid_at.is_not(None),
+            Order.paid_at >= since,
+            Order.paid_at <= until,
         )
     )
     amounts = [paid if paid is not None else price for paid, price in rows]
     refunds = await _refunds(session, since, until)
     return SalesTotal(
-        count=len(amounts), amount=sum(amounts, Decimal(0)) - refunds.amount, refunds=refunds
+        count=len(amounts),
+        amount=sum(amounts, Decimal(0)) - refunds.amount,
+        refunds=refunds,
+        stars=await _stars_sales(session, since, until, stars_rate),
     )
 
 
-async def _refunds(session: AsyncSession, since: datetime, until: datetime) -> RefundsTotal:
-    """Деньги, которые платёжка вернула за период (по событию «платёжка вернула деньги»)."""
-    details = await session.scalars(
-        select(Event.details).where(
+def _refunded_between(
+    since: datetime, until: datetime
+) -> Select[tuple[int | None, dict[str, Any] | None]]:
+    """Возвраты, которые платёжка сделала за период (событие «платёжка вернула деньги»).
+
+    Событие без заказа считается возвратом рублей.
+    """
+    return (
+        select(Event.order_id, Event.details)
+        .outerjoin(Order, Order.id == Event.order_id)
+        .where(
             Event.kind == EventKind.REFUND_COMPLETED.value,
             Event.occurred_at >= since,
             Event.occurred_at <= until,
         )
     )
-    amounts = [Decimal(item["amount"]) for item in details if item is not None]
+
+
+async def _refunds(session: AsyncSession, since: datetime, until: datetime) -> RefundsTotal:
+    """Рубли, которые платёжка вернула за период. Возвраты звёзд — в `_stars_sales`."""
+    rows = await session.execute(_refunded_between(since, until).where(_PAID_WITH_RUBLES))
+    amounts = [Decimal(details["amount"]) for _, details in rows if details is not None]
     return RefundsTotal(count=len(amounts), amount=sum(amounts, Decimal(0)))
+
+
+async def _stars_sales(
+    session: AsyncSession, since: datetime, until: datetime, stars_rate: Decimal
+) -> StarsSales:
+    """Оплаты звёздами за период за вычетом звёзд, возвращённых за тот же период."""
+    paid_ids = list(
+        await session.scalars(
+            select(Order.id).where(
+                _PAID_WITH_STARS,
+                Order.paid_at.is_not(None),
+                Order.paid_at >= since,
+                Order.paid_at <= until,
+            )
+        )
+    )
+    refunded_rows = await session.execute(_refunded_between(since, until).where(_PAID_WITH_STARS))
+    refunded_ids = [order_id for order_id, _ in refunded_rows if order_id is not None]
+    paid = await paid_stars(session, paid_ids)
+    refunded = await paid_stars(session, refunded_ids)
+    net = sum(paid.values()) - sum(refunded.get(order_id, 0) for order_id in refunded_ids)
+    return StarsSales(len(paid_ids), net, len(refunded_ids), stars_in_rubles(net, stars_rate))
 
 
 async def _trials(session: AsyncSession) -> TrialStats:

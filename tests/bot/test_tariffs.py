@@ -9,7 +9,7 @@ from bot_updates import ADMIN_ID, CLIENT_ID, NOW, callback, message, user
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from tsproxy.bot.callbacks import MenuCallback, ScreenId, TariffCallback
+from tsproxy.bot.callbacks import MenuCallback, ScreenId, TariffCallback, TariffScreenCallback
 from tsproxy.bot.fakes import FakeTelegramSession
 from tsproxy.bot.tariffs import TariffScreens
 from tsproxy.content.loader import REQUIRED_TEXTS, Content, Texts
@@ -31,7 +31,13 @@ def buttons(markup: InlineKeyboardMarkup | None) -> list[tuple[str, str | None, 
 
 
 def buy(tariff_id: str) -> str:
+    """«💳 СБП» на экране тарифа (и старые кнопки тарифов)."""
     return TariffCallback(tariff_id=tariff_id).pack()
+
+
+def tariff_screen(tariff_id: str) -> str:
+    """Тариф в списке — экран тарифа со способами оплаты (задача 33)."""
+    return TariffScreenCallback(tariff_id=tariff_id).pack()
 
 
 def last_edit(telegram: FakeTelegramSession) -> EditMessageText:
@@ -52,7 +58,13 @@ async def test_client_sees_tariffs_with_discount_but_not_hidden(
     edited = last_edit(telegram)
     assert edited.text == content.texts.get("tariffs.title")
     shown = buttons(edited.reply_markup)  # type: ignore[arg-type]
-    assert [d for _, d, _ in shown] == [buy("m1"), buy("m3"), buy("m6"), buy("m12"), ANY_MENU]
+    assert [d for _, d, _ in shown] == [
+        tariff_screen("m1"),
+        tariff_screen("m3"),
+        tariff_screen("m6"),
+        tariff_screen("m12"),
+        ANY_MENU,
+    ]
     assert shown[0][0] == "1 месяц — 150 ₽"
     assert shown[1][0] == "3 месяца — 405 ₽ · выгода 10%"
 
@@ -64,7 +76,7 @@ async def test_admin_also_sees_hidden_test_tariff(
 
     [sent] = telegram.sent(SendMessage)
     data = [d for _, d, _ in buttons(sent.reply_markup)]  # type: ignore[arg-type]
-    assert buy("test15") in data
+    assert tariff_screen("test15") in data
 
 
 async def test_buy_command_opens_tariffs(
@@ -195,6 +207,9 @@ async def test_screens_use_only_required_texts(content: Content) -> None:
     screens = TariffScreens(texts)
     offers = tuple(TariffOffer(t, 10) for t in content.tariffs)
     screens.tariffs(offers)
+    screens.tariff(content.tariffs[0], 100)  # задача 33: экран тарифа, СБП и звёзды
+    screens.tariff(content.tariffs[0], None)
+    screens.stars_sent(100)
     screens.payment(Checkout(1, content.tariffs[0], "https://pay.example/1", NOW, reused=False))
     screens.notice("payment.too_many")
     screens.notice("payment.unavailable")
@@ -209,3 +224,4 @@ def test_limits_of_telegram(content: Content) -> None:
     assert len(content.texts.get("tariffs.not_available")) <= CALLBACK_ANSWER_MAX
     for tariff in content.tariffs:
         assert len(buy(tariff.id).encode()) <= CALLBACK_DATA_MAX_BYTES
+        assert len(tariff_screen(tariff.id).encode()) <= CALLBACK_DATA_MAX_BYTES

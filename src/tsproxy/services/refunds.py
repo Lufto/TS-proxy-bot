@@ -28,6 +28,11 @@
 - **Подписку перенесли на другой аккаунт** после этой оплаты — её дни уже не здесь:
   возврат через бота не делаем, иначе ушли бы и деньги, и дни (решение агента).
 
+**Чем платили — тем и возвращаем** (задача 33): деньги возвращает `RefundRouter` по платёжке
+заказа — СБП через платёжку, звёзды Telegram через `refundStarPayment`. Сервис по способу
+оплаты не ветвится. Способа нет (оплата выключена, платёжку сменили) — «оплата выключена».
+Суммы в сообщениях — тем, чем платили: «150 ₽» или «100 ⭐» (`content.amounts.paid_text`).
+
 Возвраты, решённые раньше 2026-10-30 по старому замыслу (запрос клиента), в базе не встречаются:
 бот ещё не запускался.
 """
@@ -42,12 +47,13 @@ from typing import Any, Protocol
 from sqlalchemy import exists, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from tsproxy.content.amounts import paid_text
 from tsproxy.content.loader import Texts
 from tsproxy.db.enums import OrderStatus, RefundStatus
 from tsproxy.db.models import Client, Event, Order, RefundRequest
 from tsproxy.db.repository import affected_rows
 from tsproxy.domain.constants import ONE_DAY
-from tsproxy.domain.money import format_rubles, paid_duration
+from tsproxy.domain.money import paid_duration
 from tsproxy.domain.refund import (
     REFUND_END_MARGIN,
     double_payment_refund_open,
@@ -56,12 +62,13 @@ from tsproxy.domain.refund import (
     term_after_refund,
 )
 from tsproxy.integrations.payments_types import (
+    PaidPayment,
     PaymentError,
-    PaymentProvider,
     PaymentUnavailable,
     Refund,
     RefundOutcome,
 )
+from tsproxy.integrations.refunds import RefundRouter
 from tsproxy.integrations.remnawave_types import (
     AccountNotFound,
     AccountStatus,
@@ -73,7 +80,7 @@ from tsproxy.services.admin import AdminActionKind, same_second
 from tsproxy.services.admin_topics import AdminTopic
 from tsproxy.services.alerts import Alerter
 from tsproxy.services.clock import Clock, utc_now
-from tsproxy.services.crediting import DOUBLE_DETAIL
+from tsproxy.services.crediting import DOUBLE_DETAIL, paid_stars
 from tsproxy.services.events import EventKind, EventLog
 from tsproxy.services.locks import KeyedLocks
 
@@ -101,7 +108,8 @@ class RefundKind(StrEnum):
 class RefundRefusal(StrEnum):
     """Почему эту оплату нельзя вернуть через бота сейчас."""
 
-    PAYMENTS_OFF = "payments_off"  # платёжка не подключена (`PAYMENTS_MODE=off`)
+    # способ оплаты заказа не подключён (`PAYMENTS_MODE=off` или платёжку сменили)
+    PAYMENTS_OFF = "payments_off"
     CLIENT_NOT_FOUND = "client_not_found"  # не клиент бота
     ORDER_NOT_FOUND = "order_not_found"  # нет такой оплаты у этого клиента
     NOT_GRANTED = "not_granted"  # доступ по оплате ещё не выдан (выдача идёт или сбой)
@@ -152,6 +160,7 @@ class RefundablePayment:
     duration: timedelta  # сколько срока дала оплата — столько и снимется
     refund_status: RefundStatus | None
     blocker: RefundRefusal | None
+    stars: int | None = None  # оплачено звёздами Telegram — сколько (задача 33)
 
 
 @dataclass(frozen=True)
@@ -170,6 +179,7 @@ class RefundResult:
     amount: Decimal
     progress: RefundProgress
     expire_at: datetime | None
+    stars: int | None = None  # оплачено звёздами Telegram — сколько (задача 33)
 
 
 class RefundMessages(Protocol):
@@ -177,9 +187,12 @@ class RefundMessages(Protocol):
     реализация разбирает сама: возврат к этому моменту уже сделан."""
 
     async def refund_completed(
-        self, telegram_id: int, amount: Decimal, expire_at: datetime | None
+        self, telegram_id: int, amount: Decimal, expire_at: datetime | None, *, stars: int | None
     ) -> None:
-        """Деньги возвращены, срок укорочен. `expire_at=None` — доступ выключен."""
+        """Деньги возвращены, срок укорочен. `expire_at=None` — доступ выключен.
+
+        `stars` — оплата была звёздами Telegram: вернулись звёзды, а не `amount` рублей.
+        """
         ...
 
 
@@ -199,7 +212,7 @@ class RefundService:
         self,
         session_factory: async_sessionmaker[AsyncSession],
         remnawave: RemnawaveClient,
-        payments: PaymentProvider | None,  # None — оплата выключена (задача 29)
+        refunds: RefundRouter,  # чем платили — тем и возвращаем (СБП, звёзды)
         events: EventLog,
         alerter: Alerter,
         payments_topic: AdminTopic,  # «💰 Оплаты»
@@ -210,7 +223,7 @@ class RefundService:
     ) -> None:
         self._session_factory = session_factory
         self._remnawave = remnawave
-        self._payments = payments
+        self._refunds = refunds
         self._events = events
         self._alerter = alerter
         self._payments_topic = payments_topic
@@ -293,10 +306,11 @@ class RefundService:
                 session, EventKind.DOUBLE_PAYMENT_KEPT, client_id=client.id, order_id=order.id
             )
             await session.commit()
+            stars = await _order_stars(session, order.id)
             text = self._admin_texts.get(
                 "refunds.topic.double_kept",
                 order_id=order.id,
-                amount=format_rubles(_paid_amount(order)),
+                amount=paid_text(self._admin_texts, _paid_amount(order), stars),
                 **_client_values(self._admin_texts, client),
             )
         logger.info("Клиент %s оставил вторую оплату, заказ %s", client.id, order_id)
@@ -367,7 +381,10 @@ class RefundService:
             progress, expire_at = await self._continue(claimed)
         await self._report(claimed, progress)
         row = await self._row(claimed)
-        return RefundResult(claimed, row.order_id, telegram_id, row.amount, progress, expire_at)
+        stars = await self._stars(row.order_id)
+        return RefundResult(
+            claimed, row.order_id, telegram_id, row.amount, progress, expire_at, stars
+        )
 
     async def _claim(
         self, telegram_id: int, order_id: int, kind: RefundKind, admin: AdminRef | None
@@ -456,6 +473,7 @@ class RefundService:
             duration=_duration(order),
             refund_status=await _last_refund_status(session, order.id),
             blocker=await self._refusal(session, client, order, kind, now),
+            stars=await _order_stars(session, order.id),
         )
 
     async def _refusal(
@@ -486,7 +504,7 @@ class RefundService:
             return RefundRefusal.WINDOW_PASSED
         if await _transferred_since(session, client, order.paid_at):
             return RefundRefusal.TRANSFERRED
-        if self._payments is None:
+        if not self._refunds.supports(order.payment_provider):
             return RefundRefusal.PAYMENTS_OFF
         return None
 
@@ -504,17 +522,19 @@ class RefundService:
 
     async def _return_money(self, row: RefundRequest) -> None:
         """Попросить платёжку вернуть всю сумму. Статус меняется по ответу платёжки."""
-        if self._payments is None:
-            logger.warning("Возврат %s начат, а платёжки нет — ждём её", row.id)
-            return
         async with self._session_factory() as session:
             order = await session.get_one(Order, row.order_id)
-        if order.payment_id is None:
-            raise ValueError(f"заказ {order.id} оплачен без номера платежа")
-        try:
-            refund = await self._payments.refund(
-                order.payment_id, row.amount, refund_idempotency_key(row.id)
+            client = await session.get_one(Client, row.client_id)
+        if not self._refunds.supports(order.payment_provider):
+            logger.warning(
+                "Возврат %s начат, а платёжки %s нет — ждём её", row.id, order.payment_provider
             )
+            return
+        if order.payment_provider is None or order.payment_id is None:
+            raise ValueError(f"заказ {order.id} оплачен без номера платежа")
+        paid = PaidPayment(order.payment_provider, order.payment_id, client.telegram_id)
+        try:
+            refund = await self._refunds.refund(paid, row.amount, refund_idempotency_key(row.id))
         except PaymentUnavailable as error:
             logger.warning("Возврат %s: платёжка не ответила: %s", row.id, error)
             await self._alert("refund_provider_unavailable", row, error=str(error))
@@ -621,7 +641,9 @@ class RefundService:
             )
             await session.commit()
         logger.info("Возврат %s закончен", row.id)
-        await self._messages.refund_completed(client.telegram_id, row.amount, after)
+        await self._messages.refund_completed(
+            client.telegram_id, row.amount, after, stars=await self._stars(row.order_id)
+        )
         return RefundProgress.COMPLETED, after
 
     async def _apply_term(
@@ -732,20 +754,21 @@ class RefundService:
             "refunds.topic.header",
             request_id=row.id,
             order_id=row.order_id,
-            amount=format_rubles(row.amount),
+            amount=paid_text(texts, row.amount, await self._stars(row.order_id)),
             **_client_values(texts, client),
         )
         status = texts.get(f"refunds.topic.{progress.value}")
         await self._payments_topic.post("\n".join([header, who, status]))
 
     async def _alert(self, kind: str, row: RefundRequest, *, error: str) -> None:
+        amount = paid_text(self._admin_texts, row.amount, await self._stars(row.order_id))
         await self._alerter.raise_alert(
             f"{kind}:{row.id}",
             self._admin_texts.get(
                 f"alerts.{kind}",
                 request_id=row.id,
                 order_id=row.order_id,
-                amount=format_rubles(row.amount),
+                amount=amount,
                 error=error,
             ),
         )
@@ -754,10 +777,19 @@ class RefundService:
         async with self._session_factory() as session:
             return await session.get_one(RefundRequest, request_id)
 
+    async def _stars(self, order_id: int) -> int | None:
+        async with self._session_factory() as session:
+            return await _order_stars(session, order_id)
+
 
 def refund_idempotency_key(request_id: int) -> str:
     """Ключ идемпотентности возврата у платёжки — номер возврата: повтор не вернёт дважды."""
     return f"refund-request-{request_id}"
+
+
+async def _order_stars(session: AsyncSession, order_id: int) -> int | None:
+    """Сколько звёзд заплачено за заказ; `None` — платили рублями (задача 33)."""
+    return (await paid_stars(session, [order_id])).get(order_id)
 
 
 def _paid_amount(order: Order) -> Decimal:

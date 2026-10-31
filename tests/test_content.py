@@ -6,6 +6,7 @@ import pytest
 from tsproxy.content.loader import (
     ContentError,
     load_content,
+    load_stars_rate,
     load_tariffs,
     load_texts,
     quick_reply_ids,
@@ -88,6 +89,31 @@ def test_unknown_tariff_field_is_error(tmp_path: Path) -> None:
     text = TARIFF.format(price=150) + "    discount: 10\n"
     with pytest.raises(ContentError, match="лишние"):
         load_tariffs(write(tmp_path / "tariffs.yaml", text))
+
+
+# --- Курс звезды (задача 33) ---
+
+
+def test_repo_stars_rate_is_one_and_a_half_rubles() -> None:
+    assert load_content(REPO_CONTENT).stars_rub_rate == Decimal("1.5")
+
+
+@pytest.mark.parametrize(("raw", "rate"), [("1.5", "1.5"), ("2", "2"), ("'1.25'", "1.25")])
+def test_stars_rate_is_read_exactly(tmp_path: Path, raw: str, rate: str) -> None:
+    path = write(tmp_path / "tariffs.yaml", f"stars_rub_rate: {raw}\n")
+    assert load_stars_rate(path) == Decimal(rate)
+
+
+@pytest.mark.parametrize("raw", ["0", "-1.5", "abc", "true", "[]"])
+def test_bad_stars_rate_stops_startup(tmp_path: Path, raw: str) -> None:
+    path = write(tmp_path / "tariffs.yaml", f"stars_rub_rate: {raw}\n")
+    with pytest.raises(ContentError, match="stars_rub_rate"):
+        load_stars_rate(path)
+
+
+def test_missing_stars_rate_stops_startup(tmp_path: Path) -> None:
+    with pytest.raises(ContentError, match="stars_rub_rate"):
+        load_stars_rate(write(tmp_path / "tariffs.yaml", TARIFF.format(price=150)))
 
 
 # --- Быстрые ответы поддержки (задача 17) ---

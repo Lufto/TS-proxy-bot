@@ -24,6 +24,13 @@
 
 Оплата выключена (`PAYMENTS_MODE=off`, задача 29) — платёжки нет: витрина та же,
 но `checkout` отказывает до любых записей в базу и запросов к платёжке.
+
+Задача 33: заказ на оплату звёздами Telegram (`stars_order`) — тот же заказ, с отметкой
+способа оплаты `payment_provider = "telegram_stars"` с самого создания. Платежа у платёжки
+нет: счёт — сообщение Telegram, номер платежа появляется только после оплаты
+(`services.stars`). Каждое «⭐ Stars» — новый заказ и новый счёт (тот же предел частоты);
+две оплаченные — случайная двойная оплата, как у СБП. Скрытый тестовый тариф звёздами
+не продаётся (решение владельца 2026-10-30). Заказы звёздами СБП не подхватывает.
 """
 
 import logging
@@ -32,7 +39,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Protocol
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from tsproxy.content.loader import Tariff, Texts
@@ -42,6 +49,7 @@ from tsproxy.domain.constants import MONTH_DAYS, PAYMENT_LINK_LIFETIME
 from tsproxy.domain.money import discount_percent
 from tsproxy.domain.payments import can_reuse_payment, payment_link_expires_at
 from tsproxy.integrations.payments_types import CreatedPayment, PaymentProvider, PaymentRequest
+from tsproxy.integrations.telegram_stars import STARS_PROVIDER
 from tsproxy.services.clock import Clock, utc_now
 from tsproxy.services.events import EventKind, EventLog
 from tsproxy.services.locks import KeyedLocks
@@ -101,6 +109,14 @@ class Checkout:
     payment_url: str
     expires_at: datetime
     reused: bool  # та же ссылка, что и в прошлый раз
+
+
+@dataclass(frozen=True)
+class StarsOrder:
+    """Новый заказ на оплату звёздами (задача 33): счёт за него выставит бот."""
+
+    order_id: int
+    tariff: Tariff
 
 
 class OrderService:
@@ -195,16 +211,44 @@ class OrderService:
             )
             return await self._attach_payment(order.id, tariff, payments.name, created, now)
 
+    async def stars_order(self, client: Client, tariff_id: str) -> StarsOrder:
+        """Новый заказ на оплату звёздами (задача 33): счёт за него выставит бот.
+
+        Те же проверки, что у `checkout`: оплата включена, тариф доступен (скрытый звёздами
+        не продаётся), нет незасчитанной оплаты прошлого заказа, не слишком часто.
+        """
+        if self._payments is None:
+            raise PaymentsDisabled(f"оплата выключена, клиент {client.telegram_id}")
+        tariff = self._tariff_for(client.telegram_id, tariff_id)
+        if tariff.hidden:
+            raise TariffUnavailable(f"тариф {tariff_id!r} звёздами не продаётся")
+        async with self._locks.hold(client.id):
+            paid_order_id = await self._earlier_payments.find_paid(client.id)
+            if paid_order_id is not None:
+                raise EarlierPaymentFound(paid_order_id)
+            now = utc_now(self._clock)
+            async with self._session_factory() as session:
+                await self._check_rate(session, client.id, now)
+                order = await self._new_order(
+                    session, client.id, tariff, now, provider=STARS_PROVIDER
+                )
+        return StarsOrder(order.id, tariff)
+
     async def _open_order(
         self, session: AsyncSession, client_id: int, tariff: Tariff
     ) -> Order | None:
-        """Последний неоплаченный заказ клиента на этот тариф — если цена в файле не менялась."""
+        """Последний неоплаченный заказ клиента на этот тариф — если цена в файле не менялась.
+
+        Только заказы СБП: у них способ оплаты пишется вместе с платежом. Заказы звёздами
+        (задача 33) помечены с создания — им платёж платёжки не нужен.
+        """
         order = await session.scalar(
             select(Order)
             .where(
                 Order.client_id == client_id,
                 Order.tariff_id == tariff.id,
                 Order.status == OrderStatus.CREATED,
+                or_(Order.payment_provider.is_(None), Order.payment_provider != STARS_PROVIDER),
             )
             .order_by(Order.created_at.desc(), Order.id.desc())
             .limit(1)
@@ -224,7 +268,13 @@ class OrderService:
             raise TooManyPayments(f"клиент {client_id}: {recent} новых платежей подряд")
 
     async def _new_order(
-        self, session: AsyncSession, client_id: int, tariff: Tariff, now: datetime
+        self,
+        session: AsyncSession,
+        client_id: int,
+        tariff: Tariff,
+        now: datetime,
+        *,
+        provider: str | None = None,  # задача 33: заказ звёздами помечен с создания
     ) -> Order:
         order = Order(
             client_id=client_id,
@@ -233,15 +283,23 @@ class OrderService:
             days=tariff.days,
             status=OrderStatus.CREATED,
             created_at=now,
+            payment_provider=provider,
         )
         session.add(order)
         await session.flush()
+        details: dict[str, object] = {
+            "tariff_id": tariff.id,
+            "price": str(tariff.price),
+            "days": tariff.days,
+        }
+        if provider is not None:
+            details["provider"] = provider
         await self._events.record(
             session,
             EventKind.ORDER_CREATED,
             client_id=client_id,
             order_id=order.id,
-            details={"tariff_id": tariff.id, "price": str(tariff.price), "days": tariff.days},
+            details=details,
         )
         await session.commit()
         logger.info("Заказ %s: клиент %s, тариф %s", order.id, client_id, tariff.id)
