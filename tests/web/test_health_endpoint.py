@@ -36,6 +36,13 @@ async def test_problem_answers_503_without_details() -> None:
     assert response.text == "проблема"
 
 
+async def test_site_on_other_domain_can_read_status() -> None:
+    # сайт ts-proxy.com показывает плашку «неполадки» по ответу бота (задача 25)
+    for healthy in (True, False):
+        response = await request(healthy=healthy)
+        assert response.headers["access-control-allow-origin"] == "*"
+
+
 async def test_head_is_supported_for_uptimerobot() -> None:
     response = await request(healthy=True, method="HEAD")
     assert response.status_code == 200
