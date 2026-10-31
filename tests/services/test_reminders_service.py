@@ -3,7 +3,7 @@
 
 import asyncio
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import pytest
 from conftest import NOW
@@ -16,7 +16,11 @@ from tsproxy.db.enums import NotificationKind
 from tsproxy.db.models import Client, Event, Notification
 from tsproxy.domain.reminders import AccessPeriod, Reminder, ReminderKind, TrialTrafficNotice
 from tsproxy.integrations.fakes import FakeRemnawave
-from tsproxy.integrations.remnawave_types import AccountStatus, RemnawaveUnavailable
+from tsproxy.integrations.remnawave_types import (
+    AccountStatus,
+    ProxyAccount,
+    RemnawaveUnavailable,
+)
 from tsproxy.services.account_checks import AccountCheck, CheckSource
 from tsproxy.services.events import EventKind, EventLog
 from tsproxy.services.fakes import FakeClock
@@ -425,13 +429,30 @@ async def test_simultaneous_checks_extend_once(
     clock: FakeClock,
     session: AsyncSession,
     client: Client,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     await start_trial(remnawave, session, client)
     clock.now = TRIAL_END + timedelta(minutes=1)
     account = await remnawave.get_account(TELEGRAM_ID)
     probe = AccountCheck(TELEGRAM_ID, account, CheckSource.WEBHOOK, "user.expired", clock.now)
+    # первая проверка застревает на записи срока в панель уже после того, как засчитала
+    # продление, — ровно тогда приходит вторая (вебхук и сверка в одну минуту)
+    in_panel, release = asyncio.Event(), asyncio.Event()
+    set_expiry = remnawave.set_expiry
 
-    await asyncio.gather(service.handle(probe), service.handle(probe))
+    async def slow_set_expiry(telegram_id: int, expire_at: datetime) -> ProxyAccount:
+        in_panel.set()
+        await release.wait()
+        return await set_expiry(telegram_id, expire_at)
+
+    monkeypatch.setattr(remnawave, "set_expiry", slow_set_expiry)
+    first = asyncio.create_task(service.handle(probe))
+    await in_panel.wait()
+    second = asyncio.create_task(service.handle(probe))
+    for _ in range(20):  # даём второй дойти до развилки «продление уже засчитано»
+        await asyncio.sleep(0)
+    release.set()
+    await asyncio.gather(first, second)
 
     assert await extensions(session, client) == 1
     assert len(notifier.notices) == 1

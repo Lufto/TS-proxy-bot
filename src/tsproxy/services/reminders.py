@@ -48,6 +48,7 @@ from tsproxy.integrations.remnawave_types import AccountStatus, ProxyAccount, Re
 from tsproxy.services.account_checks import AccountCheck
 from tsproxy.services.clock import Clock, utc_now
 from tsproxy.services.events import EventKind, EventLog
+from tsproxy.services.locks import KeyedLocks
 from tsproxy.services.profile import on_trial
 
 logger = logging.getLogger(__name__)
@@ -121,6 +122,8 @@ class ReminderService:
         self._events = events
         self._notifier = notifier
         self._clock = clock
+        # окончание пробного — по одному на клиента: вебхук и сверка приходят одновременно
+        self._trial_locks = KeyedLocks()
 
     async def handle(self, check: AccountCheck) -> None:
         client = await self._find_client(check.telegram_id)
@@ -135,7 +138,8 @@ class ReminderService:
         now = utc_now(self._clock)
         trial = on_trial(client, account)
         if trial and now >= account.expire_at:
-            await self._trial_expired(client, account, now)
+            async with self._trial_locks.hold(client.id):
+                await self._trial_expired(client, account, now)
             return
         snapshot = ClientSnapshot(
             expire_at=account.expire_at,
@@ -211,6 +215,11 @@ class ReminderService:
         """
         expire_at = account.expire_at
         if await self._extension_claimed(client.id, expire_at):
+            current = await self._remnawave.get_account(client.telegram_id)
+            if current.expire_at != expire_at:
+                # срок в панели уже другой: продление дошло (параллельная проверка) или
+                # клиент оплатил — доделывать нечего
+                return
             logger.warning(
                 "Клиент %s: продление пробного не дошло до панели — доделываем", client.id
             )

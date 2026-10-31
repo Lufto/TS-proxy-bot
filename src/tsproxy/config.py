@@ -60,7 +60,6 @@ class Settings(BaseSettings):
     payments_thread_id: int | None = None
     alerts_thread_id: int
     backups_thread_id: int
-    refunds_thread_id: int | None = None
     # Ежедневный отчёт (задача 22): тема группы; не задано — общая тема
     reports_thread_id: int | None = None
 
