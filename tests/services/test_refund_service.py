@@ -454,6 +454,31 @@ async def test_refund_after_transfer_is_refused(
     assert result == RefundRefused(RefundRefusal.TRANSFERRED)
 
 
+async def test_payment_disputed_through_bank_is_not_refunded(
+    setup: Setup, client: Client, clock: FakeClock
+) -> None:
+    """Задача 15: деньги клиенту вернул банк, дни сняты — кнопкой второй раз не вернуть."""
+    order = await paid_order(setup, client, paid_at=clock(), expire_at=clock() + MONTH)
+    async with setup.session_factory() as session:
+        session.add(
+            Event(
+                kind=EventKind.PAYMENT_CHARGEBACK.value,
+                client_id=client.id,
+                order_id=order.id,
+                occurred_at=clock(),
+                details={"access": "shortened"},
+            )
+        )
+        await session.commit()
+
+    [payment] = await setup.service.refundable_payments(TELEGRAM_ID) or []
+    result = await setup.service.refund_by_admin(ADMIN, TELEGRAM_ID, order.id)
+
+    assert payment.blocker is RefundRefusal.DISPUTED
+    assert result == RefundRefused(RefundRefusal.DISPUTED)
+    assert await statuses(setup) == []
+
+
 async def test_journal_has_admin_name_and_amounts(
     setup: Setup, client: Client, clock: FakeClock
 ) -> None:

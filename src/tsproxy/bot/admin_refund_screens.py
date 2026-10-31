@@ -87,6 +87,7 @@ class RefundAdminScreens:
             RefundRefusal.NOT_GRANTED,
             RefundRefusal.TRANSFERRED,
             RefundRefusal.PAYMENTS_OFF,
+            RefundRefusal.DISPUTED,
         ):
             return self._texts.get(f"refunds.state.{blocker.value}")
         return self._texts.get(f"refunds.refused.{blocker.value}", order_id=payment.order_id)

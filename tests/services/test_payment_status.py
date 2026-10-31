@@ -5,10 +5,11 @@
 `PaymentNotice` с подсказками, как их разбирает Platega.
 """
 
+from datetime import timedelta
 from decimal import Decimal
 
 import pytest
-from payment_helpers import PaymentSetup, build_payment_setup
+from payment_helpers import DAYS, PaymentSetup, build_payment_setup
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from tsproxy.db.engine import create_session_factory
@@ -86,7 +87,7 @@ async def account_status(s: PaymentSetup, client: Client) -> AccountStatus:
 # --- Спор через банк ---
 
 
-async def test_bank_chargeback_disables_access_tells_client_and_alerts(
+async def test_bank_chargeback_of_only_payment_ends_access_tells_client_and_alerts(
     s: PaymentSetup, client: Client
 ) -> None:
     order_id, payment_id = await granted_order(s, client)
@@ -95,14 +96,34 @@ async def test_bank_chargeback_disables_access_tells_client_and_alerts(
     outcome = await notify(s, payment_id, PaymentStatus.REFUNDED)
 
     assert outcome is CheckOutcome.STATUS_CHANGED
+    # других оплаченных дней нет: после снятия дней этой оплаты доступ выключен
     assert (await account_status(s, client)) is AccountStatus.DISABLED
-    assert s.messages.disputed == [client.telegram_id]
+    assert s.messages.disputed == [(client.telegram_id, None, True)]
     [alert] = alert_texts(s)
     assert "Спор через банк" in alert and f"/client {client.telegram_id}" in alert
-    assert f"#{order_id}" in alert and "Доступ клиента отключён" in alert
+    assert f"#{order_id}" in alert and "доступ отключён" in alert
     [event] = await s.events(EventKind.PAYMENT_CHARGEBACK)
     assert event.order_id == order_id
-    assert event.details is not None and event.details["access"] == "disabled"
+    assert event.details is not None and event.details["access"] == "ended"
+
+
+async def test_chargeback_takes_only_days_of_disputed_payment(
+    s: PaymentSetup, client: Client
+) -> None:
+    """Решение владельца 2026-10-31: другие оплаченные месяцы у клиента остаются."""
+    await granted_order(s, client)
+    _, payment_id = await granted_order(s, client)
+    before = (await s.remnawave.get_account(client.telegram_id)).expire_at
+    s.payments.ledger.change_status(payment_id, PaymentStatus.REFUNDED)
+
+    await notify(s, payment_id, PaymentStatus.REFUNDED)
+
+    account = await s.remnawave.get_account(client.telegram_id)
+    assert account.status is not AccountStatus.DISABLED
+    assert account.expire_at == before - timedelta(days=DAYS)
+    assert s.messages.disputed == [(client.telegram_id, account.expire_at, False)]
+    [alert] = [text for text in alert_texts(s) if "Спор через банк" in text]
+    assert "другие оплаченные дни остались" in alert
 
 
 async def test_repeated_chargeback_callback_changes_nothing(
@@ -119,9 +140,10 @@ async def test_repeated_chargeback_callback_changes_nothing(
     assert len(s.messages.disputed) == 1
     assert len(alert_texts(s)) == 1
     assert len(await s.events(EventKind.PAYMENT_CHARGEBACK)) == 1
+    assert (await account_status(s, client)) is AccountStatus.DISABLED
 
 
-async def test_panel_down_on_chargeback_asks_admins_to_disable(
+async def test_panel_down_on_chargeback_asks_admins_to_take_days_manually(
     s: PaymentSetup, client: Client
 ) -> None:
     _, payment_id = await granted_order(s, client)
@@ -131,8 +153,8 @@ async def test_panel_down_on_chargeback_asks_admins_to_disable(
     await notify(s, payment_id, PaymentStatus.REFUNDED)
 
     [alert] = alert_texts(s)
-    assert "отключите вручную" in alert
-    assert s.messages.disputed == [client.telegram_id]
+    assert "снимите вручную" in alert
+    assert s.messages.disputed == [(client.telegram_id, None, False)]
 
 
 async def test_notification_hint_alone_changes_nothing(s: PaymentSetup, client: Client) -> None:

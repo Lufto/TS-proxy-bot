@@ -12,8 +12,11 @@ Platega сообщает о каждом изменении колбэком (`C
     вернул в кабинете, когда API отказал) — только тревога «возврат мимо бота»: доступ
     не трогаем, клиенту не пишем про спор (решение агента: не наказывать клиента за наш
     же возврат);
-  - иначе — **спор через банк**: отключить доступ в Remnawave, сообщение клиенту,
-    тревога с данными клиента и оплаты, запись в журнал событий.
+  - иначе — **спор через банк**: снять со срока дни этой оплаты — как при нашем возврате
+    (`domain.refund.term_after_refund`; осталось меньше суток — доступ выключается), сообщение
+    клиенту, тревога с данными клиента и оплаты, запись в журнал событий. Другие оплаченные
+    дни у клиента остаются (решение владельца 2026-10-31; раньше — отключали доступ целиком).
+    Вернуть оспоренную оплату кнопкой «↩️ Вернуть» нельзя (`RefundRefusal.DISPUTED`).
 - **Любой другой неожиданный статус** (`DISPUTED`, `PARTIALLY_REFUNDED`, незнакомый,
   «отменён» у засчитанного заказа, возврат по заказу, который мы не засчитывали) — только
   тревога «статус оплаты неожиданно изменился: был …, стал …». Возврат спора назад
@@ -24,6 +27,8 @@ Platega сообщает о каждом изменении колбэком (`C
 """
 
 import logging
+from dataclasses import dataclass
+from datetime import datetime
 from enum import StrEnum
 from typing import Protocol
 
@@ -34,7 +39,9 @@ from tsproxy.content.loader import Texts
 from tsproxy.db.enums import OrderStatus, RefundStatus
 from tsproxy.db.models import Client, Event, Order, RefundRequest
 from tsproxy.db.repository import CREDITED_ORDER_STATUSES
-from tsproxy.domain.money import format_rubles
+from tsproxy.domain.dates import format_moscow
+from tsproxy.domain.money import format_rubles, paid_duration
+from tsproxy.domain.refund import term_after_refund
 from tsproxy.integrations.payments_types import (
     PaymentNotice,
     PaymentState,
@@ -43,6 +50,7 @@ from tsproxy.integrations.payments_types import (
 )
 from tsproxy.integrations.remnawave_types import AccountNotFound, RemnawaveClient, RemnawaveError
 from tsproxy.services.alerts import Alerter
+from tsproxy.services.clock import Clock, utc_now
 from tsproxy.services.events import EventKind, EventLog
 from tsproxy.services.locks import KeyedLocks
 
@@ -65,16 +73,26 @@ class StatusChange(StrEnum):
     REPEAT = "repeat"  # этот статус уже видели — ничего
     OUR_REFUND = "our_refund"  # наш возврат дошёл — дни сняты (или снимаются)
     REFUNDED_OUTSIDE_BOT = "refunded_outside_bot"  # возврат мимо бота — тревога
-    CHARGEBACK = "chargeback"  # спор через банк — доступ отключён, тревога
+    CHARGEBACK = "chargeback"  # спор через банк — дни оплаты сняты, тревога
     CHANGED = "changed"  # другой неожиданный статус — тревога
 
 
 class AccessAfterDispute(StrEnum):
     """Что с доступом клиента после спора через банк."""
 
-    DISABLED = "disabled"  # отключён
-    NO_ACCOUNT = "no_account"  # прокси-аккаунта нет — отключать нечего
-    FAILED = "failed"  # панель не ответила — отключить вручную
+    SHORTENED = "shortened"  # дни оплаты сняты, другие оплаченные дни остались
+    ENDED = "ended"  # после снятия осталось меньше суток — доступ выключен
+    NO_ACCOUNT = "no_account"  # прокси-аккаунта нет — снимать нечего
+    FAILED = "failed"  # панель не ответила — снять вручную
+
+
+@dataclass(frozen=True)
+class TermAfterDispute:
+    """Срок клиента после спора: что сделали и до какого времени теперь подписка."""
+
+    access: AccessAfterDispute
+    expire_at: datetime | None = None  # новый срок (`FAILED` — каким он должен стать)
+    error: str = ""  # ответ панели (`FAILED`)
 
 
 class RefundReviews(Protocol):
@@ -84,9 +102,14 @@ class RefundReviews(Protocol):
 
 
 class DisputeMessages(Protocol):
-    """Сообщение клиенту об отключении доступа из-за спора (в боте — `bot.payments`)."""
+    """Сообщение клиенту о споре через банк (в боте — `bot.payments`)."""
 
-    async def payment_disputed(self, telegram_id: int) -> None: ...
+    async def payment_disputed(
+        self, telegram_id: int, expire_at: datetime | None, *, access_ended: bool
+    ) -> None:
+        """Дни оспоренной оплаты сняты: `expire_at` — новый срок, `access_ended` — доступ
+        выключен. Ни того ни другого — панель не ответила, дни снимет администратор."""
+        ...
 
 
 class PaymentStatusChanges:
@@ -102,6 +125,7 @@ class PaymentStatusChanges:
         admin_texts: Texts,
         messages: DisputeMessages,
         term_locks: KeyedLocks,  # общая блокировка срока клиента: не спорить с выдачей доступа
+        clock: Clock,
     ) -> None:
         self._session_factory = session_factory
         self._remnawave = remnawave
@@ -111,6 +135,7 @@ class PaymentStatusChanges:
         self._admin_texts = admin_texts
         self._messages = messages
         self._term_locks = term_locks
+        self._clock = clock
 
     async def changed(
         self, order: Order, state: PaymentState, notice: PaymentNotice | None
@@ -169,11 +194,11 @@ class PaymentStatusChanges:
         )
 
     async def _chargeback(self, order: Order, state: PaymentState) -> None:
-        """Спор через банк: отключить доступ, написать клиенту, тревога, журнал."""
+        """Спор через банк: снять дни этой оплаты, написать клиенту, тревога, журнал."""
         async with self._session_factory() as session:
             client = await session.get_one(Client, order.client_id)
         logger.warning("Заказ %s: спор через банк, платёж %s", order.id, state.payment_id)
-        access, error = await self._disable(client)
+        term = await self._shorten(client, order)
         async with self._session_factory() as session:
             await self._events.record(
                 session,
@@ -183,12 +208,21 @@ class PaymentStatusChanges:
                 details={
                     "payment_id": state.payment_id,
                     PROVIDER_STATUS_DETAIL: state.status_name,
-                    "access": access.value,
+                    "access": term.access.value,
+                    "expire_at": None if term.expire_at is None else term.expire_at.isoformat(),
                 },
             )
             await session.commit()
-        await self._messages.payment_disputed(client.telegram_id)
-        access_text = self._admin_texts.get(f"alerts.chargeback_access.{access.value}", error=error)
+        ended = term.access in (AccessAfterDispute.ENDED, AccessAfterDispute.NO_ACCOUNT)
+        shortened = term.access is AccessAfterDispute.SHORTENED
+        await self._messages.payment_disputed(
+            client.telegram_id, term.expire_at if shortened else None, access_ended=ended
+        )
+        access_text = self._admin_texts.get(
+            f"alerts.chargeback_access.{term.access.value}",
+            expire_at="" if term.expire_at is None else format_moscow(term.expire_at),
+            error=term.error,
+        )
         await self._alerter.raise_alert(
             f"payment_chargeback:{order.id}",
             self._admin_texts.get(
@@ -198,17 +232,34 @@ class PaymentStatusChanges:
             ),
         )
 
-    async def _disable(self, client: Client) -> tuple[AccessAfterDispute, str]:
-        """Отключить прокси-аккаунт клиента. Панель не ответила — тревога скажет «вручную»."""
+    async def _shorten(self, client: Client, order: Order) -> TermAfterDispute:
+        """Снять со срока дни оспоренной оплаты. Панель не ответила — тревога скажет «вручную».
+
+        Повтора здесь нет: тот же спор второй раз сюда не попадает (событие в журнале),
+        поэтому дни не снимутся дважды. Сбой панели не повторяем — снимет администратор.
+        """
+        if order.paid_amount is None:
+            raise ValueError(f"заказ {order.id} засчитан без оплаченной суммы")
+        duration = paid_duration(order.days, order.price, order.paid_amount)
+        target: datetime | None = None
         try:
             async with self._term_locks.hold(client.id):
-                await self._remnawave.disable_account(client.telegram_id)
+                account = await self._remnawave.get_account(client.telegram_id)
+                term = term_after_refund(account.expire_at, duration, utc_now(self._clock))
+                target = term.expire_at
+                if term.expire_at < account.expire_at:
+                    account = await self._remnawave.set_expiry(client.telegram_id, target)
+                if term.end_access:
+                    await self._remnawave.disable_account(client.telegram_id)
+                    return TermAfterDispute(AccessAfterDispute.ENDED)
+                return TermAfterDispute(AccessAfterDispute.SHORTENED, account.expire_at)
         except AccountNotFound:
-            return AccessAfterDispute.NO_ACCOUNT, ""
+            return TermAfterDispute(AccessAfterDispute.NO_ACCOUNT)
         except RemnawaveError as error:
-            logger.error("Клиент %s: доступ после спора не отключён: %s", client.id, error)
-            return AccessAfterDispute.FAILED, f"{type(error).__name__}: {error}"
-        return AccessAfterDispute.DISABLED, ""
+            logger.error("Клиент %s: дни после спора не сняты: %s", client.id, error)
+            return TermAfterDispute(
+                AccessAfterDispute.FAILED, target, f"{type(error).__name__}: {error}"
+            )
 
     # --- Другой неожиданный статус ---
 

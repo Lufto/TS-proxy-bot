@@ -54,6 +54,7 @@ TEXT_PLACEHOLDERS: dict[str, set[str]] = {
     "payment.paid_prorated": {"expire_at", "device_limit", "amount", "price"},
     # задача 14: две оплаты подряд — до какого времени можно вернуть вторую
     "payment.double": {"until"},
+    "payment.disputed": {"expire_at"},
     # задача 21: случайная вторая оплата, сообщение о возврате, перенос подписки
     "buttons.confirm_refund_double_payment": {"amount"},
     "refund.double_ask": {"amount", "paid_at", "duration"},

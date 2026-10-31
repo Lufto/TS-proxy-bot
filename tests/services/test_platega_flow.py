@@ -103,6 +103,7 @@ async def http(
             s.admin_texts,
             s.messages,
             KeyedLocks(),
+            s.clock,
         ),
     )
     app = create_web_app(None, payments=PaymentNotificationWebhook(provider, checks))
@@ -152,7 +153,8 @@ async def test_confirmed_callback_credits_once_then_chargeback_disables(
 
     account = await s.remnawave.get_account(client.telegram_id)
     assert account.status is AccountStatus.DISABLED
-    assert s.messages.disputed == [client.telegram_id]
+    # других оплаченных дней нет — после снятия дней этой оплаты доступ выключен
+    assert s.messages.disputed == [(client.telegram_id, None, True)]
 
 
 async def test_callback_with_wrong_secret_is_rejected_unasked(

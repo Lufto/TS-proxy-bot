@@ -287,6 +287,8 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         "payment.too_many",
         "payment.unavailable",
         "payment.disputed",  # задача 15: спор через банк
+        "payment.disputed_ended",
+        "payment.disputed_pending",
         # задача 29: оплата выключена
         "tariffs.off_title",
         "tariffs.off_trial",
@@ -567,7 +569,10 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
         "alerts.payment_create_rejected",
         "alerts.payment_check_refused",
         "alerts.payment_chargeback",
-        *(f"alerts.chargeback_access.{key}" for key in ("disabled", "no_account", "failed")),
+        *(
+            f"alerts.chargeback_access.{key}"
+            for key in ("shortened", "ended", "no_account", "failed")
+        ),
         "alerts.payment_refunded_outside_bot",
         "alerts.payment_status_changed",
         "alerts.refund_review_overdue",
@@ -620,6 +625,7 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
                 "not_granted",
                 "transferred",
                 "payments_off",
+                "disputed",
             )
         ),
         *(
@@ -645,6 +651,7 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
                 "transferred",
                 "not_double_payment",
                 "kept",
+                "disputed",
             )
         ),
         *(

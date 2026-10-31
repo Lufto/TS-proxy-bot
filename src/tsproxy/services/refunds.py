@@ -116,6 +116,8 @@ class RefundRefusal(StrEnum):
     WINDOW_PASSED = "window_passed"  # старше 30 дней (у клиента — 7 дней)
     ALREADY_REFUNDED = "already_refunded"  # уже возвращена или возвращается
     TRANSFERRED = "transferred"  # подписку перенесли на другой аккаунт после этой оплаты
+    # оплату оспорили через банк: деньги клиенту вернул банк, дни уже сняты (задача 15)
+    DISPUTED = "disputed"
     NOT_DOUBLE_PAYMENT = "not_double_payment"  # клиент сам — только случайную вторую
     KEPT = "kept"  # клиент нажал «Оставить» — теперь только через поддержку
 
@@ -493,6 +495,8 @@ class RefundService:
                 return refusal
         if order.status is OrderStatus.REFUNDED:
             return RefundRefusal.ALREADY_REFUNDED
+        if await _disputed(session, order.id):
+            return RefundRefusal.DISPUTED
         if order.status is not OrderStatus.ACCESS_GRANTED:
             return RefundRefusal.NOT_GRANTED
         window_open = (
@@ -849,6 +853,20 @@ async def _double_payment_refusal(session: AsyncSession, order: Order) -> Refund
         )
     )
     return RefundRefusal.KEPT if kept else None
+
+
+async def _disputed(session: AsyncSession, order_id: int) -> bool:
+    """Оплату оспорили через банк (задача 15): вернуть её ещё раз — снять дни дважды."""
+    return bool(
+        await session.scalar(
+            select(
+                exists().where(
+                    Event.order_id == order_id,
+                    Event.kind == EventKind.PAYMENT_CHARGEBACK.value,
+                )
+            )
+        )
+    )
 
 
 async def _transferred_since(session: AsyncSession, client: Client, since: datetime) -> bool:

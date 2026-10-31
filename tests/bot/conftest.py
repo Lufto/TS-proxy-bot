@@ -179,6 +179,7 @@ def ctx(
             content.admin_texts,
             payment_messages,
             KeyedLocks(),
+            clock,
         ),
     )
     orders = OrderService(

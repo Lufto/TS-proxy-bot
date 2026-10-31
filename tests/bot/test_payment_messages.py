@@ -16,6 +16,7 @@ from tsproxy.bot.payments import PaymentScreens, TelegramPaymentMessages
 from tsproxy.bot.screens import Screens
 from tsproxy.content.loader import REQUIRED_TEXTS, Content, Texts
 from tsproxy.db.models import Client
+from tsproxy.domain.dates import format_moscow
 from tsproxy.integrations.fakes import FakeRemnawave
 from tsproxy.integrations.remnawave_types import ProxyAccount
 from tsproxy.services.crediting import GrantedAccess
@@ -148,10 +149,15 @@ async def test_payment_screens_use_only_required_texts(
 async def test_dispute_message_points_to_support(
     ctx: BotContext, telegram: FakeTelegramSession
 ) -> None:
-    """Задача 15: спор через банк — доступ отключён, вопросы — в поддержку."""
-    await messages(ctx).payment_disputed(CLIENT_ID)
+    """Задача 15: спор через банк — дни оплаты сняты, вопросы — в поддержку."""
+    await messages(ctx).payment_disputed(CLIENT_ID, NOW, access_ended=False)
+    await messages(ctx).payment_disputed(CLIENT_ID, None, access_ended=True)
+    await messages(ctx).payment_disputed(CLIENT_ID, None, access_ended=False)
 
-    [sent] = telegram.sent(SendMessage)
-    assert sent.chat_id == CLIENT_ID
-    assert sent.text == ctx.texts.get("payment.disputed")
-    assert button_texts(sent) == [ctx.texts.get("buttons.support")]
+    shortened, ended, pending = telegram.sent(SendMessage)
+    assert shortened.text == ctx.texts.get("payment.disputed", expire_at=format_moscow(NOW))
+    assert ended.text == ctx.texts.get("payment.disputed_ended")
+    assert pending.text == ctx.texts.get("payment.disputed_pending")
+    for sent in (shortened, ended, pending):
+        assert sent.chat_id == CLIENT_ID
+        assert button_texts(sent) == [ctx.texts.get("buttons.support")]

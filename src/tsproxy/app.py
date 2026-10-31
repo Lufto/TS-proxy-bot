@@ -378,6 +378,7 @@ def build_application(
         content.admin_texts,
         payment_messages,
         term_locks,
+        clock,
     )
     # Уведомления платёжки, «Проверить оплату», фоновая проверка, «Купить» (задача 14)
     payment_checks = PaymentChecks(
@@ -731,6 +732,9 @@ def _platega(
         f"https://t.me/{settings.bot_username}",
         clock,
         test=settings.platega_test_account,
+        # документация Platega: email обязателен, иначе форма спросит его у клиента;
+        # передаём `<telegram_id>@telegram.org`, как она советует (владелец, 2026-10-31)
+        send_customer_email=True,
     )
 
 

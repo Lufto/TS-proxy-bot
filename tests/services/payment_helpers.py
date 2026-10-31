@@ -43,7 +43,8 @@ class FakePaymentMessages:
     pending: list[int] = field(default_factory=list)
     delayed: list[int] = field(default_factory=list)
     doubles: list[tuple[int, int, datetime]] = field(default_factory=list)
-    disputed: list[int] = field(default_factory=list)  # задача 15: спор через банк
+    # задача 15: спор через банк — кому, новый срок и «доступ выключен»
+    disputed: list[tuple[int, datetime | None, bool]] = field(default_factory=list)
 
     async def access_granted(self, granted: GrantedAccess) -> None:
         self.granted.append(granted)
@@ -59,8 +60,10 @@ class FakePaymentMessages:
     ) -> None:
         self.doubles.append((telegram_id, order_id, refund_until))
 
-    async def payment_disputed(self, telegram_id: int) -> None:
-        self.disputed.append(telegram_id)
+    async def payment_disputed(
+        self, telegram_id: int, expire_at: datetime | None, *, access_ended: bool
+    ) -> None:
+        self.disputed.append((telegram_id, expire_at, access_ended))
 
 
 @dataclass
@@ -214,7 +217,15 @@ def build_payment_setup(
     )
     reviews = FakeRefundReviews()
     status_changes = PaymentStatusChanges(
-        session_factory, remnawave, reviews, events, alerter, admin_texts, messages, KeyedLocks()
+        session_factory,
+        remnawave,
+        reviews,
+        events,
+        alerter,
+        admin_texts,
+        messages,
+        KeyedLocks(),
+        clock,
     )
     checks = PaymentChecks(
         session_factory,

@@ -67,15 +67,21 @@ class PaymentScreens:
         """Доступ не выдан за 30 минут: «задерживается, разбираемся» (задача 14)."""
         return self._with_back(self._texts.get("payment.delayed"))
 
-    def disputed(self) -> Screen:
-        """Доступ отключён: платёж оспорен через банк (задача 15). Вопросы — в поддержку."""
+    def disputed(self, expire_at: datetime | None, *, access_ended: bool) -> Screen:
+        """Платёж оспорен через банк (задача 15): дни этой оплаты сняты — подписка до
+        `expire_at` или доступ выключен; ни того ни другого — дни ещё снимут. Вопросы — в
+        поддержку."""
+        if access_ended:
+            text = self._texts.get("payment.disputed_ended")
+        elif expire_at is not None:
+            text = self._texts.get("payment.disputed", expire_at=format_moscow(expire_at))
+        else:
+            text = self._texts.get("payment.disputed_pending")
         support = InlineKeyboardButton(
             text=self._texts.get("buttons.support"),
             callback_data=MenuCallback(screen=ScreenId.SUPPORT).pack(),
         )
-        return Screen(
-            self._texts.get("payment.disputed"), InlineKeyboardMarkup(inline_keyboard=[[support]])
-        )
+        return Screen(text, InlineKeyboardMarkup(inline_keyboard=[[support]]))
 
     def double(self, order_id: int, refund_until: datetime) -> Screen:
         """Две оплаты подряд: дни сложены; «↩️ Вернуть вторую оплату» (до `refund_until`)
@@ -132,8 +138,10 @@ class TelegramPaymentMessages:
     ) -> None:
         await self._send(telegram_id, self._screens.double(order_id, refund_until))
 
-    async def payment_disputed(self, telegram_id: int) -> None:
-        await self._send(telegram_id, self._screens.disputed())
+    async def payment_disputed(
+        self, telegram_id: int, expire_at: datetime | None, *, access_ended: bool
+    ) -> None:
+        await self._send(telegram_id, self._screens.disputed(expire_at, access_ended=access_ended))
 
     async def _send(self, telegram_id: int, screen: Screen) -> None:
         try:
