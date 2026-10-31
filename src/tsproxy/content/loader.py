@@ -365,6 +365,7 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         ),
         "stars.returned",
         "stars.return_failed",
+        "stars.unrecorded",
     }
 )
 REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
@@ -737,6 +738,7 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
         "report.payments_stars",
         "alerts.stars_returned",
         "alerts.stars_not_returned",
+        "alerts.stars_unrecorded",
         *(
             f"alerts.stars_reason.{key}"
             for key in ("unknown_order", "other_charge", "not_credited")

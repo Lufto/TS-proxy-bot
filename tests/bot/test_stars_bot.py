@@ -3,6 +3,7 @@
 
 from itertools import count
 
+import pytest
 from aiogram import Bot, Dispatcher
 from aiogram.methods import (
     AnswerPreCheckoutQuery,
@@ -33,6 +34,7 @@ from bot_updates import (
     user,
 )
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from tsproxy.bot.admin_callbacks import AdminRefundCallback
@@ -53,6 +55,7 @@ from tsproxy.domain.stars import STARS_CURRENCY
 from tsproxy.integrations.fake_payments import FakePaymentProvider
 from tsproxy.integrations.telegram_stars import STARS_PROVIDER
 from tsproxy.services.fakes import FakeAlertSender
+from tsproxy.services.stars import StarsPaid, StarsPayment
 
 CHARGE = "stxCharge-1"
 CALLBACK_DATA_MAX_BYTES = 64
@@ -351,3 +354,30 @@ def test_new_buttons_fit_telegram_limit() -> None:
 def test_bot_asks_telegram_for_payment_updates(dispatcher: Dispatcher) -> None:
     # webhook и polling просят у Telegram только те апдейты, на которые есть обработчики
     assert {"pre_checkout_query", "message"} <= set(dispatcher.resolve_used_update_types())
+
+
+async def test_payment_lost_to_database_failure_names_the_charge(
+    dispatcher: Dispatcher,
+    bot: Bot,
+    telegram: FakeTelegramSession,
+    alert_sender: FakeAlertSender,
+    ctx: BotContext,
+    content: Content,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Telegram не пришлёт оплату второй раз: тревога должна назвать платёж, а клиент — знать,
+    # что звёзды не пропали
+    async def database_down(payment: StarsPayment) -> StarsPaid:
+        raise OperationalError("UPDATE orders", {}, Exception("база не отвечает"))
+
+    await ask_invoice(dispatcher, bot)
+    payload = telegram.sent(SendInvoice)[-1].payload
+    monkeypatch.setattr(ctx.stars, "paid", database_down)
+
+    await dispatcher.feed_update(bot, successful_payment(user(CLIENT_ID), payload, 100))
+
+    [alert] = [m for m in alert_sender.sent if CHARGE in m.text]
+    assert "100 ⭐" in alert.text and str(CLIENT_ID) in alert.text
+    [told] = to_client(telegram)
+    assert told.text == content.texts.get("stars.unrecorded", stars=100)
+    assert telegram.sent(RefundStarPayment) == []

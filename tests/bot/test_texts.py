@@ -75,6 +75,7 @@ TEXT_PLACEHOLDERS: dict[str, set[str]] = {
     "stars.invoice_sent": {"stars"},
     "stars.returned": {"stars"},
     "stars.return_failed": {"stars"},
+    "stars.unrecorded": {"stars"},
     # задача 08: профиль и устройства
     "buttons.delete_device": {"number"},
     "profile.status_trial": {"expire_at", "left"},

@@ -110,16 +110,42 @@ async def on_successful_payment(message: Message, ctx: BotContext) -> None:
     paid = message.successful_payment
     if message.from_user is None or paid is None:
         return
-    client = await ctx.clients.resolve(profile_of(message.from_user))
-    outcome = await ctx.stars.paid(
-        StarsPayment(
-            telegram_id=client.telegram_id,
-            payload=paid.invoice_payload,
-            currency=paid.currency,
-            total_amount=paid.total_amount,
-            charge_id=paid.telegram_payment_charge_id,
+    telegram_id = message.from_user.id
+    try:
+        client = await ctx.clients.resolve(profile_of(message.from_user))
+        outcome = await ctx.stars.paid(
+            StarsPayment(
+                telegram_id=client.telegram_id,
+                payload=paid.invoice_payload,
+                currency=paid.currency,
+                total_amount=paid.total_amount,
+                charge_id=paid.telegram_payment_charge_id,
+            )
         )
-    )
+    except SQLAlchemyError:
+        # Звёзды уже списаны, а Telegram это сообщение второй раз не пришлёт: общая тревога
+        # «ошибка бота» без номера платежа тут не годится — администратору нужен номер
+        logger.exception(
+            "Оплата звёздами %s клиента %s (счёт «%s», %d ⭐) не записана: база не ответила",
+            paid.telegram_payment_charge_id,
+            telegram_id,
+            paid.invoice_payload,
+            paid.total_amount,
+        )
+        await ctx.alerter.raise_alert(
+            f"stars_unrecorded:{paid.telegram_payment_charge_id}",
+            ctx.admin_texts.get(
+                "alerts.stars_unrecorded",
+                stars=paid.total_amount,
+                telegram_id=telegram_id,
+                payload=paid.invoice_payload,
+                charge_id=paid.telegram_payment_charge_id,
+            ),
+        )
+        await ctx.delivery.send(
+            telegram_id, _notice(ctx.texts, "stars.unrecorded", paid.total_amount)
+        )
+        return
     logger.info("Оплата звёздами от %s: %s", client.telegram_id, outcome)
     key = PAID_NOTICES.get(outcome)
     if key is not None:
