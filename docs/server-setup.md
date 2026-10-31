@@ -66,5 +66,5 @@
 
 - [ ] Деплой, миграции, запуск службы, `/health` = ok.
 - [ ] Webhook Telegram установлен на `https://bot.ts-proxy.com/...`.
-- [ ] Уведомления ЮKassa настроены на `https://pay.ts-proxy.com/...` в кабинете ЮKassa.
+- [ ] В кабинете Platega (Настройки → Callback URLs) адрес колбэков — `https://bot.ts-proxy.com/payments/notification`; в `.env` — `PAYMENTS_MODE=platega`, боевые `PLATEGA_MERCHANT_ID` / `PLATEGA_SECRET`, `PLATEGA_TEST_ACCOUNT=false`, `BOT_USERNAME`.
 - [ ] Пройти раздел «После выкатки» ручного чеклиста (`docs/checklist.md`).

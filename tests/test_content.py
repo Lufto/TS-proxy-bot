@@ -11,6 +11,7 @@ from tsproxy.content.loader import (
     load_texts,
     quick_reply_ids,
 )
+from tsproxy.integrations.payments_types import PaymentStatus
 
 REPO_CONTENT = Path(__file__).parent.parent / "content"
 
@@ -151,3 +152,10 @@ def test_valid_quick_replies_pass(tmp_path: Path) -> None:
 def test_broken_quick_replies_stop_startup(tmp_path: Path, text: str, error: str) -> None:
     with pytest.raises(ContentError, match=error):
         quick_reply_ids(load_texts(write(tmp_path / "t.yaml", text)))
+
+
+def test_every_payment_status_has_admin_label() -> None:
+    """Задача 15: тревога «статус оплаты изменился» называет любой статус по-человечески."""
+    content = load_content(REPO_CONTENT)
+    for status in PaymentStatus:
+        assert content.admin_texts.get(f"payments.status.{status.value}")

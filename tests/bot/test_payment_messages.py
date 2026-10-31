@@ -143,3 +143,15 @@ async def test_payment_screens_use_only_required_texts(
     screens.pending()
     screens.delayed()
     screens.double(1, NOW)
+
+
+async def test_dispute_message_points_to_support(
+    ctx: BotContext, telegram: FakeTelegramSession
+) -> None:
+    """Задача 15: спор через банк — доступ отключён, вопросы — в поддержку."""
+    await messages(ctx).payment_disputed(CLIENT_ID)
+
+    [sent] = telegram.sent(SendMessage)
+    assert sent.chat_id == CLIENT_ID
+    assert sent.text == ctx.texts.get("payment.disputed")
+    assert button_texts(sent) == [ctx.texts.get("buttons.support")]
