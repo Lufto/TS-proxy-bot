@@ -28,11 +28,7 @@
    grep -rl TODO_BOT_USERNAME site | xargs sed -i '' 's/TODO_BOT_USERNAME/имя_бота/g'
    ```
 2. **Адрес проверки бота** — константа `HEALTH_URL` в `assets/status.js` (сейчас `https://bot.ts-proxy.com/health`). Пока бот по этому адресу не отвечает, плашка будет видна всегда.
-3. **Почта поддержки.** Сейчас `tsarewalex2006@gmail.com`; каждое место помечено комментарием `<!-- почта поддержки, см. README -->`. Когда заработает `support@ts-proxy.com` (задача 34):
-   ```sh
-   grep -rl tsarewalex2006@gmail.com site | xargs sed -i '' 's/tsarewalex2006@gmail.com/support@ts-proxy.com/g'
-   ```
-   и обновить дату редакции в `terms/` и `privacy/`.
+3. **Почта поддержки** — `support@ts-proxy.com` (пересылка на Gmail, задача 34, 2026-10-31). Каждое место помечено комментарием `<!-- почта поддержки, см. README -->`; меняете адрес — обновите дату редакции в `terms/` и `privacy/`.
 4. **Скриншоты** для `/help/` — по три на платформу (iOS, Android, Windows, macOS), подписи-заглушки на странице говорят, что должно быть на каждом. Положить картинки в `help/img/` и заменить каждый блок `<figure class="shot">…</figure>` на
    ```html
    <img src="/help/img/ios-1.png" alt="Happ в App Store" width="390" height="844" loading="lazy">

@@ -1,0 +1,442 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>TS Proxy — ваша подписка</title>
+  <!-- ПРОТОТИП страницы подписки (sub.ts-proxy.com/<код>), задача 24 в vpn-bot-rework.
+       Данные выдуманные (объект DEMO ниже). Стиль — токены из site/assets/style.css. -->
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f6f7fb;
+      --surface: #ffffff;
+      --surface-2: #eef1f7;
+      --text: #141824;
+      --muted: #5a6275;
+      --border: #dde2ec;
+      --accent: #2f6bff;
+      --accent-hover: #1f56e0;
+      --accent-text: #ffffff;
+      --accent-soft: #e6eeff;
+      --ok: #1a8a4a;
+      --ok-soft: #e3f5ea;
+      --warn-text: #8a5a00;
+      --warn-soft: #fff4d6;
+      --bad: #c4352b;
+      --bad-soft: #fde8e6;
+      --radius: 14px;
+      --shadow: 0 1px 2px rgb(20 24 36 / 6%), 0 4px 16px rgb(20 24 36 / 6%);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0f1218;
+        --surface: #171b24;
+        --surface-2: #1f2430;
+        --text: #e8ebf2;
+        --muted: #9aa3b5;
+        --border: #2a3040;
+        --accent: #5b8cff;
+        --accent-hover: #7aa2ff;
+        --accent-text: #0b1020;
+        --accent-soft: #1c2a4d;
+        --ok: #4cc27f;
+        --ok-soft: #15301f;
+        --warn-text: #ffd27a;
+        --warn-soft: #3a2f10;
+        --bad: #ff7a70;
+        --bad-soft: #3a1a18;
+        --shadow: none;
+      }
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      overflow-wrap: break-word;
+    }
+
+    a { color: var(--accent); }
+    a:hover { color: var(--accent-hover); }
+
+    .wrap { max-width: 640px; margin: 0 auto; padding: 0 16px; }
+
+    /* Шапка */
+    header { background: var(--surface); border-bottom: 1px solid var(--border); }
+    header .wrap { display: flex; align-items: center; justify-content: space-between; min-height: 60px; }
+    .logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 1.1rem; color: var(--text); text-decoration: none; }
+    .help-link { font-size: 0.95rem; text-decoration: none; }
+
+    main { padding: 20px 0 40px; }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+
+    h1 { font-size: 1.5rem; line-height: 1.25; margin: 0 0 4px; }
+    h2 { font-size: 1.15rem; margin: 0 0 12px; }
+    .muted { color: var(--muted); }
+
+    /* Статус подписки */
+    .status-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    .pill { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; font-size: 0.9rem; padding: 4px 12px; border-radius: 999px; }
+    .pill::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+    .pill.ok { color: var(--ok); background: var(--ok-soft); }
+    .pill.warn { color: var(--warn-text); background: var(--warn-soft); }
+    .pill.bad { color: var(--bad); background: var(--bad-soft); }
+
+    .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 16px; }
+    .stat { background: var(--surface-2); border-radius: 10px; padding: 10px 12px; }
+    .stat .label { font-size: 0.8rem; color: var(--muted); }
+    .stat .value { font-weight: 700; font-size: 1.05rem; }
+    @media (max-width: 420px) { .stats { grid-template-columns: 1fr 1fr; } .stat:last-child { grid-column: span 2; } }
+
+    .bar { height: 6px; background: var(--surface-2); border-radius: 3px; margin-top: 12px; overflow: hidden; }
+    .bar > span { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+
+    .notice { margin-top: 14px; padding: 12px 14px; border-radius: 10px; font-size: 0.95rem; }
+    .notice.warn { background: var(--warn-soft); color: var(--warn-text); }
+    .notice.bad { background: var(--bad-soft); color: var(--bad); }
+
+    /* Кнопки */
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      min-height: 46px; padding: 10px 18px; border-radius: 10px;
+      font: inherit; font-weight: 600; text-decoration: none; cursor: pointer;
+      border: 1px solid transparent;
+    }
+    .btn-primary { background: var(--accent); color: var(--accent-text); }
+    .btn-primary:hover { background: var(--accent-hover); color: var(--accent-text); }
+    .btn-secondary { background: var(--surface); color: var(--text); border-color: var(--border); }
+    .btn-secondary:hover { border-color: var(--accent); color: var(--text); }
+    .btn-block { width: 100%; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+    .row .btn { flex: 1 1 160px; }
+
+    /* Выбор устройства */
+    .tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 16px; scrollbar-width: none; }
+    .tab {
+      flex: 0 0 auto; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--border);
+      background: var(--surface); color: var(--text); font: inherit; font-size: 0.95rem; cursor: pointer;
+    }
+    .tab[aria-selected="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+
+    .apps { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+    .app {
+      padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-2);
+      font: inherit; font-size: 0.9rem; color: var(--text); cursor: pointer;
+    }
+    .app[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+    .app .rec { color: var(--accent); font-size: 0.75rem; font-weight: 700; margin-left: 4px; }
+
+    .steps { list-style: none; counter-reset: s; margin: 0; padding: 0; }
+    .steps > li { counter-increment: s; position: relative; padding-left: 44px; margin-bottom: 20px; }
+    .steps > li:last-child { margin-bottom: 0; }
+    .steps > li::before {
+      content: counter(s); position: absolute; left: 0; top: 0;
+      width: 30px; height: 30px; border-radius: 50%;
+      background: var(--accent-soft); color: var(--accent); font-weight: 700;
+      display: grid; place-items: center;
+    }
+    .steps b { display: block; margin-bottom: 2px; }
+    .steps .row { margin-top: 8px; }
+    .steps .row .btn { flex: 0 1 auto; min-height: 40px; padding: 8px 14px; font-size: 0.95rem; }
+
+    /* QR */
+    .qr-box { display: none; margin-top: 14px; text-align: center; }
+    .qr-box.open { display: block; }
+    .qr-ph {
+      width: 200px; height: 200px; margin: 0 auto 8px; border-radius: 12px;
+      background: repeating-linear-gradient(135deg, var(--surface-2) 0 10px, var(--border) 10px 20px);
+      display: grid; place-items: center; color: var(--muted); font-size: 0.85rem; padding: 16px;
+    }
+
+    footer { text-align: center; color: var(--muted); font-size: 0.9rem; padding: 0 16px 32px; }
+
+    /* Переключатель состояний — только в прототипе */
+    .demo {
+      position: fixed; right: 12px; bottom: 12px; z-index: 10;
+      background: var(--surface); border: 1px dashed var(--accent); border-radius: 10px;
+      padding: 8px 10px; font-size: 0.8rem; box-shadow: var(--shadow);
+    }
+    .demo select { font: inherit; margin-left: 4px; }
+
+    .toast {
+      position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+      background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 10px;
+      font-size: 0.95rem; opacity: 0; transition: opacity .2s; pointer-events: none;
+    }
+    .toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <a class="logo" href="https://ts-proxy.com/">
+        <svg width="28" height="28" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+          <rect width="32" height="32" rx="8" fill="#2f6bff"/>
+          <path d="M16 6.5 8.5 9.4v6.1c0 4.6 3.1 8.6 7.5 10 4.4-1.4 7.5-5.4 7.5-10V9.4L16 6.5Z" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>
+          <path d="m12.5 16 2.5 2.5 4.5-5" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        TS Proxy
+      </a>
+      <a class="help-link" href="https://t.me/TODO_BOT_USERNAME">Поддержка</a>
+    </div>
+  </header>
+
+  <main>
+    <div class="wrap">
+      <section class="card" aria-labelledby="sub-title">
+        <div class="status-top">
+          <div>
+            <h1 id="sub-title">Ваша подписка</h1>
+            <div class="muted" id="sub-user"></div>
+          </div>
+          <span class="pill" id="sub-pill"></span>
+        </div>
+        <div class="stats">
+          <div class="stat"><div class="label" id="days-label">Осталось</div><div class="value" id="sub-days"></div></div>
+          <div class="stat"><div class="label">Действует до</div><div class="value" id="sub-until"></div></div>
+          <div class="stat"><div class="label">Устройства</div><div class="value">до 3</div></div>
+        </div>
+        <div id="traffic"></div>
+        <div id="sub-notice"></div>
+      </section>
+
+      <section class="card" aria-labelledby="setup-title">
+        <h2 id="setup-title">Подключение</h2>
+        <div class="tabs" role="tablist" id="platforms"></div>
+        <div class="apps" id="apps"></div>
+        <ol class="steps" id="steps"></ol>
+      </section>
+
+      <section class="card" aria-labelledby="link-title">
+        <h2 id="link-title">Ссылка на подписку</h2>
+        <p class="muted" style="margin:0">Если кнопка «Добавить» не сработала — скопируйте ссылку и вставьте её в приложение вручную. Никому её не пересылайте: по ней подключаются к вашей подписке.</p>
+        <div class="row">
+          <button class="btn btn-secondary" type="button" id="copy">Скопировать ссылку</button>
+          <button class="btn btn-secondary" type="button" id="qr-toggle">QR-код для другого устройства</button>
+        </div>
+        <div class="qr-box" id="qr-box">
+          <div class="qr-ph">Здесь будет QR-код ссылки</div>
+          <div class="muted">Наведите камеру телефона или отсканируйте QR-кодом в приложении Happ.</div>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="faq-title">
+        <h2 id="faq-title">Не получается?</h2>
+        <p style="margin:0 0 6px">Напишите в бота — поможем подключиться. Продлить подписку и сменить тариф тоже можно в боте.</p>
+        <div class="row">
+          <a class="btn btn-primary" href="https://t.me/TODO_BOT_USERNAME">Открыть бота</a>
+          <a class="btn btn-secondary" href="https://ts-proxy.com/help/">Инструкции с картинками</a>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <footer>© 2026 TS Proxy · <a href="https://ts-proxy.com/">ts-proxy.com</a></footer>
+
+  <div class="demo">Прототип, состояние:
+    <select id="demo-state" aria-label="Состояние подписки">
+      <option value="active">Активна</option>
+      <option value="trial">Пробный период</option>
+      <option value="expiring">Скоро закончится</option>
+      <option value="expired">Закончилась</option>
+    </select>
+  </div>
+  <div class="toast" id="toast" role="status"></div>
+
+  <script>
+    // Выдуманные данные. На настоящей странице их отдаёт Remnawave по коду подписки.
+    const SUB_URL = "https://sub.ts-proxy.com/AbCdEf123456";
+    const DAY = 86400000;
+    const DEMO = {
+      active:   { user: "Клиент 123456789", days: 143, trafficUsed: null },
+      trial:    { user: "Клиент 123456789", days: 5,   trafficUsed: 2.4, trafficLimit: 7 },
+      expiring: { user: "Клиент 123456789", days: 2,   trafficUsed: null },
+      expired:  { user: "Клиент 123456789", days: 0,   trafficUsed: null },
+    };
+
+    // Приложения: Happ — рекомендуемое везде, остальные — бесплатные запасные.
+    // TODO: ссылки на v2RayTun в магазинах — сверить перед запуском.
+    // App Store: если приложения нет в российском магазине — совет сменить страну Apple ID (владелец, 2026-11-02).
+    // Android: вместо APK — сайт разработчика, клиент сам выбирает, что скачать.
+    const APPLE_NOTE = "Не находится в App Store? Смените страну Apple ID на зарубежную: «Настройки» → ваше имя → «Медиаматериалы и покупки» → «Просмотреть» → «Страна или регион» (способ оплаты — «Нет») — и скачайте приложение по кнопке выше.";
+    const HAPP_IOS = [
+      { text: "App Store", href: "https://apps.apple.com/us/app/happ-proxy-utility/id6504287215" },
+    ];
+    const HAPP_ANDROID = [
+      { text: "Google Play", href: "https://play.google.com/store/apps/details?id=com.happproxy" },
+      { text: "Сайт Happ", href: "https://www.happ.su/" },
+    ];
+    const PLATFORMS = {
+      ios: { label: "iPhone и iPad", apps: [
+        { name: "Happ", rec: true, get: HAPP_IOS, add: "happ://add/", note: APPLE_NOTE },
+        { name: "v2RayTun", get: [{ text: "App Store", href: "#TODO" }], add: "v2raytun://import/", note: APPLE_NOTE },
+        { name: "Streisand", get: [{ text: "App Store", href: "https://apps.apple.com/us/app/streisand/id6450534064" }], add: "streisand://import/", note: APPLE_NOTE },
+      ]},
+      android: { label: "Android", apps: [
+        { name: "Happ", rec: true, get: HAPP_ANDROID, add: "happ://add/" },
+        { name: "v2RayTun", get: [{ text: "Google Play", href: "#TODO" }, { text: "Сайт v2RayTun", href: "#TODO" }], add: "v2raytun://import/" },
+        { name: "v2rayNG", get: [{ text: "Сайт v2rayNG (GitHub)", href: "https://github.com/2dust/v2rayNG" }], add: "v2rayng://install-config?url=" },
+      ]},
+      windows: { label: "Windows", apps: [
+        { name: "Happ", rec: true, get: [{ text: "Скачать для Windows", href: "https://github.com/Happ-proxy/happ-desktop/releases/latest/download/setup-Happ.x64.exe" }], add: "happ://add/" },
+        { name: "v2rayN", get: [{ text: "Скачать с GitHub", href: "https://github.com/2dust/v2rayN/releases/latest" }], add: null },
+      ]},
+      macos: { label: "macOS", apps: [
+        { name: "Happ", rec: true, get: HAPP_IOS, add: "happ://add/", note: APPLE_NOTE.replace("«Настройки» → ваше имя → «Медиаматериалы и покупки» → «Просмотреть» → «Страна или регион»", "Mac App Store → ваше имя внизу слева → «Настройки учётной записи» → «Изменить страну или регион»") },
+        { name: "v2RayTun", get: [{ text: "App Store", href: "#TODO" }], add: "v2raytun://import/" },
+      ]},
+      tv: { label: "Телевизор", apps: [
+        { name: "Happ", rec: true, get: [
+          { text: "Apple TV", href: "https://apps.apple.com/us/app/happ-proxy-utility-for-tv/id6748297274" },
+          { text: "Android TV", href: "https://play.google.com/store/apps/details?id=com.happproxy" },
+          { text: "Сайт Happ", href: "https://www.happ.su/" },
+        ], add: null, tv: true },
+      ]},
+    };
+
+    const $ = (id) => document.getElementById(id);
+    let platform = detectPlatform();
+    let appIndex = 0;
+
+    function detectPlatform() {
+      const ua = navigator.userAgent;
+      if (/iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)) return "ios";
+      if (/Android/.test(ua)) return /TV|AFT/.test(ua) ? "tv" : "android";
+      if (/Windows/.test(ua)) return "windows";
+      if (/Macintosh/.test(ua)) return "macos";
+      return "ios";
+    }
+
+    function plural(n, one, few, many) {
+      const m10 = n % 10, m100 = n % 100;
+      if (m10 === 1 && m100 !== 11) return one;
+      if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
+      return many;
+    }
+
+    function renderStatus(state) {
+      const d = DEMO[state];
+      const until = new Date(Date.now() + d.days * DAY);
+      $("sub-user").textContent = d.user;
+      $("sub-until").textContent = until.toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
+      $("sub-days").textContent = d.days > 0 ? `${d.days} ${plural(d.days, "день", "дня", "дней")}` : "—";
+
+      const pill = $("sub-pill");
+      const pills = {
+        active: ["ok", "Активна"],
+        trial: ["ok", "Пробный период"],
+        expiring: ["warn", "Скоро закончится"],
+        expired: ["bad", "Закончилась"],
+      };
+      pill.className = "pill " + pills[state][0];
+      pill.textContent = pills[state][1];
+
+      $("traffic").innerHTML = d.trafficUsed == null
+        ? `<p class="muted" style="margin:12px 0 0">Трафик без ограничений.</p>`
+        : `<p class="muted" style="margin:12px 0 0">Трафик: ${d.trafficUsed} из ${d.trafficLimit} ГБ</p>
+           <div class="bar"><span style="width:${Math.round(d.trafficUsed / d.trafficLimit * 100)}%"></span></div>`;
+
+      const notices = {
+        expiring: `<div class="notice warn">Подписка закончится через ${d.days} ${plural(d.days, "день", "дня", "дней")}. Продлите в боте, чтобы не потерять подключение.</div>
+                   <div class="row"><a class="btn btn-primary btn-block" href="https://t.me/TODO_BOT_USERNAME">Продлить в боте</a></div>`,
+        expired: `<div class="notice bad">Подписка закончилась, прокси не работает. Продлите в боте — подключение вернётся само, настраивать заново не нужно.</div>
+                  <div class="row"><a class="btn btn-primary btn-block" href="https://t.me/TODO_BOT_USERNAME">Продлить в боте</a></div>`,
+        trial: `<div class="notice warn">Пробный период. Чтобы пользоваться дальше, выберите тариф в боте.</div>`,
+      };
+      $("sub-notice").innerHTML = notices[state] || "";
+    }
+
+    function renderPlatforms() {
+      $("platforms").innerHTML = Object.entries(PLATFORMS).map(([key, p]) =>
+        `<button class="tab" role="tab" type="button" data-p="${key}" aria-selected="${key === platform}">${p.label}</button>`
+      ).join("");
+    }
+
+    function renderApp() {
+      const apps = PLATFORMS[platform].apps;
+      const app = apps[appIndex];
+      $("apps").innerHTML = apps.length < 2 ? "" : apps.map((a, i) =>
+        `<button class="app" type="button" data-i="${i}" aria-pressed="${i === appIndex}">${a.name}${a.rec ? '<span class="rec">рекомендуем</span>' : ""}</button>`
+      ).join("");
+
+      const getButtons = app.get.map((g) =>
+        `<a class="btn btn-secondary" href="${g.href}" target="_blank" rel="noopener">${g.text}</a>`).join("");
+
+      let addStep;
+      if (app.tv) {
+        addStep = `<li><b>Добавьте подписку с телефона</b>
+          <span class="muted">Откройте Happ на телевизоре — появится QR-код. Отсканируйте его приложением Happ на телефоне, где подписка уже добавлена.</span></li>`;
+      } else if (app.add) {
+        addStep = `<li><b>Добавьте подписку</b>
+          <span class="muted">Нажмите кнопку — ${app.name} откроется и сам добавит подписку.</span>
+          <div class="row"><a class="btn btn-primary" href="${app.add}${SUB_URL}">Добавить в ${app.name}</a></div></li>`;
+      } else {
+        addStep = `<li><b>Добавьте подписку</b>
+          <span class="muted">Скопируйте ссылку ниже. В ${app.name}: «Подписки» → «Добавить» → вставьте ссылку → «Обновить».</span></li>`;
+      }
+
+      $("steps").innerHTML = `
+        <li><b>Установите ${app.name}</b>
+          <span class="muted">${app.rec ? "Бесплатное приложение, работает на всех устройствах." : "Бесплатное запасное приложение."}</span>
+          <div class="row">${getButtons}</div>
+          ${app.note ? `<p class="muted" style="font-size:0.9rem;margin:8px 0 0">${app.note}</p>` : ""}</li>
+        ${addStep}
+        <li><b>Подключитесь</b>
+          <span class="muted">Нажмите большую кнопку подключения в приложении. Сервер выбирается сам${app.name === "Happ" ? ", российские сайты открываются напрямую" : ""}.</span></li>`;
+    }
+
+    function toast(text) {
+      const t = $("toast");
+      t.textContent = text;
+      t.classList.add("show");
+      setTimeout(() => t.classList.remove("show"), 1800);
+    }
+
+    $("platforms").addEventListener("click", (e) => {
+      const b = e.target.closest("[data-p]");
+      if (!b) return;
+      platform = b.dataset.p;
+      appIndex = 0;
+      renderPlatforms();
+      renderApp();
+    });
+
+    $("apps").addEventListener("click", (e) => {
+      const b = e.target.closest("[data-i]");
+      if (!b) return;
+      appIndex = Number(b.dataset.i);
+      renderApp();
+    });
+
+    $("copy").addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(SUB_URL);
+        toast("Ссылка скопирована");
+      } catch {
+        toast(SUB_URL);
+      }
+    });
+
+    $("qr-toggle").addEventListener("click", () => $("qr-box").classList.toggle("open"));
+    $("demo-state").addEventListener("change", (e) => renderStatus(e.target.value));
+
+    renderStatus("active");
+    renderPlatforms();
+    renderApp();
+  </script>
+</body>
+</html>
