@@ -1,0 +1,39 @@
+# Бот TS Proxy (задача 26). Код — /opt/tsproxy/app, база и .env — /var/lib/tsproxy.
+# Слушает 172.18.0.1:8090 (сеть Docker панели): туда ходят туннель Cloudflare и вебхуки панели.
+[Unit]
+Description=TS Proxy bot
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+User=tsproxy
+Group=tsproxy
+WorkingDirectory=/opt/tsproxy/app
+ExecStart=/opt/tsproxy/app/.venv/bin/tsproxy
+Restart=always
+RestartSec=5
+
+# Ограничения: бот пишет только в свою базу и свои бэкапы
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ReadWritePaths=/var/lib/tsproxy /var/backups/tsproxy
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target
