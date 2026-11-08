@@ -1,18 +1,24 @@
 """Меню клиента: `/start`, переключение экранов в одном сообщении, инструкции.
 
+Ссылка `t.me/<бот>?start=support` (кнопки «Написать в поддержку» на сайте) открывает
+сразу экран поддержки вместо меню (задача сайта 07).
+
 Обработчики работают только в личном чате с ботом. Клиент всегда определяется по
 `from_user.id` нажавшего, данные кнопки говорят только «какой экран открыть».
 """
 
 from aiogram import F, Router
 from aiogram.enums import ChatType
-from aiogram.filters import CommandStart
+from aiogram.filters import CommandObject, CommandStart
 from aiogram.types import CallbackQuery, Message
 
 from tsproxy.bot.callbacks import InstructionsCallback, MenuCallback, ScreenId
 from tsproxy.bot.context import BotContext, profile_of
 from tsproxy.bot.screens import Screen
 from tsproxy.db.models import Client
+
+# Параметр `/start` из ссылки сайта: открыть поддержку
+START_SUPPORT = "support"
 
 
 def create_menu_router() -> Router:
@@ -41,11 +47,17 @@ async def _main_menu(ctx: BotContext, client: Client) -> Screen:
     return ctx.screens.main_menu(trial_available=trial_available)
 
 
-async def on_start(message: Message, ctx: BotContext) -> None:
-    """`/start`: записать клиента (или обновить имя), снять «заблокировал», прислать меню."""
+async def on_start(message: Message, command: CommandObject, ctx: BotContext) -> None:
+    """`/start`: записать клиента (или обновить имя), снять «заблокировал», прислать меню.
+
+    С параметром `support` вместо меню — экран поддержки; другие параметры не важны.
+    """
     if message.from_user is None:
         return
     client = await ctx.clients.register(profile_of(message.from_user))
+    if command.args == START_SUPPORT:
+        await ctx.delivery.send(message.from_user.id, ctx.screens.support())
+        return
     await ctx.delivery.send(message.from_user.id, await _main_menu(ctx, client))
 
 

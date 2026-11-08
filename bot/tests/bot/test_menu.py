@@ -50,6 +50,33 @@ async def test_start_creates_client_and_sends_menu(
     assert content.texts.get("buttons.trial") in button_texts(sent.reply_markup)  # type: ignore[arg-type]
 
 
+async def test_start_from_site_support_link_opens_support(
+    dispatcher: Dispatcher,
+    bot: Bot,
+    telegram: FakeTelegramSession,
+    session_factory: async_sessionmaker[AsyncSession],
+    content: Content,
+) -> None:
+    """Кнопка «Написать в поддержку» на сайте: `t.me/<бот>?start=support`."""
+    await dispatcher.feed_update(bot, message(user(CLIENT_ID), "/start support"))
+
+    assert await stored_client(session_factory) is not None
+    [sent] = telegram.sent(SendMessage)
+    assert sent.text == content.texts.get("support.intro")
+
+
+async def test_start_with_unknown_parameter_sends_menu(
+    dispatcher: Dispatcher,
+    bot: Bot,
+    telegram: FakeTelegramSession,
+    content: Content,
+) -> None:
+    await dispatcher.feed_update(bot, message(user(CLIENT_ID), "/start promo"))
+
+    [sent] = telegram.sent(SendMessage)
+    assert sent.text == content.texts.get("menu.title")
+
+
 async def test_start_updates_name_and_clears_blocked_mark(
     dispatcher: Dispatcher,
     bot: Bot,
