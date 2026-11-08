@@ -15,13 +15,14 @@ from tsproxy.services.fakes import FakeAlertSender, FakeClock
 from tsproxy.services.masking import Masker
 
 REPO_CONTENT = Path(__file__).parent.parent.parent / "content"
+REPO_CONFIG = Path(__file__).parent.parent.parent.parent / "config"
 CHAT_ID = -100123
 THREAD_ID = 2
 NODE_UUID = "4c1a6c7e-0000-4000-8000-000000000001"
 
 
 def admin_texts() -> Texts:
-    return load_content(REPO_CONTENT).admin_texts
+    return load_content(REPO_CONTENT, REPO_CONFIG).admin_texts
 
 
 def make_alerter(sender: FakeAlertSender, clock: FakeClock, mask: Masker) -> Alerter:

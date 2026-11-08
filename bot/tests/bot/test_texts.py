@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from conftest import REPO_CONTENT
+from conftest import REPO_CONFIG, REPO_CONTENT
 
 from tsproxy.bot.callbacks import (
     FaqCallback,
@@ -121,7 +121,7 @@ def test_missing_required_text_stops_startup(tmp_path: Path) -> None:
     texts_path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
 
     with pytest.raises(ContentError, match=r"connect\.no_account"):
-        load_content(tmp_path)
+        load_content(tmp_path, REPO_CONFIG)
 
 
 @pytest.mark.parametrize("file_name", [TEXTS_FILE, ADMIN_TEXTS_FILE])

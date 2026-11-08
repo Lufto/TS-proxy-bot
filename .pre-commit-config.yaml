@@ -1,21 +1,24 @@
-# Проверки перед каждым коммитом: стиль кода и быстрые тесты.
-# Установка на новом компьютере: uv run pre-commit install
+# Проверки перед каждым коммитом: стиль кода и быстрые тесты бота.
+# Файл лежит в корне, потому что pre-commit ищет его там; проверки идут по папке `bot/`.
+# Установка на новом компьютере: cd bot && uv run pre-commit install
 repos:
   - repo: local
     hooks:
       - id: ruff-check
         name: ruff check
-        entry: uv run ruff check --fix
+        entry: uv run --project bot ruff check --fix
         language: system
         types: [python]
+        files: ^bot/
       - id: ruff-format
         name: ruff format
-        entry: uv run ruff format
+        entry: uv run --project bot ruff format
         language: system
         types: [python]
+        files: ^bot/
       - id: pytest
         name: быстрые тесты
-        entry: uv run pytest -x -m "not slow"
+        entry: bash -c 'cd bot && uv run pytest -x -m "not slow"'
         language: system
         pass_filenames: false
         always_run: true

@@ -830,12 +830,16 @@ def quick_reply_ids(admin_texts: Texts) -> list[str]:
     return ids
 
 
-def load_content(directory: Path) -> Content:
+def load_content(directory: Path, config_dir: Path) -> Content:
+    """Тексты бота — из `directory`, тарифы — из общего конфига сервиса `config_dir`.
+
+    Общий конфиг читает и сайт, поэтому цены на сайте и в боте не расходятся.
+    """
     content = Content(
         texts=load_texts(directory / TEXTS_FILE),
         admin_texts=load_texts(directory / ADMIN_TEXTS_FILE),
-        tariffs=load_tariffs(directory / TARIFFS_FILE),
-        stars_rub_rate=load_stars_rate(directory / TARIFFS_FILE),
+        tariffs=load_tariffs(config_dir / TARIFFS_FILE),
+        stars_rub_rate=load_stars_rate(config_dir / TARIFFS_FILE),
     )
     content.texts.require(REQUIRED_TEXTS)
     content.admin_texts.require(REQUIRED_ADMIN_TEXTS)

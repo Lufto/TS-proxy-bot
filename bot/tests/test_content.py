@@ -14,6 +14,7 @@ from tsproxy.content.loader import (
 from tsproxy.integrations.payments_types import PaymentStatus
 
 REPO_CONTENT = Path(__file__).parent.parent / "content"
+REPO_CONFIG = Path(__file__).parent.parent.parent / "config"
 
 
 def write(path: Path, text: str) -> Path:
@@ -22,7 +23,7 @@ def write(path: Path, text: str) -> Path:
 
 
 def test_repo_content_loads() -> None:
-    content = load_content(REPO_CONTENT)
+    content = load_content(REPO_CONTENT, REPO_CONFIG)
     assert content.tariff("m3") is not None
     assert content.tariff("m3").price == Decimal("405")
     # задача 15: тестового тарифа за 15 ₽ нет, все тарифы — от минимума Platega (50 ₽)
@@ -98,7 +99,7 @@ def test_unknown_tariff_field_is_error(tmp_path: Path) -> None:
 
 
 def test_repo_stars_rate_is_one_and_a_half_rubles() -> None:
-    assert load_content(REPO_CONTENT).stars_rub_rate == Decimal("1.5")
+    assert load_content(REPO_CONTENT, REPO_CONFIG).stars_rub_rate == Decimal("1.5")
 
 
 @pytest.mark.parametrize(("raw", "rate"), [("1.5", "1.5"), ("2", "2"), ("'1.25'", "1.25")])
@@ -132,7 +133,7 @@ def test_groups_are_listed_in_file_order(tmp_path: Path) -> None:
 
 
 def test_repo_quick_replies_are_valid() -> None:
-    admin_texts = load_content(REPO_CONTENT).admin_texts
+    admin_texts = load_content(REPO_CONTENT, REPO_CONFIG).admin_texts
     assert len(quick_reply_ids(admin_texts)) >= 3
 
 
@@ -156,6 +157,6 @@ def test_broken_quick_replies_stop_startup(tmp_path: Path, text: str, error: str
 
 def test_every_payment_status_has_admin_label() -> None:
     """Задача 15: тревога «статус оплаты изменился» называет любой статус по-человечески."""
-    content = load_content(REPO_CONTENT)
+    content = load_content(REPO_CONTENT, REPO_CONFIG)
     for status in PaymentStatus:
         assert content.admin_texts.get(f"payments.status.{status.value}")

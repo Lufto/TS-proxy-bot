@@ -48,6 +48,7 @@ from tsproxy.services.trial import TrialService
 from tsproxy.services.trial_switch import TrialSwitch
 
 REPO_CONTENT = Path(__file__).parent.parent.parent / "content"
+REPO_CONFIG = Path(__file__).parent.parent.parent.parent / "config"
 # Тема «💰 Оплаты» в тестах бота (задача 14: зачёт по кнопке «Проверить оплату»)
 PAYMENTS_THREAD_ID = 4
 
@@ -78,7 +79,7 @@ def session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
 
 @pytest.fixture(scope="session")
 def content() -> Content:
-    return load_content(REPO_CONTENT)
+    return load_content(REPO_CONTENT, REPO_CONFIG)
 
 
 @pytest.fixture

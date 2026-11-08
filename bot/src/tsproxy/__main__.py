@@ -50,7 +50,7 @@ def main() -> int:
         return 1
     setup_logging(settings.log_level, settings.secret_values())
     try:
-        content = load_content(settings.content_dir)
+        content = load_content(settings.content_dir, settings.config_dir)
     except ContentError as error:
         logger.error("Тексты или тарифы с ошибкой: %s", error)
         return 1

@@ -20,6 +20,7 @@ from tsproxy.services.masking import Masker
 from tsproxy.services.trial_switch import TrialSwitch
 
 REPO_CONTENT = Path(__file__).parent.parent.parent / "content"
+REPO_CONFIG = Path(__file__).parent.parent.parent.parent / "config"
 CHAT_ID = -100123
 THREAD_ID = 2
 ADMIN_ID = 900
@@ -28,7 +29,7 @@ SPAM_MINUTES = int(TRIAL_SPAM_WINDOW.total_seconds()) // 60
 
 @pytest.fixture
 def admin_texts() -> Texts:
-    return load_content(REPO_CONTENT).admin_texts
+    return load_content(REPO_CONTENT, REPO_CONFIG).admin_texts
 
 
 @pytest.fixture

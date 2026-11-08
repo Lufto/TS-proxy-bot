@@ -12,6 +12,7 @@ from tsproxy.services.fakes import FakeAlertSender, FakeClock, SentMessage
 from tsproxy.services.masking import Masker
 
 REPO_CONTENT = Path(__file__).parent.parent.parent / "content"
+REPO_CONFIG = Path(__file__).parent.parent.parent.parent / "config"
 CHAT_ID = -100123
 THREAD_ID = 2
 WINDOW = timedelta(minutes=10)
@@ -21,7 +22,7 @@ SUBSCRIPTION_CODE_HEAD = "AbCdEfGh1234"
 
 @pytest.fixture
 def admin_texts() -> Texts:
-    return load_content(REPO_CONTENT).admin_texts
+    return load_content(REPO_CONTENT, REPO_CONFIG).admin_texts
 
 
 @pytest.fixture

@@ -8,7 +8,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
-from backup_helpers import CHAT_ID, REPO_CONTENT
+from backup_helpers import CHAT_ID, REPO_CONFIG, REPO_CONTENT
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from tsproxy.config import RunMode
@@ -65,7 +65,7 @@ def session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
 
 @pytest.fixture
 def texts() -> Texts:
-    return load_content(REPO_CONTENT).admin_texts
+    return load_content(REPO_CONTENT, REPO_CONFIG).admin_texts
 
 
 @pytest.fixture

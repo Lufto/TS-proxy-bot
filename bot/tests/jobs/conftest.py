@@ -6,6 +6,7 @@ from backup_helpers import (
     BACKUPS_THREAD_ID,
     CHAT_ID,
     NOW,
+    REPO_CONFIG,
     REPO_CONTENT,
     create_live_database,
 )
@@ -53,7 +54,7 @@ def alert_sender() -> FakeAlertSender:
 def alerter(alert_sender: FakeAlertSender, clock: FakeClock) -> Alerter:
     return Alerter(
         sender=alert_sender,
-        texts=load_content(REPO_CONTENT).admin_texts,
+        texts=load_content(REPO_CONTENT, REPO_CONFIG).admin_texts,
         chat_id=CHAT_ID,
         thread_id=ALERTS_THREAD_ID,
         clock=clock,

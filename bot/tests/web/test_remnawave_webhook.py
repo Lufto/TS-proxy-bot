@@ -35,6 +35,7 @@ from tsproxy.web.remnawave import (
 )
 
 REPO_CONTENT = Path(__file__).parent.parent.parent / "content"
+REPO_CONFIG = Path(__file__).parent.parent.parent.parent / "config"
 NOW = datetime(2026, 10, 24, 12, 0, tzinfo=UTC)
 SECRET = "Rw" + "0123456789abcdef" * 2
 CLIENT_ID = 111
@@ -130,7 +131,7 @@ async def env(engine: AsyncEngine) -> AsyncIterator[Env]:
     remnawave = FakeRemnawave(RunMode.PROD, now=clock)
     handler = RecordingHandler()
     sender = FakeAlertSender()
-    texts = load_content(REPO_CONTENT).admin_texts
+    texts = load_content(REPO_CONTENT, REPO_CONFIG).admin_texts
     alerter = Alerter(sender, texts, -100123, 2, clock, lambda text: text)
     session_factory = create_session_factory(engine)
     signals = RemnawaveSignals(

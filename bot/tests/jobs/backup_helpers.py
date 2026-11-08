@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 REPO_CONTENT = Path(__file__).parent.parent.parent / "content"
+REPO_CONFIG = Path(__file__).parent.parent.parent.parent / "config"
 # 04:30 МСК 24 октября
 NOW = datetime(2026, 10, 24, 1, 30, tzinfo=UTC)
 CHAT_ID = -100123

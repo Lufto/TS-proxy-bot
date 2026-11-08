@@ -75,6 +75,9 @@ class Settings(BaseSettings):
     panel_backup_log: Path | None = Path("/var/lib/remnawave-backup/backup.log")
     panel_backup_dir: Path | None = Path("/var/backups/remnawave/daily")
     content_dir: Path = Path("content")
+    # Общий конфиг сервиса (тарифы), его читает и сайт: в репозитории — `config/` рядом с `bot/`,
+    # на сервере — `/opt/tsproxy/config` рядом с `/opt/tsproxy/app`
+    config_dir: Path = Path("../config")
     # Поддельная платёжка (PAYMENTS_MODE=fake): файл с платежами, общий со скриптом
     # `scripts/simulate_payment.py`
     fake_payments_file: Path = Path("data/fake_payments.json")
