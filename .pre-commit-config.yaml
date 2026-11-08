@@ -1,4 +1,4 @@
-# Проверки перед каждым коммитом: стиль кода и быстрые тесты бота.
+# Проверки перед каждым коммитом: стиль кода и быстрые тесты бота, eslint сайта.
 # Файл лежит в корне, потому что pre-commit ищет его там; проверки идут по папке `bot/`.
 # Установка на новом компьютере: cd bot && uv run pre-commit install
 repos:
@@ -22,3 +22,9 @@ repos:
         language: system
         pass_filenames: false
         always_run: true
+      - id: web-lint
+        name: eslint сайта
+        entry: bash -c 'cd web && npx eslint "**/*.{ts,tsx}"'
+        language: system
+        files: ^web/.*\.(ts|tsx)$
+        pass_filenames: false

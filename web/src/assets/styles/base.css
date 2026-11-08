@@ -1,0 +1,36 @@
+@layer base {
+  html {
+    font-size: 16px;
+
+    /* Почему-то при локе скролла происходит скролл вниз маленький */
+    /* Видимо браузер пытается сохранить позицию из-за fill gap паддинга */
+    /* Это свойство говорит браузеру, что это делать не надо */
+
+    .grecaptcha-badge {
+      display: none;
+    }
+  }
+
+  body {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    min-height: 100vh;
+    line-height: 130%;
+    font-family: var(--montserrat-fonts), serif;
+    font-weight: 400;
+    background-color: var(--color-white-100);
+  }
+
+  main {
+    flex-grow: 1;
+  }
+
+  button,
+  form,
+  input,
+  textarea {
+    font-family: var(--montserrat-fonts), serif;
+    font-weight: 400;
+  }
+}

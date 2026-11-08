@@ -1,0 +1,16 @@
+.fontHeading {
+  font-family: var(--unbounded-fonts), serif;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.font {
+  font-family: var(--montserrat-fonts), serif;
+  letter-spacing: 0;
+}
+
+@layer components {
+  .h1 {
+    color: black;
+  }
+}

@@ -1,0 +1,1 @@
+Пустая папка нужна: без неё Next примет src/pages за Pages Router (в src/pages лежат реализации страниц для app/).

@@ -1,0 +1,20 @@
+@import "tailwindcss";
+@import "./base.css";
+@import "./typography.css";
+@import "./components.css";
+
+@theme {
+  --spacing: 0.0625rem;
+
+  --breakpoint-m: 375px;
+  --breakpoint-t: 768px;
+  --breakpoint-md: 1024px;
+  --breakpoint-d: 1280px;
+  --breakpoint-xl: 1440px;
+  --breakpoint-xxl: 1600px;
+
+  --zHeader: 20;
+
+  --color-white-100: #FFFFFF;
+  --color-black-100: #000000;
+}
