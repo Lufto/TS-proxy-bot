@@ -1,7 +1,7 @@
 # UI-кит: три варианта
 
 Type: prototype
-Status: open
+Status: claimed
 Blocked by: 04
 
 ## Question
