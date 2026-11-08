@@ -13,7 +13,7 @@ for d in /var/backups/remnawave /var/backups/remnawave/daily /var/backups/remnaw
   chmod 750 "$d"
 done
 
-install -m 644 /opt/tsproxy/app/ops/tsproxy-bot/tsproxy.service /etc/systemd/system/tsproxy.service
+install -m 644 /opt/tsproxy/ops/tsproxy-bot/tsproxy.service /etc/systemd/system/tsproxy.service
 systemctl daemon-reload
 systemctl enable tsproxy.service >/dev/null
 echo "Готово: доступ к бэкапам выдан, служба tsproxy установлена (пока не запущена)."

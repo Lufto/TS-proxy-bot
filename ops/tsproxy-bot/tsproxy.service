@@ -1,4 +1,5 @@
-# Бот TS Proxy (задача 26). Код — /opt/tsproxy/app, база и .env — /var/lib/tsproxy.
+# Бот TS Proxy (задача 26). Код — /opt/tsproxy/app (папка bot/ репозитория), общий конфиг —
+# /opt/tsproxy/config (config/), база и .env — /var/lib/tsproxy.
 # Слушает 172.18.0.1:8090 (сеть Docker панели): туда ходят туннель Cloudflare и вебхуки панели.
 [Unit]
 Description=TS Proxy bot

@@ -7,7 +7,7 @@
 | Адрес | Файл | Что там |
 |---|---|---|
 | `/` | `index.html` | Главная: что это, кнопка «Открыть бота» |
-| `/tariffs/` | `tariffs/index.html` | Цены и что входит (цены — как в `content/tariffs.yaml`) |
+| `/tariffs/` | `tariffs/index.html` | Цены и что входит (цены — как в `config/tariffs.yaml`) |
 | `/help/` | `help/index.html` | Инструкции: Happ на iOS, Android, Windows, macOS; v2RayTun — запасное |
 | `/support/` | `support/index.html` | Контакты поддержки |
 | `/terms/` | `terms/index.html` | Пользовательское соглашение с условиями возврата |

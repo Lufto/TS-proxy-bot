@@ -1,6 +1,6 @@
 ## Coding standards
 
-Python code follows `docs/python-rules.md`. Code reviews check against it.
+Python code (the bot in `bot/`) follows `bot/docs/python-rules.md`. Code reviews check against it.
 
 ## Agent skills
 
