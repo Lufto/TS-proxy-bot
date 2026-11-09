@@ -14,6 +14,8 @@ from typing import Any
 
 import yaml
 
+from tsproxy.domain.site_banner import SiteBanner
+
 TEXTS_FILE = "texts.yaml"
 ADMIN_TEXTS_FILE = "admin_texts.yaml"
 TARIFFS_FILE = "tariffs.yaml"
@@ -697,6 +699,17 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
         "admin.trials.unchanged",
         "admin.trials.disable_button",
         "admin.trials.enable_button",
+        # задачи сайта 14, 15: плашка о неполадках на сайте
+        "alerts.site_banner_set",
+        "admin.site_banner.state",
+        "admin.site_banner.switched",
+        "admin.site_banner.unchanged",
+        "admin.site_banner.alert_button",
+        *(
+            f"admin.site_banner.{group}.{banner.value}"
+            for group in ("names", "buttons")
+            for banner in SiteBanner
+        ),
         # задача 20: компенсация при сбое ноды
         "alerts.compensation_failed",
         "admin.compensation.offer",

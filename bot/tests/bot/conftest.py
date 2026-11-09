@@ -9,6 +9,8 @@ from bot_updates import ADMIN_CHAT_ID, ADMIN_ID, ALERTS_THREAD_ID, BOT_TOKEN, NO
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from tsproxy.bot.admin import AdminAccess
+from tsproxy.bot.admin_site_banner import banner_alert_button
+from tsproxy.bot.connect import REMNAWAVE_UNAVAILABLE_ALERT
 from tsproxy.bot.context import BotContext
 from tsproxy.bot.delivery import ClientDelivery
 from tsproxy.bot.dispatcher import create_dispatcher
@@ -42,6 +44,7 @@ from tsproxy.services.payment_checks import PaymentChecks
 from tsproxy.services.payment_status import PaymentStatusChanges
 from tsproxy.services.profile import ProfileService
 from tsproxy.services.refunds import RefundService
+from tsproxy.services.site_banner import SiteBannerSwitch
 from tsproxy.services.stars import StarsPayments
 from tsproxy.services.support import SupportService
 from tsproxy.services.trial import TrialService
@@ -131,8 +134,15 @@ def ctx(
 ) -> BotContext:
     mask = MaskingFilter([BOT_TOKEN]).mask
     events = EventLog(clock, mask)
+    # Как в сборке приложения: под «Remnawave не отвечает» — кнопка плашки (задача сайта 15)
     alerter = Alerter(
-        alert_sender, content.admin_texts, ADMIN_CHAT_ID, ALERTS_THREAD_ID, clock, mask
+        alert_sender,
+        content.admin_texts,
+        ADMIN_CHAT_ID,
+        ALERTS_THREAD_ID,
+        clock,
+        mask,
+        buttons={REMNAWAVE_UNAVAILABLE_ALERT: banner_alert_button(content.admin_texts)},
     )
     trial_switch = TrialSwitch(session_factory, events, alerter, content.admin_texts, clock)
     screens = Screens(content.texts)
@@ -232,6 +242,7 @@ def ctx(
             clock,
             content.stars_rub_rate,
         ),
+        site_banner=SiteBannerSwitch(session_factory, events, alerter, content.admin_texts),
     )
 
 

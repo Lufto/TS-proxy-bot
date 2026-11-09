@@ -55,6 +55,7 @@ from tsproxy.bot.admin_compensation import (
     create_admin_compensation_router,
 )
 from tsproxy.bot.admin_proof import create_admin_proof_router
+from tsproxy.bot.admin_site_banner import banner_alert_button
 from tsproxy.bot.admin_stats import create_admin_stats_router
 from tsproxy.bot.admin_transfer import create_admin_transfer_router
 from tsproxy.bot.alert_sender import TelegramAlertSender
@@ -115,6 +116,7 @@ from tsproxy.services.refunds import RefundService
 from tsproxy.services.reminders import ReminderService
 from tsproxy.services.remnawave_signals import RemnawaveSignals
 from tsproxy.services.service_proof import ServiceProofService
+from tsproxy.services.site_banner import SiteBannerSwitch
 from tsproxy.services.stars import StarsPayments
 from tsproxy.services.stats import StatsService
 from tsproxy.services.support import SupportService
@@ -127,6 +129,7 @@ from tsproxy.web.app import create_web_app
 from tsproxy.web.health import HealthEndpoint
 from tsproxy.web.payments import PaymentNotificationWebhook
 from tsproxy.web.remnawave import RemnawaveWebhook
+from tsproxy.web.status import StatusEndpoint
 from tsproxy.web.telegram import TelegramWebhook, webhook_url
 
 logger = logging.getLogger(__name__)
@@ -316,6 +319,8 @@ def build_application(
         settings.alerts_thread_id,
         clock,
         mask,
+        # Задача сайта 15: под «Remnawave не отвечает» — кнопка «Поставить плашку» на сайт
+        buttons={REMNAWAVE_UNAVAILABLE_ALERT: banner_alert_button(content.admin_texts)},
     )
     clients = ClientService(session_factory, clock)
     events = EventLog(clock, mask)
@@ -420,6 +425,8 @@ def build_application(
     )
     # Выключатель пробных (задача 28): состояние — последнее событие в журнале
     trial_switch = TrialSwitch(session_factory, events, alerter, content.admin_texts, clock)
+    # Плашка на сайте (задачи сайта 13–15): тоже последнее событие в журнале
+    site_banner = SiteBannerSwitch(session_factory, events, alerter, content.admin_texts)
     ctx = BotContext(
         texts=content.texts,
         admin_texts=content.admin_texts,
@@ -442,6 +449,7 @@ def build_application(
         payment_checks=payment_checks,
         refunds=refunds,
         stars=stars,
+        site_banner=site_banner,
     )
     # Статистика и рассылка (задача 19)
     broadcasts = BroadcastService(
@@ -547,6 +555,7 @@ def build_application(
             HealthEndpoint(health),
             # оплата выключена — уведомления не принимаем: перепроверить их не у кого
             None if provider is None else PaymentNotificationWebhook(provider, payment_checks),
+            StatusEndpoint(site_banner),
         ),
         alerter=alerter,
         broadcasts=broadcasts,

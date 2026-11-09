@@ -20,6 +20,10 @@
 Сбой отправки не роняет вызывающий код: он пишется в лог как ошибка, а окно склейки всё равно
 открывается, чтобы поток тревог не бил по недоступному Telegram.
 
+Тревоге с ключом из `buttons` под сообщение добавляется кнопка (задача сайта 15: «панель
+не отвечает» → «Поставить плашку»). Кнопки задаёт сборка приложения, вызывающий код о них
+не знает. Сводка о повторах уходит без кнопки: кнопка есть под первой тревогой.
+
 Для ежедневного отчёта (задача 22) тревоги считаются по дням (по Москве), вместе
 со склеенными повторами. Счёт тоже в памяти — с запуска бота (`counting_since`).
 """
@@ -27,6 +31,7 @@
 import html
 import logging
 from collections import Counter
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Protocol
@@ -44,10 +49,20 @@ SECONDS_PER_MINUTE = 60
 ALERT_COUNT_KEEP_DAYS = 7
 
 
+@dataclass(frozen=True)
+class AlertButton:
+    """Кнопка под сообщением: надпись и данные нажатия (их разбирает обработчик админки)."""
+
+    text: str
+    callback_data: str
+
+
 class AlertSender(Protocol):
     """Отправка сообщения в тему группы. Настоящая (aiogram) — в задаче 06, в тестах — подделка."""
 
-    async def send(self, chat_id: int, thread_id: int | None, text: str) -> None: ...
+    async def send(
+        self, chat_id: int, thread_id: int | None, text: str, button: AlertButton | None = None
+    ) -> None: ...
 
 
 @dataclass
@@ -71,9 +86,11 @@ class Alerter:
         clock: Clock,
         mask: Masker,
         glue_window: timedelta = DEFAULT_ALERT_GLUE_WINDOW,
+        buttons: Mapping[str, AlertButton] | None = None,
     ) -> None:
         if glue_window <= timedelta(0):
             raise ValueError("Окно склейки тревог должно быть больше нуля")
+        self._buttons = dict(buttons or {})
         self._sender = sender
         self._texts = texts
         self._chat_id = chat_id
@@ -108,7 +125,9 @@ class Alerter:
         masked = self._mask(text)
         # окно открываем до отправки: пока ждём Telegram, повторы уже склеиваются
         self._windows[key] = _GluedAlert(opened_at=now, text=masked)
-        await self._send(key, self._texts.get("alerts.prefix") + html.escape(masked))
+        await self._send(
+            key, self._texts.get("alerts.prefix") + html.escape(masked), self._buttons.get(key)
+        )
 
     async def flush_repeats(self) -> None:
         """Закрыть окна, время которых вышло, и отправить сводки о повторах."""
@@ -139,10 +158,10 @@ class Alerter:
         )
         await self._send(key, self._texts.get("alerts.prefix") + summary)
 
-    async def _send(self, key: str, message: str) -> None:
+    async def _send(self, key: str, message: str, button: AlertButton | None = None) -> None:
         logger.warning("Тревога %s: %s", key, message)
         try:
-            await self._sender.send(self._chat_id, self._thread_id, message)
+            await self._sender.send(self._chat_id, self._thread_id, message, button)
         # Ловим всё: отправка тревоги не должна ронять оплату или фоновую задачу,
         # а ошибки Telegram и сети бывают разных типов. Ошибку не прячем — пишем в лог.
         except Exception:

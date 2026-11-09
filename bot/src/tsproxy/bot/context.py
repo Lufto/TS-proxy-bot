@@ -23,6 +23,7 @@ from tsproxy.services.orders import OrderService
 from tsproxy.services.payment_checks import PaymentChecks
 from tsproxy.services.profile import ProfileService
 from tsproxy.services.refunds import RefundService
+from tsproxy.services.site_banner import SiteBannerSwitch
 from tsproxy.services.stars import StarsPayments
 from tsproxy.services.support import SupportService
 from tsproxy.services.trial import TrialService
@@ -55,6 +56,7 @@ class BotContext:
     payment_checks: PaymentChecks  # «🔄 Проверить оплату» (задача 14), тот же, что у `orders`
     refunds: RefundService  # «↩️ Вернуть» и случайная вторая оплата (задача 21)
     stars: StarsPayments  # оплата звёздами Telegram (задача 33)
+    site_banner: SiteBannerSwitch  # плашка о неполадках на сайте (задачи сайта 13–15)
 
 
 def profile_of(user: User) -> ClientProfile:

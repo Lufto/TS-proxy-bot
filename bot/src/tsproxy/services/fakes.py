@@ -4,6 +4,8 @@
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
+from tsproxy.services.alerts import AlertButton
+
 
 class FakeClock:
     """Часы, которые стоят на месте, пока тест не сдвинет их сам."""
@@ -23,6 +25,7 @@ class SentMessage:
     chat_id: int
     thread_id: int | None
     text: str
+    button: AlertButton | None = None
 
 
 @dataclass
@@ -32,10 +35,12 @@ class FakeAlertSender:
     sent: list[SentMessage] = field(default_factory=list)
     error: Exception | None = None
 
-    async def send(self, chat_id: int, thread_id: int | None, text: str) -> None:
+    async def send(
+        self, chat_id: int, thread_id: int | None, text: str, button: AlertButton | None = None
+    ) -> None:
         if self.error is not None:
             raise self.error
-        self.sent.append(SentMessage(chat_id, thread_id, text))
+        self.sent.append(SentMessage(chat_id, thread_id, text, button))
 
 
 @dataclass

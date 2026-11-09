@@ -66,6 +66,9 @@ class EventKind(StrEnum):
     PAYMENT_STATUS_CHANGED = "payment_status_changed"  # спор, частичный возврат, другое
     # возврат бота долго «на проверке у платёжки» — тревога один раз
     REFUND_REVIEW_OVERDUE = "refund_review_overdue"
+    # задачи сайта 13–15: администратор поставил или снял плашку на сайте,
+    # какую — `details["banner"]`. Последнее такое событие — источник правды для `/status`
+    SITE_BANNER_SET = "site_banner_set"
 
 
 class EventLog:
