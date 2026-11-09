@@ -5,7 +5,7 @@ import { Logo, LogoMark } from '@/shared/ui/logo';
 import { Reveal, RevealItem } from '@/shared/ui/reveal';
 
 // UI-кит «Манифест» из настоящих компонентов сайта (задача сайта 06).
-// Закрыт от поисковиков; черновики вариантов — на /kit/variants
+// Закрыт от поисковиков. Черновики трёх вариантов и знаков — в истории git (коммит 588611b)
 
 const PALETTE = [
   { token: 'bg', role: 'Фон', hex: '#0B0B0B' },
