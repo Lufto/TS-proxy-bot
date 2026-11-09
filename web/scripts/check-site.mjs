@@ -16,7 +16,7 @@ const { tariffs } = readConfig('tariffs.yaml');
 const site = readConfig('site.yaml');
 
 // Адреса без языка — русские; английские — те же с /en
-const PAGES = ['/', '/help/', '/help/ios/', '/help/android/', '/help/windows/', '/help/macos/', '/terms/', '/privacy/'];
+const PAGES = ['/', '/help/', '/help/ios/', '/help/android/', '/help/windows/', '/help/macos/', '/help/linux/', '/terms/', '/privacy/'];
 // На эти адреса ссылается бот: должны открываться и без слэша на конце
 const BOT_LINKS = ['/terms', '/privacy'];
 const NOT_FOUND = ['/net-takoy-stranicy/', '/en/no-such-page/'];

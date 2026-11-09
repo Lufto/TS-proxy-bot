@@ -1,7 +1,8 @@
 import cx from 'classix';
+import { rem } from '@/shared/lib/rem';
 
 type TLogo = {
-  /** Сторона знака в пикселях; надпись масштабируется от неё */
+  /** Сторона знака в пикселях макета (на странице — в rem); надпись масштабируется от неё */
   size?: number;
   /** Без надписи — только знак */
   wordmark?: boolean;
@@ -12,8 +13,7 @@ type TLogo = {
 export const LogoMark: FCClass<{ size?: number }> = ({ size = 28, className }) => (
   <svg
     className={cx('shrink-0', className)}
-    width={size}
-    height={size}
+    style={{ width: rem(size), height: rem(size) }}
     viewBox="0 0 32 32"
     aria-hidden
   >
@@ -25,12 +25,12 @@ export const LogoMark: FCClass<{ size?: number }> = ({ size = 28, className }) =
 );
 
 export const Logo: FCClass<TLogo> = ({ size = 28, wordmark = true, className }) => (
-  <span className={cx('inline-flex items-center', className)} style={{ gap: size * 0.4 }}>
+  <span className={cx('inline-flex items-center', className)} style={{ gap: rem(size * 0.4) }}>
     <LogoMark size={size} />
     {wordmark && (
       <span
         className="font-display font-extrabold whitespace-nowrap text-cream"
-        style={{ fontSize: size * 0.72, lineHeight: 1, letterSpacing: '-0.01em' }}
+        style={{ fontSize: rem(size * 0.72), lineHeight: 1, letterSpacing: '-0.01em' }}
       >
         TS PROXY
       </span>

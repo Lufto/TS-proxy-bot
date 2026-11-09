@@ -16,8 +16,7 @@ const data: TCommonSchema = {
       langLabel: 'Site language',
     },
     footer: {
-      tagline: 'Proxy with traffic encryption. Setup and payment are in the Telegram bot.',
-      cta: 'Open the bot',
+      tagline: 'A secure connection for your phone, computer and tablet.',
       support: 'Contact support',
       links: [
         { title: 'Guides', url: '/help/' },

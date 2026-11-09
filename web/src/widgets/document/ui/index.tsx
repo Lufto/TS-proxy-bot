@@ -13,7 +13,7 @@ const Paragraph = ({ item, sectionNumber }: { item: TParagraph; sectionNumber: n
     return (
       <ol className="flex flex-col gap-12">
         {item.numbered.map((entry, index) => (
-          <li key={entry} className="t-body grid grid-cols-[40px_1fr] gap-8 text-cream/85">
+          <li key={entry} className="t-body grid grid-cols-[2.5rem_1fr] gap-8 text-cream/85">
             <span className="t-label pt-3 text-accent">{`${sectionNumber}.${index + 1}`}</span>
             <span><RichText text={entry} /></span>
           </li>

@@ -16,7 +16,6 @@ export const commonDataSchema = v.partial(v.object({
   }),
   footer: v.object({
     tagline: v.string(),
-    cta: v.string(),
     support: v.string(),
     links: v.array(navLinkSchema),
     copyright: v.string(),

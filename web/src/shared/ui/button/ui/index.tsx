@@ -1,7 +1,7 @@
 import cx from 'classix';
 import { Link } from '@/shared/lib/i18n/navigation';
 import { TButton } from '../types';
-import styles from './button.module.css';
+import styles from './button.module.scss';
 
 // Кнопка кита. С адресом — ссылка, без адреса — кнопка (как «Ссылка» из хранилища компонентов).
 // Надпись-строка дублируется в data-label: из неё CSS собирает «Бегущую строку»

@@ -6,11 +6,11 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 10px;
+    gap: rem(10);
     border: 1px solid transparent;
     font-family: var(--font-display);
     font-weight: 500;
-    font-size: 14px;
+    font-size: rem(14);
     letter-spacing: 0.04em;
     line-height: 1;
     text-transform: uppercase;
@@ -22,8 +22,8 @@
   }
 
   .button:focus-visible {
-    outline: 2px solid var(--color-accent);
-    outline-offset: 3px;
+    outline: rem(2) solid var(--color-accent);
+    outline-offset: rem(3);
   }
 
   .disabled {
@@ -31,13 +31,18 @@
     cursor: not-allowed;
   }
 
-  .l { height: 56px; padding: 0 28px; }
-  .m { height: 44px; padding: 0 20px; }
+  .l { height: rem(56); padding: 0 rem(28); }
+  .m { height: rem(44); padding: 0 rem(20); }
+
+  /* Телефоны: кнопки на всю ширину (решение владельца 2026-11-09) */
+  @media (max-width: 767px) {
+    .button { width: 100%; }
+  }
 
   /* Узкие телефоны: длинная подпись крупной кнопки должна влезать в 320 px */
   @media (max-width: 400px) {
     .button { letter-spacing: 0.02em; }
-    .l { padding: 0 16px; }
+    .l { padding: 0 rem(16); }
   }
 
   /* Надпись и её копия для «Бегущей строки» */
@@ -80,7 +85,7 @@
   @media (hover: hover) {
     .primary:not(.disabled):hover .label > span { transform: translateY(-160%); }
     .primary:not(.disabled):hover .label::after { transform: none; }
-    .primary:not(.disabled):hover .arrow { transform: translateX(10px); }
+    .primary:not(.disabled):hover .arrow { transform: translateX(rem(10)); }
 
     .secondary:not(.disabled):hover {
       color: var(--color-cream);

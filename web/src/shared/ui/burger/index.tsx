@@ -1,5 +1,5 @@
 import cx from 'classix';
-import styles from './burger.module.css';
+import styles from './burger.module.scss';
 
 export type TBurgerOpenClosed = 'open' | 'closed';
 

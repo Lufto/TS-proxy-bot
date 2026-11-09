@@ -1,14 +1,14 @@
 import { RES_STATUS } from '@/shared/enums';
 import { TBuilderPage } from '@/app-layer/model/builder';
 
-// Инструкция: Android. Скриншоты шагов — поле image у шага (src, width, height, alt), когда владелец пришлёт
+// Setup guide: Android. Apps and links — config/site.yaml → apps. Step screenshots — the image field of a step (src, width, height, alt)
 const data: TBuilderPage = {
   status: RES_STATUS.success,
   statusCode: 200,
   data: {
     seo: {
       title: 'Android — setup guide — TS Proxy',
-      description: 'How to connect TS Proxy on Android with the Happ app.',
+      description: 'How to connect TS Proxy on Android: Happ, v2RayTun, Hiddify and OneXray — links to official sites and steps.',
     },
     content: [
       {
@@ -17,37 +17,120 @@ const data: TBuilderPage = {
         data: {
           label: 'Setup guide',
           title: 'Android',
-          text: 'Three steps with the Happ app. If it will not install, there is a [backup app](/help/#fallback).',
-          downloads: [
+          text: 'Pick an app — the steps below will change. The main one is Happ: Russian sites open directly in it, without the proxy. If it will not install or does not work, take the next one.',
+          apps: [
             {
               app: 'happ',
-              store: 'android',
-              title: 'Happ on Google Play',
-            },
-            {
-              app: 'happ',
-              store: 'android_apk',
-              title: 'Download Happ (APK)',
+              tag: 'Main',
+              hint: 'Added with a button · Russia direct',
+              downloads: [
+                {
+                  store: 'android_apk',
+                  title: 'Download Happ',
+                },
+                {
+                  store: 'site',
+                  title: 'Happ website',
+                },
+              ],
+              steps: [
+                {
+                  title: 'Install Happ',
+                  text: 'Tap «Download Happ» — the Happ.apk file starts downloading right away. Open it from the download notification and allow the install when the phone asks.',
+                  note: 'Happ was removed from Google Play, so we install it from the developer\'s official GitHub. Take the file only from our button or from [happ.su](https://www.happ.su/main/ru): elsewhere there are fakes.',
+                },
+                {
+                  title: 'Add the subscription',
+                  text: 'Go back to the bot, tap «🚀 Подключиться» (Connect), then «Открыть страницу подключения» (Open connection page). There, pick Happ and tap «Добавить в Happ» (Add to Happ) — the app opens and adds the subscription itself.',
+                  note: 'The button does not open the app? Tap «📋 Скопировать ссылку» (Copy link) in the bot and paste it into Happ with «+».',
+                },
+                {
+                  title: 'Connect',
+                  text: 'Tap the big connect button in Happ and allow adding the configuration.',
+                },
+              ],
             },
             {
               app: 'v2raytun',
-              store: 'android',
-              title: 'v2RayTun — backup',
+              tag: 'Backup',
+              hint: 'Added with a button · Russia direct',
+              downloads: [
+                {
+                  store: 'android',
+                  title: 'v2RayTun on Google Play',
+                },
+              ],
+              steps: [
+                {
+                  title: 'Install v2RayTun',
+                  text: 'Install v2RayTun from Google Play — button above.',
+                },
+                {
+                  title: 'Add the subscription',
+                  text: 'Go back to the bot, tap «🚀 Подключиться» (Connect), then «Открыть страницу подключения» (Open connection page). There, pick v2RayTun and tap «Добавить в v2RayTun» (Add to v2RayTun) — the app opens and adds the subscription itself.',
+                  note: 'The button does not open the app? Tap «📋 Скопировать ссылку» (Copy link) in the bot and paste it into v2RayTun with «+».',
+                },
+                {
+                  title: 'Connect',
+                  text: 'Tap the big connect button in v2RayTun and allow adding the configuration.',
+                },
+              ],
             },
-          ],
-          steps: [
             {
-              title: 'Install Happ',
-              text: 'Install the Happ app from Google Play — button above.',
-              note: 'Not on Google Play? Download the Happ installer (APK) from the developer — the second button above, or at [happ.su](https://happ.su).',
+              app: 'hiddify',
+              tag: 'Another option',
+              hint: 'Added with a button',
+              downloads: [
+                {
+                  store: 'android',
+                  title: 'Hiddify on Google Play',
+                },
+                {
+                  store: 'android_apk',
+                  title: 'Download APK',
+                },
+              ],
+              steps: [
+                {
+                  title: 'Install Hiddify',
+                  text: 'Install Hiddify from Google Play. If Google Play does not open, tap «Download APK», open the file and allow the install.',
+                },
+                {
+                  title: 'Add the subscription',
+                  text: 'Go back to the bot, tap «🚀 Подключиться» (Connect), then «Открыть страницу подключения» (Open connection page). There, pick Hiddify and tap «Добавить в Hiddify» (Add to Hiddify) — the app opens and adds the subscription itself.',
+                },
+                {
+                  title: 'Connect',
+                  text: 'Tap the big connect button in Hiddify and allow adding the configuration.',
+                  note: 'In Hiddify all traffic goes through the proxy, Russian sites too. If a Russian site does not open, turn the proxy off for a while.',
+                },
+              ],
             },
             {
-              title: 'Add the subscription',
-              text: 'Go back to the bot, tap «🚀 Подключиться» (Connect), then «Открыть страницу подключения» (Open connection page), and on that page tap the button to add it to Happ.',
-            },
-            {
-              title: 'Connect',
-              text: 'In Happ, tap the big connect button and allow the app to run.',
+              app: 'onexray',
+              tag: 'Another option',
+              hint: 'Paste the link by hand',
+              downloads: [
+                {
+                  store: 'android',
+                  title: 'OneXray on Google Play',
+                },
+              ],
+              steps: [
+                {
+                  title: 'Install OneXray',
+                  text: 'Install OneXray from Google Play — button above.',
+                },
+                {
+                  title: 'Add the subscription',
+                  text: 'In the bot, tap «📋 Скопировать ссылку» (Copy link) in the «🚀 Подключиться» (Connect) section. In OneXray, tap «+», choose adding a subscription by link (URL) and paste the link.',
+                },
+                {
+                  title: 'Connect',
+                  text: 'Tap the big connect button in OneXray and allow adding the configuration.',
+                  note: 'In OneXray all traffic goes through the proxy, Russian sites too. If a Russian site does not open, turn the proxy off for a while.',
+                },
+              ],
             },
           ],
         },
@@ -96,18 +179,23 @@ const data: TBuilderPage = {
           items: [
             {
               title: 'iPhone and iPad',
-              text: 'Happ from the App Store',
+              text: 'Happ or OneXray',
               url: '/help/ios/',
             },
             {
               title: 'Windows',
-              text: 'Happ for Windows',
+              text: 'Happ, v2RayTun and 2 more',
               url: '/help/windows/',
             },
             {
               title: 'macOS',
-              text: 'Happ from the Mac App Store',
+              text: 'Happ, OneXray and 2 more',
               url: '/help/macos/',
+            },
+            {
+              title: 'Linux',
+              text: 'Happ, Hiddify and 2 more',
+              url: '/help/linux/',
             },
           ],
         },

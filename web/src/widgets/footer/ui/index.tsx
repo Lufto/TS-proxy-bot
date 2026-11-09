@@ -1,22 +1,15 @@
 import type { TFooterData } from '@/app-layer/model/common';
-import { BOT_SUPPORT_URL, BOT_URL, SUPPORT_EMAIL } from '@/shared/config/bot';
-import { Button } from '@/shared/ui/button';
+import { BOT_SUPPORT_URL, SUPPORT_EMAIL } from '@/shared/config/bot';
 import { Link, LinkColor } from '@/shared/ui/link';
 import { Logo } from '@/shared/ui/logo';
 
-// Подвал всех страниц: кнопки в бота и в поддержку, документы, почта
+// Подвал всех страниц: документы, поддержка и почта. Кнопок нет — их дают шапка и блок-призыв над подвалом
 export const Footer: FCClass<{ data: TFooterData }> = ({ data }) => (
   <footer className="mt-auto border-t border-line">
     <div className="container flex flex-col gap-40 py-48 t:py-64">
-      <div className="flex flex-col justify-between gap-32 md:flex-row md:items-end">
-        <div className="flex max-w-420 flex-col gap-16">
-          <Logo size={32} />
-          <p className="t-body text-muted">{data.tagline}</p>
-        </div>
-        <div className="flex flex-wrap gap-12">
-          <Button url={BOT_URL}>{data.cta}</Button>
-          <Button variant="secondary" url={BOT_SUPPORT_URL}>{data.support}</Button>
-        </div>
+      <div className="flex max-w-420 flex-col gap-16">
+        <Logo size={32} />
+        <p className="t-body text-muted">{data.tagline}</p>
       </div>
 
       <div className="rule flex flex-col justify-between gap-20 pt-24 t:flex-row t:items-center">
@@ -28,6 +21,9 @@ export const Footer: FCClass<{ data: TFooterData }> = ({ data }) => (
           ))}
         </nav>
         <div className="flex flex-wrap items-center gap-x-24 gap-y-8">
+          <Link url={BOT_SUPPORT_URL} color={LinkColor.muted} typography="t-caption">
+            {data.support}
+          </Link>
           <Link url={`mailto:${SUPPORT_EMAIL}`} target="_self" color={LinkColor.muted} typography="t-caption">
             {SUPPORT_EMAIL}
           </Link>

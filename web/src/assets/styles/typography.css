@@ -1,4 +1,5 @@
-/* Шкала текста кита «Манифест». Заголовки — Unbounded заглавными,
+/* Размеры — в rem через --spacing(px): 1 единица = 1/16 rem.
+   Шкала текста кита «Манифест». Заголовки — Unbounded заглавными,
    текст — Golos Text, метки и цифры — JetBrains Mono */
 
 @layer components {
@@ -15,26 +16,26 @@
   }
 
   /* Нижние границы подобраны под 320 px: Unbounded широкий, «ПОДКЛЮЧЕНИЕ» должно влезать */
-  .t-display { font-size: clamp(30px, 7vw, 108px); }
-  .t-h1 { font-size: clamp(26px, 5vw, 60px); }
-  .t-h2 { font-size: clamp(24px, 3.4vw, 40px); }
+  .t-display { font-size: clamp(--spacing(30), 7vw, --spacing(108)); }
+  .t-h1 { font-size: clamp(--spacing(26), 5vw, --spacing(60)); }
+  .t-h2 { font-size: clamp(--spacing(24), 3.4vw, --spacing(40)); }
 
   .t-h3 {
     font-family: var(--font-display);
     font-weight: 800;
-    font-size: clamp(20px, 2vw, 24px);
+    font-size: clamp(--spacing(20), 2vw, --spacing(24));
     letter-spacing: -0.01em;
     line-height: 1.2;
     text-wrap: balance;
   }
 
-  .t-body-l { font-size: clamp(17px, 1.6vw, 20px); line-height: 1.55; }
-  .t-body { font-size: 16px; line-height: 1.5; }
-  .t-caption { font-size: 13px; line-height: 1.5; color: var(--color-muted); }
+  .t-body-l { font-size: clamp(--spacing(17), 1.6vw, --spacing(20)); line-height: 1.55; }
+  .t-body { font-size: --spacing(16); line-height: 1.5; }
+  .t-caption { font-size: --spacing(13); line-height: 1.5; color: var(--color-muted); }
 
   .t-label {
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: --spacing(12);
     font-weight: 500;
     letter-spacing: 0.08em;
     line-height: 1.4;

@@ -15,20 +15,48 @@ support_email: support@ts-proxy.com
 # Адрес состояния бота для плашки о неполадках (задача карты 02)
 status_url: https://bot.ts-proxy.com/status
 
-# Приложения для подключения. Ссылки — с официальных сайтов happ.su и v2raytun.com (2026-11-09)
+# Приложения для подключения (карта .scratch/app-alternatives, выбор 2026-11-09). Ссылки — только
+# официальные: сайт разработчика, GitHub, магазины. Файлы с GitHub — прямые ссылки «последний выпуск»
+# (releases/latest/download/<файл>): кнопка сразу скачивает; переименуют файл — ссылка сломается.
+# Тот же список — на странице подписки (Lufto/page-subscription, src/apps.ts) и в инструкциях бота: меняете здесь — поменяйте и там.
+# Happ нет в российском App Store и в Google Play: на iPhone — американский App Store, на Android — APK.
+# v2RayTun нет в App Store вовсе: только Android и Windows.
 apps:
   happ:
     name: Happ
-    site: https://happ.su
-    ios: https://apps.apple.com/app/happ-proxy-utility/id6504287215
-    android: https://play.google.com/store/apps/details?id=com.happproxy
+    site: https://www.happ.su/main/ru
+    ios: https://apps.apple.com/us/app/happ-proxy-utility/id6504287215
     android_apk: https://github.com/Happ-proxy/happ-android/releases/latest/download/Happ.apk
     windows: https://github.com/Happ-proxy/happ-desktop/releases/latest/download/setup-Happ.x64.exe
-    macos: https://apps.apple.com/app/happ-proxy-utility/id6504287215
+    macos: https://github.com/Happ-proxy/happ-desktop/releases/latest/download/Happ.macOS.universal.dmg
+    linux_deb: https://github.com/Happ-proxy/happ-desktop/releases/latest/download/Happ.linux.x64.deb
+    linux_rpm: https://github.com/Happ-proxy/happ-desktop/releases/latest/download/Happ.linux.x64.rpm
   v2raytun:
     name: v2RayTun
     site: https://v2raytun.com
-    ios: https://apps.apple.com/app/v2raytun/id6476628951
     android: https://play.google.com/store/apps/details?id=com.v2raytun.android
     windows: https://storage.v2raytun.com/v2RayTun_Setup.exe
-    macos: https://apps.apple.com/app/v2raytun/id6476628951
+  onexray:
+    name: OneXray
+    site: https://onexray.com
+    ios: https://apps.apple.com/ru/app/onexray/id6745748773
+    macos: https://apps.apple.com/ru/app/onexray/id6745748773
+    android: https://play.google.com/store/apps/details?id=net.yuandev.onexray
+  hiddify:
+    name: Hiddify
+    site: https://hiddify.com
+    android: https://play.google.com/store/apps/details?id=app.hiddify.com
+    android_apk: https://github.com/hiddify/hiddify-app/releases/latest/download/Hiddify-Android-universal.apk
+    windows: https://github.com/hiddify/hiddify-app/releases/latest/download/Hiddify-Windows-Setup-x64.exe
+    macos: https://github.com/hiddify/hiddify-app/releases/latest/download/Hiddify-MacOS.dmg
+    linux: https://github.com/hiddify/hiddify-app/releases/latest/download/Hiddify-Linux-x64-AppImage.AppImage
+  v2rayn:
+    name: v2rayN
+    windows: https://github.com/2dust/v2rayN/releases/latest/download/v2rayN-windows-64-desktop.zip
+    macos: https://github.com/2dust/v2rayN/releases/latest/download/v2rayN-macos-arm64.dmg
+    macos_intel: https://github.com/2dust/v2rayN/releases/latest/download/v2rayN-macos-64.dmg
+    linux_deb: https://github.com/2dust/v2rayN/releases/latest/download/v2rayN-linux-64.deb
+  throne:
+    name: Throne
+    # в именах файлов Throne номер версии — прямой ссылки «на последний» нет, только страница выпуска
+    github: https://github.com/throneproj/Throne/releases/latest

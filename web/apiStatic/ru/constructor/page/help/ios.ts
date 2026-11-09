@@ -1,14 +1,14 @@
 import { RES_STATUS } from '@/shared/enums';
 import { TBuilderPage } from '@/app-layer/model/builder';
 
-// Инструкция: iPhone и iPad. Скриншоты шагов — поле image у шага (src, width, height, alt), когда владелец пришлёт
+// Инструкция: iPhone и iPad. Приложения и ссылки — config/site.yaml → apps. Скриншоты шагов — поле image у шага (src, width, height, alt)
 const data: TBuilderPage = {
   status: RES_STATUS.success,
   statusCode: 200,
   data: {
     seo: {
       title: 'iPhone и iPad — Инструкция — TS Proxy',
-      description: 'Как подключить TS Proxy на iPhone и iPad через приложение Happ.',
+      description: 'Как подключить TS Proxy на iPhone и iPad: Happ и OneXray — ссылки на официальные сайты и шаги.',
     },
     content: [
       {
@@ -17,32 +17,64 @@ const data: TBuilderPage = {
         data: {
           label: 'Инструкция',
           title: 'iPhone и iPad',
-          text: 'Три шага через приложение Happ. Если оно не ставится — есть [запасное приложение](/help/#fallback).',
-          downloads: [
+          text: 'Выберите приложение — шаги ниже поменяются. Главное — Happ: в нём российские сайты открываются напрямую, без прокси. Не ставится или не работает — берите следующее.',
+          apps: [
             {
               app: 'happ',
-              store: 'ios',
-              title: 'Happ в App Store',
+              tag: 'Главное',
+              hint: 'Добавляется кнопкой · Россия напрямую',
+              downloads: [
+                {
+                  store: 'ios',
+                  title: 'Happ в App Store (США)',
+                },
+                {
+                  store: 'site',
+                  title: 'Сайт Happ',
+                },
+              ],
+              steps: [
+                {
+                  title: 'Установите Happ',
+                  text: 'Установите Happ из App Store — кнопка выше.',
+                  note: 'Happ сейчас нет в российском App Store. Если вы уже ставили его раньше — найдите в App Store: ваше имя → «Покупки». Если нет — создайте отдельный Apple ID другой страны (карта не нужна) и войдите в него только в App Store: «Настройки» → ваше имя → «Медиаматериалы и покупки». Основной Apple ID и iCloud не трогайте. Осторожно: в российском App Store есть подделки с названием «Happ» — настоящий выпускает Flyfrog LLC.',
+                },
+                {
+                  title: 'Добавьте подписку',
+                  text: 'Вернитесь в бота, нажмите «🚀 Подключиться», затем «Открыть страницу подключения». На ней выберите Happ и нажмите «Добавить в Happ» — приложение откроется и само добавит подписку.',
+                  note: 'Кнопка не открывает приложение? Нажмите в боте «📋 Скопировать ссылку» и вставьте её в Happ через «+».',
+                },
+                {
+                  title: 'Подключитесь',
+                  text: 'Нажмите большую кнопку подключения в Happ и разрешите добавить конфигурацию.',
+                },
+              ],
             },
             {
-              app: 'v2raytun',
-              store: 'ios',
-              title: 'v2RayTun — запасное',
-            },
-          ],
-          steps: [
-            {
-              title: 'Установите Happ',
-              text: 'Установите приложение Happ из App Store — кнопка выше.',
-              note: 'Не находится в App Store? В российском App Store его может не быть. Смените страну Apple ID на зарубежную: «Настройки» → ваше имя → «Медиаматериалы и покупки» → «Просмотреть» → «Страна или регион» (способ оплаты — «Нет»). После этого найдите Happ и установите.',
-            },
-            {
-              title: 'Добавьте подписку',
-              text: 'Вернитесь в бота, нажмите «🚀 Подключиться», затем «Открыть страницу подключения» и на ней — кнопку добавления в Happ.',
-            },
-            {
-              title: 'Подключитесь',
-              text: 'В Happ нажмите большую кнопку подключения и разрешите добавить конфигурацию.',
+              app: 'onexray',
+              tag: 'Запасное',
+              hint: 'Ссылку вставить вручную',
+              downloads: [
+                {
+                  store: 'ios',
+                  title: 'OneXray в App Store',
+                },
+              ],
+              steps: [
+                {
+                  title: 'Установите OneXray',
+                  text: 'Установите OneXray из App Store — он есть и в российском магазине.',
+                },
+                {
+                  title: 'Добавьте подписку',
+                  text: 'В боте нажмите «📋 Скопировать ссылку» (раздел «🚀 Подключиться»). В OneXray нажмите «+», выберите добавление подписки по ссылке (URL) и вставьте ссылку.',
+                },
+                {
+                  title: 'Подключитесь',
+                  text: 'Нажмите большую кнопку подключения в OneXray и разрешите добавить конфигурацию.',
+                  note: 'В OneXray весь трафик идёт через прокси, российские сайты тоже. Если какой-то российский сайт не открывается — отключите прокси на время.',
+                },
+              ],
             },
           ],
         },
@@ -91,18 +123,23 @@ const data: TBuilderPage = {
           items: [
             {
               title: 'Android',
-              text: 'Happ из Google Play',
+              text: 'Happ, v2RayTun и ещё 2',
               url: '/help/android/',
             },
             {
               title: 'Windows',
-              text: 'Happ для Windows',
+              text: 'Happ, v2RayTun и ещё 2',
               url: '/help/windows/',
             },
             {
               title: 'macOS',
-              text: 'Happ из Mac App Store',
+              text: 'Happ, OneXray и ещё 2',
               url: '/help/macos/',
+            },
+            {
+              title: 'Linux',
+              text: 'Happ, Hiddify и ещё 2',
+              url: '/help/linux/',
             },
           ],
         },

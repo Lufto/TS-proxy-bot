@@ -1,14 +1,14 @@
 import { RES_STATUS } from '@/shared/enums';
 import { TBuilderPage } from '@/app-layer/model/builder';
 
-// Инструкция: Android. Скриншоты шагов — поле image у шага (src, width, height, alt), когда владелец пришлёт
+// Инструкция: Android. Приложения и ссылки — config/site.yaml → apps. Скриншоты шагов — поле image у шага (src, width, height, alt)
 const data: TBuilderPage = {
   status: RES_STATUS.success,
   statusCode: 200,
   data: {
     seo: {
       title: 'Android — Инструкция — TS Proxy',
-      description: 'Как подключить TS Proxy на Android через приложение Happ.',
+      description: 'Как подключить TS Proxy на Android: Happ, v2RayTun, Hiddify и OneXray — ссылки на официальные сайты и шаги.',
     },
     content: [
       {
@@ -17,37 +17,120 @@ const data: TBuilderPage = {
         data: {
           label: 'Инструкция',
           title: 'Android',
-          text: 'Три шага через приложение Happ. Если оно не ставится — есть [запасное приложение](/help/#fallback).',
-          downloads: [
+          text: 'Выберите приложение — шаги ниже поменяются. Главное — Happ: в нём российские сайты открываются напрямую, без прокси. Не ставится или не работает — берите следующее.',
+          apps: [
             {
               app: 'happ',
-              store: 'android',
-              title: 'Happ в Google Play',
-            },
-            {
-              app: 'happ',
-              store: 'android_apk',
-              title: 'Скачать Happ (APK)',
+              tag: 'Главное',
+              hint: 'Добавляется кнопкой · Россия напрямую',
+              downloads: [
+                {
+                  store: 'android_apk',
+                  title: 'Скачать Happ',
+                },
+                {
+                  store: 'site',
+                  title: 'Сайт Happ',
+                },
+              ],
+              steps: [
+                {
+                  title: 'Установите Happ',
+                  text: 'Нажмите «Скачать Happ» — файл Happ.apk сразу начнёт загружаться. Откройте его из уведомления о загрузке и разрешите установку, когда телефон спросит.',
+                  note: 'Happ убрали из Google Play, поэтому ставим файлом с официального GitHub разработчика. Берите файл только по нашей кнопке или с [happ.su](https://www.happ.su/main/ru): в других местах бывают подделки.',
+                },
+                {
+                  title: 'Добавьте подписку',
+                  text: 'Вернитесь в бота, нажмите «🚀 Подключиться», затем «Открыть страницу подключения». На ней выберите Happ и нажмите «Добавить в Happ» — приложение откроется и само добавит подписку.',
+                  note: 'Кнопка не открывает приложение? Нажмите в боте «📋 Скопировать ссылку» и вставьте её в Happ через «+».',
+                },
+                {
+                  title: 'Подключитесь',
+                  text: 'Нажмите большую кнопку подключения в Happ и разрешите добавить конфигурацию.',
+                },
+              ],
             },
             {
               app: 'v2raytun',
-              store: 'android',
-              title: 'v2RayTun — запасное',
+              tag: 'Запасное',
+              hint: 'Добавляется кнопкой · Россия напрямую',
+              downloads: [
+                {
+                  store: 'android',
+                  title: 'v2RayTun в Google Play',
+                },
+              ],
+              steps: [
+                {
+                  title: 'Установите v2RayTun',
+                  text: 'Установите v2RayTun из Google Play — кнопка выше.',
+                },
+                {
+                  title: 'Добавьте подписку',
+                  text: 'Вернитесь в бота, нажмите «🚀 Подключиться», затем «Открыть страницу подключения». На ней выберите v2RayTun и нажмите «Добавить в v2RayTun» — приложение откроется и само добавит подписку.',
+                  note: 'Кнопка не открывает приложение? Нажмите в боте «📋 Скопировать ссылку» и вставьте её в v2RayTun через «+».',
+                },
+                {
+                  title: 'Подключитесь',
+                  text: 'Нажмите большую кнопку подключения в v2RayTun и разрешите добавить конфигурацию.',
+                },
+              ],
             },
-          ],
-          steps: [
             {
-              title: 'Установите Happ',
-              text: 'Установите приложение Happ из Google Play — кнопка выше.',
-              note: 'Нет в Google Play? Скачайте установочный файл Happ (APK) с сайта разработчика — вторая кнопка выше, или на [happ.su](https://happ.su).',
+              app: 'hiddify',
+              tag: 'Ещё вариант',
+              hint: 'Добавляется кнопкой',
+              downloads: [
+                {
+                  store: 'android',
+                  title: 'Hiddify в Google Play',
+                },
+                {
+                  store: 'android_apk',
+                  title: 'Скачать APK',
+                },
+              ],
+              steps: [
+                {
+                  title: 'Установите Hiddify',
+                  text: 'Установите Hiddify из Google Play. Не открывается Google Play — нажмите «Скачать APK», откройте файл и разрешите установку.',
+                },
+                {
+                  title: 'Добавьте подписку',
+                  text: 'Вернитесь в бота, нажмите «🚀 Подключиться», затем «Открыть страницу подключения». На ней выберите Hiddify и нажмите «Добавить в Hiddify» — приложение откроется и само добавит подписку.',
+                },
+                {
+                  title: 'Подключитесь',
+                  text: 'Нажмите большую кнопку подключения в Hiddify и разрешите добавить конфигурацию.',
+                  note: 'В Hiddify весь трафик идёт через прокси, российские сайты тоже. Если какой-то российский сайт не открывается — отключите прокси на время.',
+                },
+              ],
             },
             {
-              title: 'Добавьте подписку',
-              text: 'Вернитесь в бота, нажмите «🚀 Подключиться», затем «Открыть страницу подключения» и на ней — кнопку добавления в Happ.',
-            },
-            {
-              title: 'Подключитесь',
-              text: 'В Happ нажмите большую кнопку подключения и разрешите приложению работать.',
+              app: 'onexray',
+              tag: 'Ещё вариант',
+              hint: 'Ссылку вставить вручную',
+              downloads: [
+                {
+                  store: 'android',
+                  title: 'OneXray в Google Play',
+                },
+              ],
+              steps: [
+                {
+                  title: 'Установите OneXray',
+                  text: 'Установите OneXray из Google Play — кнопка выше.',
+                },
+                {
+                  title: 'Добавьте подписку',
+                  text: 'В боте нажмите «📋 Скопировать ссылку» (раздел «🚀 Подключиться»). В OneXray нажмите «+», выберите добавление подписки по ссылке (URL) и вставьте ссылку.',
+                },
+                {
+                  title: 'Подключитесь',
+                  text: 'Нажмите большую кнопку подключения в OneXray и разрешите добавить конфигурацию.',
+                  note: 'В OneXray весь трафик идёт через прокси, российские сайты тоже. Если какой-то российский сайт не открывается — отключите прокси на время.',
+                },
+              ],
             },
           ],
         },
@@ -96,18 +179,23 @@ const data: TBuilderPage = {
           items: [
             {
               title: 'iPhone и iPad',
-              text: 'Happ из App Store',
+              text: 'Happ или OneXray',
               url: '/help/ios/',
             },
             {
               title: 'Windows',
-              text: 'Happ для Windows',
+              text: 'Happ, v2RayTun и ещё 2',
               url: '/help/windows/',
             },
             {
               title: 'macOS',
-              text: 'Happ из Mac App Store',
+              text: 'Happ, OneXray и ещё 2',
               url: '/help/macos/',
+            },
+            {
+              title: 'Linux',
+              text: 'Happ, Hiddify и ещё 2',
+              url: '/help/linux/',
             },
           ],
         },

@@ -1,12 +1,12 @@
 @layer utilities {
   .container {
     width: 100%;
-    max-width: 1200px;
+    max-width: --spacing(1200);
     margin-inline: auto;
-    padding-inline: 16px;
+    padding-inline: --spacing(16);
 
     @media (width >= 768px) {
-      padding-inline: 32px;
+      padding-inline: --spacing(32);
     }
   }
 
@@ -15,7 +15,7 @@
   }
 
   .focus-ring:focus-visible {
-    outline: 2px solid var(--color-accent);
-    outline-offset: 3px;
+    outline: --spacing(2) solid var(--color-accent);
+    outline-offset: --spacing(3);
   }
 }

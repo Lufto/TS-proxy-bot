@@ -7,6 +7,7 @@ export const SITE_PAGES = [
   'help/android',
   'help/windows',
   'help/macos',
+  'help/linux',
   'terms',
   'privacy',
 ] as const;

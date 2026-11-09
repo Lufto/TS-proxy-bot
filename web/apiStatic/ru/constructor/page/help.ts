@@ -8,7 +8,7 @@ const data: TBuilderPage = {
   data: {
     seo: {
       title: 'Инструкции по подключению — TS Proxy',
-      description: 'Как подключить TS Proxy на iPhone и iPad, Android, Windows и macOS: приложение Happ, шаги, что делать, если не работает.',
+      description: 'Как подключить TS Proxy на iPhone и iPad, Android, Windows, macOS и Linux: Happ и запасные приложения, шаги, что делать, если не работает.',
     },
     content: [
       {
@@ -17,7 +17,7 @@ const data: TBuilderPage = {
         data: {
           label: 'Инструкции',
           title: 'Подключение за пару минут',
-          text: 'Основное приложение — Happ, запасное — v2RayTun. Сначала возьмите пробный период или оплатите тариф в [боте](bot), потом выберите устройство.',
+          text: 'Главное приложение — Happ, на каждом устройстве есть и запасные. Сначала возьмите пробный период или оплатите тариф в [боте](bot), потом выберите устройство.',
         },
       },
       {
@@ -28,23 +28,28 @@ const data: TBuilderPage = {
           items: [
             {
               title: 'iPhone и iPad',
-              text: 'Happ из App Store',
+              text: 'Happ или OneXray',
               url: '/help/ios/',
             },
             {
               title: 'Android',
-              text: 'Happ из Google Play',
+              text: 'Happ, v2RayTun и ещё 2',
               url: '/help/android/',
             },
             {
               title: 'Windows',
-              text: 'Happ для Windows',
+              text: 'Happ, v2RayTun и ещё 2',
               url: '/help/windows/',
             },
             {
               title: 'macOS',
-              text: 'Happ из Mac App Store',
+              text: 'Happ, OneXray и ещё 2',
               url: '/help/macos/',
+            },
+            {
+              title: 'Linux',
+              text: 'Happ, Hiddify и ещё 2',
+              url: '/help/linux/',
             },
           ],
         },
@@ -56,11 +61,14 @@ const data: TBuilderPage = {
           id: 'fallback',
           label: 'Запасное приложение',
           title: 'Если с Happ не получилось',
-          text: 'Установите v2RayTun и пройдите те же шаги:',
+          text: 'Возьмите запасное приложение для вашего устройства — на странице устройства выберите его, шаги поменяются:',
           items: [
-            'на iPhone, iPad и Android — на странице подключения выберите v2RayTun вместо Happ;',
-            'на Windows и macOS — скопируйте ссылку в боте («📋 Скопировать ссылку») и добавьте её в v2RayTun.',
+            'iPhone и iPad — OneXray (есть в российском App Store);',
+            'Android и Windows — v2RayTun, дальше Hiddify, OneXray или v2rayN;',
+            'macOS — OneXray, дальше Hiddify или v2rayN;',
+            'Linux — Hiddify, дальше v2rayN или Throne.',
           ],
+          note: '«Россия напрямую» — российские сайты без прокси — работает только в Happ и v2RayTun. В остальных приложениях весь трафик идёт через прокси.',
         },
       },
       {

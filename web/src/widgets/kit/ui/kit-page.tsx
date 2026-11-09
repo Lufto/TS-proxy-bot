@@ -45,7 +45,7 @@ const STATS = [
 const Section: FCClass<{ number: string; title: string; note?: string }> = ({
   number, title, note, children,
 }) => (
-  <section className="rule grid gap-32 py-56 t:py-72 md:grid-cols-[240px_1fr] md:gap-48">
+  <section className="rule grid gap-32 py-56 t:py-72 md:grid-cols-[15rem_1fr] md:gap-48">
     <header className="flex flex-col gap-8">
       <span className="t-label">{number}</span>
       <h2 className="t-h3">{title}</h2>

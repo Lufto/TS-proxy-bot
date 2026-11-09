@@ -8,7 +8,7 @@ const data: TBuilderPage = {
   data: {
     seo: {
       title: 'Setup guides — TS Proxy',
-      description: 'How to connect TS Proxy on iPhone and iPad, Android, Windows and macOS: the Happ app, steps, and what to do if it does not work.',
+      description: 'How to connect TS Proxy on iPhone and iPad, Android, Windows, macOS and Linux: Happ and backup apps, steps, and what to do if it does not work.',
     },
     content: [
       {
@@ -17,7 +17,7 @@ const data: TBuilderPage = {
         data: {
           label: 'Setup guides',
           title: 'Connect in a couple of minutes',
-          text: 'The main app is Happ, the backup is v2RayTun. First get the free trial or pay for a plan in the [bot](bot), then choose your device. The bot is in Russian; button names are given with translations.',
+          text: 'The main app is Happ, and every device has backup apps too. First get the free trial or pay for a plan in the [bot](bot), then choose your device. The bot is in Russian; button names are given with translations.',
         },
       },
       {
@@ -28,23 +28,28 @@ const data: TBuilderPage = {
           items: [
             {
               title: 'iPhone and iPad',
-              text: 'Happ from the App Store',
+              text: 'Happ or OneXray',
               url: '/help/ios/',
             },
             {
               title: 'Android',
-              text: 'Happ from Google Play',
+              text: 'Happ, v2RayTun and 2 more',
               url: '/help/android/',
             },
             {
               title: 'Windows',
-              text: 'Happ for Windows',
+              text: 'Happ, v2RayTun and 2 more',
               url: '/help/windows/',
             },
             {
               title: 'macOS',
-              text: 'Happ from the Mac App Store',
+              text: 'Happ, OneXray and 2 more',
               url: '/help/macos/',
+            },
+            {
+              title: 'Linux',
+              text: 'Happ, Hiddify and 2 more',
+              url: '/help/linux/',
             },
           ],
         },
@@ -56,11 +61,14 @@ const data: TBuilderPage = {
           id: 'fallback',
           label: 'Backup app',
           title: 'If Happ did not work',
-          text: 'Install v2RayTun and follow the same steps:',
+          text: 'Take the backup app for your device — pick it on the device page and the steps will change:',
           items: [
-            'on iPhone, iPad and Android — choose v2RayTun instead of Happ on the connection page;',
-            'on Windows and macOS — copy the link in the bot («📋 Скопировать ссылку», Copy link) and add it to v2RayTun.',
+            'iPhone and iPad — OneXray (it is in the Russian App Store);',
+            'Android and Windows — v2RayTun, then Hiddify, OneXray or v2rayN;',
+            'macOS — OneXray, then Hiddify or v2rayN;',
+            'Linux — Hiddify, then v2rayN or Throne.',
           ],
+          note: '«Russia direct» — Russian sites without the proxy — works only in Happ and v2RayTun. In the other apps all traffic goes through the proxy.',
         },
       },
       {
