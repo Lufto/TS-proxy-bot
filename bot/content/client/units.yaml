@@ -1,0 +1,12 @@
+# Слова после чисел: «1 день», «2 дня», «5 дней». {n} — число
+units:
+  days_one: "{n} день"
+  days_few: "{n} дня"
+  days_many: "{n} дней"
+  hours_one: "{n} час"
+  hours_few: "{n} часа"
+  hours_many: "{n} часов"
+  less_than_hour: меньше часа
+  # сумма оплаты — рублями или звёздами Telegram
+  rubles: "{amount} ₽"
+  stars: "{stars} ⭐"

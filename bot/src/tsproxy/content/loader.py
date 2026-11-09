@@ -1,4 +1,5 @@
-"""Тексты из `content/*.yaml` и тарифы из общего конфига `config/tariffs.yaml`.
+"""Тексты из папок `content/client/`, `content/admin/`, `content/alerts/`
+и тарифы из общего конфига `config/tariffs.yaml`.
 
 Ни одного текста в коде (задача «Тексты, экраны и кнопки»).
 """
@@ -16,11 +17,13 @@ import yaml
 
 from tsproxy.domain.site_banner import SiteBanner
 
-TEXTS_FILE = "texts.yaml"
-ADMIN_TEXTS_FILE = "admin_texts.yaml"
+# Тексты клиента — из client/, администратора — из admin/ и alerts/; все .yaml папки — один набор
+CLIENT_FOLDERS = ("client",)
+ADMIN_FOLDERS = ("admin", "alerts")
+TEXTS_SUFFIX = ".yaml"
 TARIFFS_FILE = "tariffs.yaml"
 STARS_RATE_KEY = "stars_rub_rate"  # курс звезды Telegram в рублях (задача 33)
-# Быстрые ответы поддержки в admin_texts.yaml: quick_replies.<имя>.button и .text (задача 17)
+# Быстрые ответы поддержки в admin/: quick_replies.<имя>.button и .text
 QUICK_REPLIES_GROUP = "quick_replies"
 QUICK_PARTS = ("button", "text")
 QUICK_REPLY_ID_MAX_LENGTH = 32
@@ -101,8 +104,36 @@ def _flatten(node: object, prefix: str, source: str) -> dict[str, str]:
     raise ContentError(f"{source}: {prefix or 'корень'} должен быть текстом или группой текстов")
 
 
-def load_texts(path: Path) -> Texts:
-    return Texts(_flatten(_read_yaml(path), "", path.name), path.name)
+def _text_files(folder: Path) -> list[Path]:
+    if not folder.is_dir():
+        raise ContentError(f"нет папки с текстами {folder}")
+    files = sorted(folder.glob(f"*{TEXTS_SUFFIX}"))
+    if not files:
+        raise ContentError(f"в папке {folder} нет файлов {TEXTS_SUFFIX}")
+    return files
+
+
+def load_texts(*folders: Path) -> Texts:
+    """Все `.yaml` из папок — один набор. Одинаковый ключ в двух файлах — ошибка."""
+    items: dict[str, str] = {}
+    origin: dict[str, str] = {}
+    for folder in folders:
+        for path in _text_files(folder):
+            source = f"{folder.name}/{path.name}"
+            for key, text in _flatten(_read_yaml(path), "", source).items():
+                if key in items:
+                    raise ContentError(f"текст {key} есть и в {origin[key]}, и в {source}")
+                items[key] = text
+                origin[key] = source
+    return Texts(items, ", ".join(f"{folder.name}/" for folder in folders))
+
+
+def load_client_texts(directory: Path) -> Texts:
+    return load_texts(*(directory / folder for folder in CLIENT_FOLDERS))
+
+
+def load_admin_texts(directory: Path) -> Texts:
+    return load_texts(*(directory / folder for folder in ADMIN_FOLDERS))
 
 
 def _parse_price(raw: object, where: str) -> Decimal:
@@ -814,15 +845,17 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
 
 
 def quick_reply_ids(admin_texts: Texts) -> list[str]:
-    """Имена быстрых ответов поддержки (задача 17). Имя попадает в данные кнопки — поэтому
+    """Имена быстрых ответов поддержки. Имя попадает в данные кнопки — поэтому
     только латиница, цифры и `_`; у каждой заготовки должны быть `button` и `text`."""
     ids = admin_texts.ids_under(QUICK_REPLIES_GROUP)
     if not ids:
-        raise ContentError(f"{ADMIN_TEXTS_FILE}: нужна хотя бы одна заготовка в quick_replies")
+        raise ContentError(
+            f"{ADMIN_FOLDERS[0]}/: нужна хотя бы одна заготовка в {QUICK_REPLIES_GROUP}"
+        )
     for reply_id in ids:
         if not QUICK_REPLY_ID.fullmatch(reply_id):
             raise ContentError(
-                f"{ADMIN_TEXTS_FILE}: имя заготовки «{reply_id}» — латиница, цифры и _, "
+                f"{ADMIN_FOLDERS[0]}/: имя заготовки «{reply_id}» — латиница, цифры и _, "
                 f"до {QUICK_REPLY_ID_MAX_LENGTH} символов"
             )
         admin_texts.require(f"{QUICK_REPLIES_GROUP}.{reply_id}.{part}" for part in QUICK_PARTS)
@@ -835,8 +868,8 @@ def load_content(directory: Path, config_dir: Path) -> Content:
     Общий конфиг читает и сайт, поэтому цены на сайте и в боте не расходятся.
     """
     content = Content(
-        texts=load_texts(directory / TEXTS_FILE),
-        admin_texts=load_texts(directory / ADMIN_TEXTS_FILE),
+        texts=load_client_texts(directory),
+        admin_texts=load_admin_texts(directory),
         tariffs=load_tariffs(config_dir / TARIFFS_FILE),
         stars_rub_rate=load_stars_rate(config_dir / TARIFFS_FILE),
     )

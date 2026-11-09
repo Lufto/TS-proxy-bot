@@ -15,7 +15,7 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from tsproxy.config import RunMode
-from tsproxy.content.loader import ADMIN_TEXTS_FILE, load_texts
+from tsproxy.content.loader import load_admin_texts
 from tsproxy.db.engine import create_session_factory
 from tsproxy.db.enums import OrderStatus
 from tsproxy.db.models import Client, Event, Order
@@ -61,7 +61,7 @@ PAYMENTS_THREAD_ID = 8
 PRICE = Decimal("150")
 DAYS = 30
 MONTH = timedelta(days=DAYS)
-ADMIN_TEXTS = Path(__file__).parent.parent.parent / "content" / ADMIN_TEXTS_FILE
+REPO_CONTENT = Path(__file__).parent.parent.parent / "content"
 
 
 class SwitchableRemnawave(FakeRemnawave):
@@ -115,7 +115,7 @@ def build(
     alerts = FakeAlertSender()
     topic = FakeAlertSender()
     messages = FakePaymentMessages()
-    admin_texts = load_texts(ADMIN_TEXTS)
+    admin_texts = load_admin_texts(REPO_CONTENT)
     service = CreditingService(
         session_factory,
         remnawave,

@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 
 class PaymentScreens:
-    """Экраны «оплачено» из `content/texts.yaml`."""
+    """Экраны «оплачено» из `content/client/`."""
 
     def __init__(self, texts: Texts, screens: Screens) -> None:
         self._texts = texts

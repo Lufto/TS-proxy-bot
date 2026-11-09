@@ -50,7 +50,7 @@ ONE_HOUR = timedelta(hours=1)
 
 
 class TransferScreens:
-    """Сообщения переноса из `admin_texts.yaml`."""
+    """Сообщения переноса из `content/admin/`."""
 
     def __init__(self, texts: Texts) -> None:
         self._texts = texts

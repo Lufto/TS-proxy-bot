@@ -21,10 +21,8 @@ from tsproxy.bot.callbacks import (
 )
 from tsproxy.bot.screens import Screens
 from tsproxy.content.loader import (
-    ADMIN_TEXTS_FILE,
     QUICK_REPLY_ID_MAX_LENGTH,
     REQUIRED_TEXTS,
-    TEXTS_FILE,
     Content,
     ContentError,
     Texts,
@@ -111,18 +109,20 @@ TEXT_PLACEHOLDERS: dict[str, set[str]] = {
 
 def test_missing_required_text_stops_startup(tmp_path: Path) -> None:
     shutil.copytree(REPO_CONTENT, tmp_path, dirs_exist_ok=True)
-    texts_path = tmp_path / TEXTS_FILE
+    texts_path = tmp_path / "client" / "connect.yaml"
     data = yaml.safe_load(texts_path.read_text(encoding="utf-8"))
     del data["connect"]["no_account"]
     texts_path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
 
-    with pytest.raises(ContentError, match=r"connect\.no_account"):
+    with pytest.raises(ContentError, match=r"client/.*connect\.no_account"):
         load_content(tmp_path, REPO_CONFIG)
 
 
-@pytest.mark.parametrize("file_name", [TEXTS_FILE, ADMIN_TEXTS_FILE])
-def test_no_vpn_word_in_texts(file_name: str) -> None:
-    text = (REPO_CONTENT / file_name).read_text(encoding="utf-8")
+@pytest.mark.parametrize(
+    "path", sorted(REPO_CONTENT.rglob("*.yaml")), ids=lambda path: f"{path.parent.name}/{path.name}"
+)
+def test_no_vpn_word_in_texts(path: Path) -> None:
+    text = path.read_text(encoding="utf-8")
     assert FORBIDDEN_WORDS.findall(text) == []
 
 

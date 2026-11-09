@@ -10,7 +10,7 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from tsproxy.config import RunMode
-from tsproxy.content.loader import ADMIN_TEXTS_FILE, Texts, load_texts
+from tsproxy.content.loader import Texts, load_admin_texts
 from tsproxy.db.enums import OrderStatus
 from tsproxy.db.models import Client, Event, Order
 from tsproxy.integrations.fake_payments import FakePaymentProvider
@@ -26,7 +26,7 @@ from tsproxy.services.masking import Masker
 from tsproxy.services.payment_checks import PaymentChecks
 from tsproxy.services.payment_status import PaymentStatusChanges
 
-ADMIN_TEXTS = Path(__file__).parent.parent.parent / "content" / ADMIN_TEXTS_FILE
+REPO_CONTENT = Path(__file__).parent.parent.parent / "content"
 ADMIN_CHAT_ID = -100500
 ALERTS_THREAD_ID = 7
 PAYMENTS_THREAD_ID = 8
@@ -198,7 +198,7 @@ def build_payment_setup(
     messages = FakePaymentMessages()
     alerts = FakeAlertSender()
     topic = FakeAlertSender()
-    admin_texts = load_texts(ADMIN_TEXTS)
+    admin_texts = load_admin_texts(REPO_CONTENT)
     events = EventLog(clock, mask)
     alerter = Alerter(alerts, admin_texts, ADMIN_CHAT_ID, ALERTS_THREAD_ID, clock, mask)
     crediting = CreditingService(

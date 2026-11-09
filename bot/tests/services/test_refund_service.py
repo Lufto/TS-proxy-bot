@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from tsproxy.config import RunMode
-from tsproxy.content.loader import ADMIN_TEXTS_FILE, load_texts
+from tsproxy.content.loader import load_admin_texts
 from tsproxy.db.engine import create_session_factory
 from tsproxy.db.enums import OrderStatus, RefundStatus
 from tsproxy.db.models import Client, Event, Order, RefundRequest
@@ -67,7 +67,7 @@ PAYMENTS_THREAD_ID = 4
 PRICE = Decimal("150")
 DAYS = 30
 MONTH = timedelta(days=DAYS)
-ADMIN_TEXTS = Path(__file__).parent.parent.parent / "content" / ADMIN_TEXTS_FILE
+REPO_CONTENT = Path(__file__).parent.parent.parent / "content"
 
 
 class FlakyRemnawave(FakeRemnawave):
@@ -131,7 +131,7 @@ def build(
     messages = FakeRefundMessages()
     alerts = FakeAlertSender()
     topic = FakeAlertSender()
-    admin_texts = load_texts(ADMIN_TEXTS)
+    admin_texts = load_admin_texts(REPO_CONTENT)
     service = RefundService(
         session_factory,
         remnawave,

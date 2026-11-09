@@ -92,7 +92,7 @@ class PaymentCheckCallback(CallbackData, prefix="paycheck"):
 
 
 class FaqQuestion(StrEnum):
-    """Частые вопросы на экране «💬 Поддержка». Тексты — `faq.<значение>` в `texts.yaml`."""
+    """Частые вопросы на экране «💬 Поддержка». Тексты — `faq.<значение>` в `content/client/`."""
 
     CONNECT = "connect"
     NOT_WORKING = "not_working"
@@ -125,7 +125,7 @@ class TicketCallback(CallbackData, prefix="ticket"):
 
 
 class QuickReplyCallback(CallbackData, prefix="qr"):
-    """Заготовка ответа. Имя проверяется по `admin_texts.yaml` при нажатии."""
+    """Заготовка ответа. Имя проверяется по `content/admin/` при нажатии."""
 
     ticket_id: int
     reply: Annotated[str, Field(pattern=rf"^{QUICK_REPLY_ID_PATTERN}$")]

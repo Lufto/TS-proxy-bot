@@ -79,7 +79,7 @@ START_POPUPS: dict[StartOutcome, str] = {
 
 
 def duration_words(units: Texts, amount: timedelta) -> str:
-    """«1 день 3 часа», «2 дня», «5 часов» — по словам из `units.*` в `texts.yaml`."""
+    """«1 день 3 часа», «2 дня», «5 часов» — по словам из `units.*` в `content/client/`."""
     days, rest = divmod(amount, ONE_DAY)
     hours = rest // ONE_HOUR
     parts = [

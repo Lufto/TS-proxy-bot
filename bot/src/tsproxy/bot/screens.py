@@ -1,4 +1,4 @@
-"""Экраны клиента: текст и кнопки. Только сборка из `content/texts.yaml`, без Telegram-вызовов."""
+"""Экраны клиента: текст и кнопки. Только сборка из `content/client/`, без Telegram-вызовов."""
 
 import logging
 from dataclasses import dataclass

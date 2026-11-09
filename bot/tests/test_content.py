@@ -18,8 +18,14 @@ REPO_CONFIG = Path(__file__).parent.parent.parent / "config"
 
 
 def write(path: Path, text: str) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
     return path
+
+
+def write_folder(tmp_path: Path, text: str) -> Path:
+    """Папка текстов с одним файлом — для проверок одного текста."""
+    return write(tmp_path / "client" / "t.yaml", text).parent
 
 
 def test_repo_content_loads() -> None:
@@ -31,35 +37,78 @@ def test_repo_content_loads() -> None:
 
 
 def test_texts_are_flattened_by_screen(tmp_path: Path) -> None:
-    texts = load_texts(write(tmp_path / "t.yaml", "menu:\n  title: Привет\n"))
+    texts = load_texts(write_folder(tmp_path, "menu:\n  title: Привет\n"))
     assert texts.get("menu.title") == "Привет"
 
 
 def test_substitutions_are_html_escaped(tmp_path: Path) -> None:
-    texts = load_texts(write(tmp_path / "t.yaml", "hello: 'Привет, <b>{name}</b>'\n"))
+    texts = load_texts(write_folder(tmp_path, "hello: 'Привет, <b>{name}</b>'\n"))
     assert texts.get("hello", name="<script>") == "Привет, <b>&lt;script&gt;</b>"
 
 
 def test_missing_substitution_is_error(tmp_path: Path) -> None:
-    texts = load_texts(write(tmp_path / "t.yaml", "hello: 'Привет, {name}'\n"))
+    texts = load_texts(write_folder(tmp_path, "hello: 'Привет, {name}'\n"))
     with pytest.raises(ContentError, match="name"):
         texts.get("hello")
 
 
 def test_required_text_missing_is_error(tmp_path: Path) -> None:
-    texts = load_texts(write(tmp_path / "t.yaml", "menu:\n  title: Привет\n"))
+    texts = load_texts(write_folder(tmp_path, "menu:\n  title: Привет\n"))
     with pytest.raises(ContentError, match=r"menu\.about"):
         texts.require({"menu.title", "menu.about"})
 
 
 def test_empty_text_is_error(tmp_path: Path) -> None:
     with pytest.raises(ContentError, match="пустой"):
-        load_texts(write(tmp_path / "t.yaml", "menu:\n  title: '  '\n"))
+        load_texts(write_folder(tmp_path, "menu:\n  title: '  '\n"))
 
 
 def test_broken_yaml_is_error(tmp_path: Path) -> None:
     with pytest.raises(ContentError, match="YAML"):
-        load_texts(write(tmp_path / "t.yaml", "menu: [\n"))
+        load_texts(write_folder(tmp_path, "menu: [\n"))
+
+
+# --- Тексты по папкам: client/, admin/, alerts/ ---
+
+
+def test_all_files_of_folder_make_one_set(tmp_path: Path) -> None:
+    write(tmp_path / "client" / "menu.yaml", "menu:\n  title: Привет\n")
+    write(tmp_path / "client" / "connect.yaml", "connect:\n  active: Готово\n")
+    texts = load_texts(tmp_path / "client")
+    assert texts.get("menu.title") == "Привет"
+    assert texts.get("connect.active") == "Готово"
+
+
+def test_admin_set_is_built_from_admin_and_alerts(tmp_path: Path) -> None:
+    write(tmp_path / "admin" / "support.yaml", "support:\n  taken: Беру\n")
+    write(tmp_path / "alerts" / "alerts.yaml", "alerts:\n  prefix: 🚨\n")
+    texts = load_texts(tmp_path / "admin", tmp_path / "alerts")
+    assert texts.get("support.taken") == "Беру"
+    assert texts.get("alerts.prefix") == "🚨"
+
+
+def test_same_key_in_two_files_stops_startup(tmp_path: Path) -> None:
+    write(tmp_path / "admin" / "support.yaml", "support:\n  taken: Беру\n")
+    write(tmp_path / "alerts" / "other.yaml", "support:\n  taken: Взял\n")
+    with pytest.raises(ContentError) as error:
+        load_texts(tmp_path / "admin", tmp_path / "alerts")
+    message = str(error.value)
+    assert "support.taken" in message
+    assert "admin/support.yaml" in message
+    assert "alerts/other.yaml" in message
+
+
+def test_missing_text_error_names_folder(tmp_path: Path) -> None:
+    texts = load_texts(write_folder(tmp_path, "menu:\n  title: Привет\n"))
+    with pytest.raises(ContentError, match=r"client/.*menu\.about"):
+        texts.get("menu.about")
+    with pytest.raises(ContentError, match=r"client/.*menu\.about"):
+        texts.require({"menu.about"})
+
+
+def test_missing_folder_stops_startup(tmp_path: Path) -> None:
+    with pytest.raises(ContentError, match="client"):
+        load_texts(tmp_path / "client")
 
 
 TARIFF = "tariffs:\n  - id: m1\n    title: 1 месяц\n    days: 30\n    price: {price}\n"
@@ -127,7 +176,7 @@ QUICK = "quick_replies:\n  hello:\n    button: 👋\n    text: Здравств�
 
 def test_groups_are_listed_in_file_order(tmp_path: Path) -> None:
     text = QUICK + "  done:\n    button: ✅\n    text: Готово\nother: x\n"
-    texts = load_texts(write(tmp_path / "t.yaml", text))
+    texts = load_texts(write_folder(tmp_path, text))
     assert texts.ids_under("quick_replies") == ["hello", "done"]
     assert texts.ids_under("missing") == []
 
@@ -138,7 +187,7 @@ def test_repo_quick_replies_are_valid() -> None:
 
 
 def test_valid_quick_replies_pass(tmp_path: Path) -> None:
-    assert quick_reply_ids(load_texts(write(tmp_path / "t.yaml", QUICK))) == ["hello"]
+    assert quick_reply_ids(load_texts(write_folder(tmp_path, QUICK))) == ["hello"]
 
 
 @pytest.mark.parametrize(
@@ -152,7 +201,7 @@ def test_valid_quick_replies_pass(tmp_path: Path) -> None:
 )
 def test_broken_quick_replies_stop_startup(tmp_path: Path, text: str, error: str) -> None:
     with pytest.raises(ContentError, match=error):
-        quick_reply_ids(load_texts(write(tmp_path / "t.yaml", text)))
+        quick_reply_ids(load_texts(write_folder(tmp_path, text)))
 
 
 def test_every_payment_status_has_admin_label() -> None:

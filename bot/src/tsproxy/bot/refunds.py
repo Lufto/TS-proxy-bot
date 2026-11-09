@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 class RefundScreens:
-    """Экраны возврата у клиента из `content/texts.yaml`."""
+    """Экраны возврата у клиента из `content/client/`."""
 
     def __init__(self, texts: Texts) -> None:
         self._texts = texts

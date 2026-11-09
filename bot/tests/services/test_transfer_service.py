@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from tsproxy.config import RunMode
-from tsproxy.content.loader import ADMIN_TEXTS_FILE, load_texts
+from tsproxy.content.loader import load_admin_texts
 from tsproxy.db.engine import create_session_factory
 from tsproxy.db.enums import OrderStatus, RefundStatus
 from tsproxy.db.models import Client, Event, Order, RefundRequest
@@ -40,7 +40,7 @@ FROM_ID = 111
 TO_ID = 222
 ADMIN_ID = 900
 PAYMENT_ID = "fake_payment_1"
-ADMIN_TEXTS = Path(__file__).parent.parent.parent / "content" / ADMIN_TEXTS_FILE
+REPO_CONTENT = Path(__file__).parent.parent.parent / "content"
 
 
 @pytest.fixture
@@ -60,7 +60,7 @@ def service(
     clock: FakeClock,
     mask: Masker,
 ) -> TransferService:
-    texts = load_texts(ADMIN_TEXTS)
+    texts = load_admin_texts(REPO_CONTENT)
     alerter = Alerter(FakeAlertSender(), texts, -100500, 7, clock, mask)
     return TransferService(
         session_factory, remnawave, EventLog(clock, mask), alerter, texts, clock, KeyedLocks()

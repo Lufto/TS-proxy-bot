@@ -81,7 +81,7 @@ ORDER_REFUSALS = (
 
 
 class TariffScreens:
-    """Экраны тарифов и оплаты из `content/texts.yaml`."""
+    """Экраны тарифов и оплаты из `content/client/`."""
 
     def __init__(self, texts: Texts) -> None:
         self._texts = texts
