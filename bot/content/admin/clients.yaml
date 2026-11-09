@@ -1,0 +1,104 @@
+# Админка: команды только от администраторов в их группе; каждое действие — в журнал
+admin:
+  # /client без запроса или с непонятным запросом; {max_days} — предел ручной выдачи
+  usage: |-
+    <b>Админка</b>
+    /client 123456789 или /client @username — карточка клиента: подписка, оплаты, пробный, устройства.
+    /give 123456789 30 — выдать или продлить подписку на 30 дней (не больше {max_days} за раз).
+    /trials — пробные: включены или выключены, кнопка переключения.
+    /banner — плашка о неполадках на сайте: поставить «технические работы» или «перебои у прокси», снять.
+    /stats — статистика: оплаты, подписки, пробный → оплата, обращения, заблокировавшие бота.
+    /broadcast текст — рассылка всем клиентам бота: сначала предпросмотр, потом «✅ Отправить». Фото, видео, файл — пришлите сюда и ответьте на него /broadcast.
+    /proof 123 — доказательство оказания услуги по заказу 123 (файл для спора с платёжкой).
+    /transfer ID_откуда ID_куда номер_платежа — перенести подписку на другой аккаунт по подтверждённому платежу.
+    /outages — последние сбои нод: компенсированы ли, кнопки «🎁 Компенсировать» и «🔁 Продолжить».
+    /announce текст — объявление клиентам прямо в приложении (Happ, v2RayTun), до 200 символов; /announce off — снять; /announce — что стоит сейчас.
+    Остальное — кнопками под карточкой. Действия всегда по Telegram ID: @username мог смениться.
+  # /give без нужных чисел
+  give_usage: "Формат: /give 123456789 30 — Telegram ID клиента и число дней (от 1 до {max_days})."
+  days_out_of_range: "Дней должно быть от 1 до {max_days} за раз."
+  # {query} — что искали
+  not_found: "Среди клиентов бота нет: {query}"
+  client_not_found: "Клиента с Telegram ID <code>{telegram_id}</code> нет среди клиентов бота."
+  # несколько клиентов с одним @username (старый @username сменил владельца)
+  many_found: "С таким @username несколько клиентов — выберите по Telegram ID:"
+  many_found_item: "• {name} — /client {telegram_id}"
+  panel_unavailable: "⚠️ Панель Remnawave не ответила. Попробуйте ещё раз через минуту."
+  cancelled: "Отменено."
+  # всплывающий ответ на кнопку админки не от администратора или не в группе (до 200 символов)
+  not_admin: "Это могут только администраторы в группе администраторов."
+  # подставляется, если у клиента нет имени или @username
+  no_value: нет
+  card:
+    title: |-
+      <b>Клиент {name}</b>
+      Telegram ID: <code>{telegram_id}</code>, @username: {username}
+      В боте с {first_seen_at}
+    blocked: "⛔ Заблокировал бота {at}"
+    status_trial: "Подписка: пробный до {expire_at}"
+    status_trial_traffic_used_up: "Подписка: пробный до {expire_at}, трафик исчерпан"
+    status_active: "Подписка: активна до {expire_at}"
+    status_grace: "Подписка: льготный период до {expire_at}"
+    status_expired: "Подписка: закончилась {expire_at}"
+    status_suspended: "Подписка: доступ выключен, срок до {expire_at}"
+    no_account: "Подписка: прокси-аккаунта нет"
+    panel_unavailable: "Подписка: панель Remnawave не ответила — срок и устройства сейчас неизвестны"
+    traffic: "Трафик пробного: {used} из {limit} ГБ"
+    devices: "Устройства: {used} из {limit}"
+    devices_no_limit: "Устройства: {used}"
+    grace: "Льготный период начался {at}"
+    trial_none: "Пробный: не брал"
+    trial_delivered: "Пробный: выдан {at}, продлений: {extensions}"
+    trial_pending: "Пробный: отмечен {at}, ещё не доставлен (панель не ответила)"
+    payments_none: "Оплат нет"
+    payments: "Оплат: {count} на {total} ₽. Последние:"
+    payment_item: "• {paid_at} — {tariff}, {days} дн., {amount} ₽ ({status})"
+  # состояние заказа в строке оплаты
+  order_status:
+    created: создан
+    paid: оплачен, доступ выдаётся
+    access_granted: доступ выдан
+    access_failed: доступ не выдан
+    manual_review: ручная проверка
+    canceled: отменён
+    refunded: возвращён
+  buttons:
+    extend: "➕ {days} дн."
+    devices: "📱 Устройства"
+    reset_trial: "🎁 Сбросить пробный"
+    revoke: "🔄 Перевыпустить ссылку"
+    confirm_extend: "✅ Да, выдать {days} дн."
+    confirm_reset: "✅ Да, сбросить"
+    confirm_revoke: "✅ Да, перевыпустить"
+    cancel: "✖️ Отмена"
+    delete_device: "🗑 {number}"
+  extend:
+    # {current} — нынешний срок или extend.no_account, {new} — новый срок
+    preview: |-
+      Выдать клиенту {name} (Telegram ID <code>{telegram_id}</code>) {days} дн.?
+      Сейчас: {current}
+      Станет: до {new}
+    no_account: "прокси-аккаунта нет — будет создан"
+    done: "✅ Клиенту <code>{telegram_id}</code> выдано {days} дн. Подписка до {expire_at}. Клиенту отправлено сообщение."
+    changed: |-
+      ⚠️ Срок клиента <code>{telegram_id}</code> уже изменился (сейчас: {current}) — ничего не сделано. Откройте карточку заново: /client {telegram_id}
+  reset:
+    ask: |-
+      Сбросить пробный клиенту <code>{telegram_id}</code>? Он снова увидит «🎁 Попробовать бесплатно», и нажатие даст 7 дней с нуля на прежнем аккаунте.
+    done: "✅ Пробный клиента <code>{telegram_id}</code> сброшен."
+    not_used: "Клиент <code>{telegram_id}</code> пробный не брал — сбрасывать нечего."
+    has_paid: "Клиент <code>{telegram_id}</code> уже платил — пробный ему не положен, сброс не нужен."
+  revoke:
+    ask: |-
+      Перевыпустить ссылку подписки клиенту <code>{telegram_id}</code>? Старая перестанет работать: на всех устройствах подписку нужно будет добавить заново.
+    done: "✅ Ссылка клиента <code>{telegram_id}</code> перевыпущена. Новая — у клиента в «🚀 Подключиться»."
+    no_account: "У клиента <code>{telegram_id}</code> нет прокси-аккаунта — перевыпускать нечего."
+  devices:
+    title: "Устройства клиента <code>{telegram_id}</code>: {used} из {limit}"
+    title_no_limit: "Устройства клиента <code>{telegram_id}</code>: {used}"
+    item: "{number}. {name} — {system}, подключено {connected_at}"
+    unknown: "?"
+    empty: "У клиента <code>{telegram_id}</code> нет подключённых устройств."
+    no_account: "У клиента <code>{telegram_id}</code> нет прокси-аккаунта."
+    deleted: "✅ Устройство удалено."
+    not_found: "Этого устройства у клиента уже нет."

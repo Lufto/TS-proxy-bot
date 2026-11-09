@@ -82,6 +82,14 @@ def test_all_files_of_folder_make_one_set(tmp_path: Path) -> None:
     assert texts.get("connect.active") == "Готово"
 
 
+def test_one_section_can_be_split_across_files(tmp_path: Path) -> None:
+    write(tmp_path / "admin" / "clients.yaml", "admin:\n  usage: Формат\n")
+    write(tmp_path / "admin" / "stats.yaml", "admin:\n  stats:\n    title: Статистика\n")
+    texts = load_texts(tmp_path / "admin")
+    assert texts.get("admin.usage") == "Формат"
+    assert texts.get("admin.stats.title") == "Статистика"
+
+
 def test_admin_set_is_built_from_admin_and_alerts(tmp_path: Path) -> None:
     write(tmp_path / "admin" / "support.yaml", "support:\n  taken: Беру\n")
     write(tmp_path / "alerts" / "alerts.yaml", "alerts:\n  prefix: 🚨\n")
