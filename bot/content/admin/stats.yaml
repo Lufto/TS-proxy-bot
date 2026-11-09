@@ -1,0 +1,23 @@
+admin:
+  # /stats — статистика; даты, «сегодня» и «с 1-го числа» — по Москве
+  stats:
+    title: "<b>📊 Статистика</b> на {at}"
+    # продажи — поступившие оплаты по времени зачёта за вычетом возвратов (строка refunds)
+    sales_today: "💰 Оплаты сегодня: {count} на {amount} ₽"
+    sales_month: "💰 Оплаты с 1-го числа: {count} на {amount} ₽"
+    # суммы оплат выше — уже за вычетом этих возвратов
+    refunds: "↩️ Возвраты: сегодня {today_count} на {today_amount} ₽, с 1-го числа {month_count} на {month_amount} ₽ (вычтены из оплат)"
+    # оплаты звёздами, в рублёвые суммы не входят; {rubles} — примерно по курсу, {refunds} — возвратов
+    stars_today: "⭐ Звёздами сегодня: {count} на {stars} ⭐ ≈ {rubles} ₽ (возвратов {refunds})"
+    stars_month: "⭐ Звёздами с 1-го числа: {count} на {stars} ⭐ ≈ {rubles} ₽ (возвратов {refunds})"
+    subscriptions: "🔑 Подписки сейчас: оплаченных — {paid}, в льготном периоде — {grace}, пробных — {trial}"
+    subscriptions_unknown: "🔑 Подписки сейчас: панель Remnawave не ответила — неизвестно"
+    trials: "🎁 Пробный → оплата: {converted} из {trials} ({percent}%) за всё время"
+    trials_none: "🎁 Пробный → оплата: пробных ещё не было"
+    support: "💬 Обращения: открыто — {open_now}, ждут первого ответа — {waiting}; с 1-го числа — {opened}"
+    response: "⏱ Первый ответ (обращения с 1-го числа): в среднем {average}, дольше всего {longest}"
+    response_none: "⏱ Первый ответ (обращения с 1-го числа): ответов ещё не было"
+    clients: "👥 Клиентов бота: {total}, заблокировали бота: {blocked}"
+    duration_minutes: "{minutes} мин"
+    duration_hours: "{hours} ч {minutes} мин"
+    duration_under_minute: "меньше минуты"

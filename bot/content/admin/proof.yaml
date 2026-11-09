@@ -1,0 +1,57 @@
+admin:
+  # /proof 123 — файл .txt для спора с платёжкой, строки без разметки
+  proof:
+    usage: "Формат: /proof 123 — номер заказа. Бот пришлёт файл с историей заказа: оплата, выдача доступа, подключения, журнал событий."
+    not_found: "Заказа #{order_id} нет."
+    caption: "📄 Доказательство оказания услуги по заказу #{order_id}"
+    header: |-
+      Доказательство оказания услуги — заказ #{order_id}
+      Сформировано: {at}
+    service: "Услуга: доступ к прокси-сервису TS Proxy, тариф {tariff_id} ({days} дн.)"
+    client: "Клиент: Telegram ID {telegram_id}, имя: {name}, @username: {username}, в боте с {first_seen_at}"
+    order: "Заказ создан: {created_at}, цена {price} ₽, состояние: {status}"
+    payment: "Оплата: {paid_at}, {amount} ₽, платёжка: {provider}, номер платежа: {payment_id}"
+    payment_none: "Оплата: не поступала"
+    grant_target: "Срок подписки по заказу: до {expire_at}"
+    # {status} — статус аккаунта в панели, {traffic} — израсходовано, ГБ
+    account: "Прокси-аккаунт сейчас: {status}, подписка до {expire_at}, первое подключение: {first_connected}, израсходовано трафика: {traffic} ГБ"
+    never_connected: "ни разу не подключался"
+    account_none: "Прокси-аккаунта в панели нет"
+    panel_unavailable: "Панель Remnawave не ответила — данные о подключениях сейчас недоступны"
+    devices_title: "Подключённые устройства: {count}"
+    device: "  • {model}, {platform}, подключено {connected_at}"
+    events_title: "Журнал событий (события заказа и клиента с момента создания заказа):"
+    event: "  • {at} — {kind}: {details}"
+    event_admin: "  • {at} — {kind} (администратор {admin_id}): {details}"
+    repeated: "    повторялось {count} раз"
+    truncated: "  … показаны первые {limit} событий"
+    kinds:
+      order_created: заказ создан
+      payment_created: платёж создан, клиенту выдана ссылка на оплату
+      payment_received: оплата получена и засчитана
+      access_granted: доступ выдан (подписка продлена)
+      access_failed: доступ не выдан
+      trial_granted: выдан пробный период
+      trial_extended: пробный период продлён
+      grace_started: начался льготный период
+      grace_ended: льготный период закончился
+      refund_approved: решено вернуть оплату (администратором по обращению)
+      refund_in_review: платёжка отправила возврат на проверку
+      refund_completed: деньги возвращены
+      refund_failed: платёжка отказала в возврате
+      refund_term_planned: посчитан срок после возврата
+      refund_term_shortened: срок укорочен после возврата
+      compensation_granted: начислена компенсация за сбой
+      admin_action: действие администратора
+      fake_payment_notification: отклонено поддельное уведомление об оплате
+      subscription_revoked: клиент перевыпустил ссылку подписки
+      connect_waiting: клиент открыл «Подключиться», а панель не ответила — ждёт ссылку
+      connect_delivered: клиент получил ссылку после сбоя панели
+      trials_disabled: пробные выключены
+      trials_enabled: пробные включены
+      site_banner_set: плашка на сайте изменена
+      stars_payment_returned: оплата звёздами не подошла к заказу — возврат звёзд
+      payment_chargeback: спор через банк — деньги возвращены плательщику, дни оплаты сняты
+      payment_refunded_outside_bot: деньги возвращены через кабинет платёжки, не через бота
+      payment_status_changed: статус оплаты у платёжки изменился после оплаты
+      refund_review_overdue: возврат долго на проверке у платёжки
