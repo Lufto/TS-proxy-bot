@@ -34,6 +34,7 @@ from tsproxy.services.admin_topics import AdminTopic
 from tsproxy.services.alerts import Alerter
 from tsproxy.services.client_card import ClientCardService
 from tsproxy.services.clients import ClientService
+from tsproxy.services.connect_waits import ConnectWaits
 from tsproxy.services.crediting import CreditingService
 from tsproxy.services.events import EventLog
 from tsproxy.services.fakes import FakeAlertSender, FakeClock
@@ -243,6 +244,7 @@ def ctx(
             content.stars_rub_rate,
         ),
         site_banner=SiteBannerSwitch(session_factory, events, alerter, content.admin_texts),
+        connect_waits=ConnectWaits(session_factory, events, clock),
     )
 
 

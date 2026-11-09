@@ -17,7 +17,6 @@ from tsproxy.bot.errors import on_error
 from tsproxy.bot.fallback import create_fallback_router
 from tsproxy.bot.menu import create_menu_router
 from tsproxy.bot.profile import PROFILE_COMMAND, create_profile_router
-from tsproxy.bot.refunds import create_refunds_router
 from tsproxy.bot.stars import create_stars_router
 from tsproxy.bot.support import PAYSUPPORT_COMMAND, SUPPORT_COMMAND, create_support_router
 from tsproxy.bot.tariffs import BUY_COMMAND, create_tariffs_router
@@ -49,7 +48,6 @@ def create_dispatcher(
         create_profile_router(),
         create_tariffs_router(),
         create_stars_router(),  # задача 33: раньше поддержки — она берёт все сообщения
-        create_refunds_router(),  # задача 21: случайная вторая оплата
         create_admin_router(ctx.access),  # задача 18
         create_admin_trials_router(ctx.access),  # задача 28
         create_admin_refunds_router(ctx.access),  # задача 21

@@ -13,10 +13,12 @@
 
 import logging
 from collections.abc import Awaitable, Callable
+from datetime import datetime
 
 from aiogram import Bot, Router
+from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import Command, CommandObject, or_f
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from tsproxy.bot.admin import AdminAccess, AdminFilter
 from tsproxy.bot.admin_callbacks import (
@@ -28,8 +30,12 @@ from tsproxy.bot.admin_callbacks import (
 )
 from tsproxy.bot.admin_refund_screens import refund_list_screen
 from tsproxy.bot.admin_screens import AdminScreen, AdminScreens
+from tsproxy.bot.callbacks import MenuCallback, ScreenId
 from tsproxy.bot.context import BotContext
+from tsproxy.bot.screens import Screen
 from tsproxy.domain.admin import GrantDaysOutOfRange, parse_client_query
+from tsproxy.domain.dates import format_moscow
+from tsproxy.domain.profile import plural_form
 from tsproxy.integrations.remnawave_types import RemnawaveUnavailable
 from tsproxy.services.admin import ExtensionOutcome, RevokeOutcome, TrialResetOutcome
 from tsproxy.services.support import TicketRef
@@ -186,11 +192,32 @@ async def on_extend(
     match result.outcome:
         case ExtensionOutcome.EXTENDED if result.expire_at is not None:
             screen = screens.extend_done(telegram_id, days, result.expire_at)
+            await _tell_client(ctx, telegram_id, days, result.expire_at)
         case ExtensionOutcome.CHANGED:
             screen = screens.extend_changed(telegram_id, result.expire_at)
         case _:
             screen = screens.client_not_found(telegram_id)
     await replace_screen(callback, bot, ctx, screen)
+
+
+async def _tell_client(ctx: BotContext, telegram_id: int, days: int, expire_at: datetime) -> None:
+    """Клиенту — «вам добавили N дней». Сбой Telegram — только лог: дни уже выданы."""
+    connect = InlineKeyboardButton(
+        text=ctx.texts.get("buttons.connect"),
+        callback_data=MenuCallback(screen=ScreenId.CONNECT).pack(),
+    )
+    screen = Screen(
+        ctx.texts.get(
+            "manual_grant.added",
+            days=ctx.texts.get(f"units.days_{plural_form(days).value}", n=days),
+            expire_at=format_moscow(expire_at),
+        ),
+        InlineKeyboardMarkup(inline_keyboard=[[connect]]),
+    )
+    try:
+        await ctx.delivery.send(telegram_id, screen)
+    except TelegramAPIError:
+        logger.exception("Ручная выдача: не удалось сообщить клиенту %s", telegram_id)
 
 
 async def on_client_action(

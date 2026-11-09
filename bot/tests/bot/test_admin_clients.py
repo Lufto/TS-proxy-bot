@@ -304,6 +304,27 @@ async def test_give_previews_then_extends_once(
     assert event.admin_id == ADMIN_ID
 
 
+async def test_extend_tells_client_once(
+    dispatcher: Dispatcher,
+    bot: Bot,
+    telegram: FakeTelegramSession,
+    remnawave: FakeRemnawave,
+    bot_client: None,
+    clock: FakeClock,
+) -> None:
+    expire_at = clock.now + timedelta(days=10)
+    await paid_account(remnawave, expire_at)
+    await dispatcher.feed_update(bot, group_command(f"/give {CLIENT_ID} 30"))
+    [confirm] = button_data(last_markup(telegram), "admx:")
+
+    await dispatcher.feed_update(bot, press(confirm))
+    await dispatcher.feed_update(bot, press(confirm))  # двойное нажатие
+
+    [told] = sent_to(telegram, CLIENT_ID)
+    assert "30 дней" in told.text
+    assert format_moscow(expire_at + timedelta(days=30)) in told.text
+
+
 async def test_extend_button_from_card_opens_preview(
     dispatcher: Dispatcher,
     bot: Bot,

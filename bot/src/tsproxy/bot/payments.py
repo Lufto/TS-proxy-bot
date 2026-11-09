@@ -1,7 +1,7 @@
 """Сообщения клиенту об оплате (задача 13): «✅ Оплачено, подписка до …» и «доступ подключается».
 
 Задача 14: «доступ задерживается» (не выдан за 30 минут) и «получили две оплаты»
-(с кнопками «Вернуть вторую оплату» и «Оставить» — задача 21).
+(случайную вторую — через поддержку, владелец 2026-11-10).
 
 Задача 15: «доступ отключён — платёж оспорен через банк» (реализует
 `services.payment_status.DisputeMessages`), с кнопкой «💬 Поддержка».
@@ -18,8 +18,6 @@ from aiogram.exceptions import TelegramAPIError
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from tsproxy.bot.callbacks import (
-    DoublePaymentAction,
-    DoublePaymentCallback,
     MenuCallback,
     ScreenId,
 )
@@ -83,31 +81,15 @@ class PaymentScreens:
         )
         return Screen(text, InlineKeyboardMarkup(inline_keyboard=[[support]]))
 
-    def double(self, order_id: int, refund_until: datetime) -> Screen:
-        """Две оплаты подряд: дни сложены; «↩️ Вернуть вторую оплату» (до `refund_until`)
-        и «Оставить» — задача 21, обрабатывает `bot.refunds`."""
-        text = self._texts.get("payment.double", until=format_moscow(refund_until))
-        rows = [
-            [
-                self._double_button(
-                    "buttons.refund_double_payment", DoublePaymentAction.ASK, order_id
-                )
-            ],
-            [
-                self._double_button(
-                    "buttons.keep_double_payment", DoublePaymentAction.KEEP, order_id
-                )
-            ],
-        ]
-        return Screen(text, InlineKeyboardMarkup(inline_keyboard=rows))
-
-    def _double_button(
-        self, key: str, action: DoublePaymentAction, order_id: int
-    ) -> InlineKeyboardButton:
-        return InlineKeyboardButton(
-            text=self._texts.get(key),
-            callback_data=DoublePaymentCallback(action=action, order_id=order_id).pack(),
+    def double(self) -> Screen:
+        """Две оплаты подряд: дни сложены; случайную вторую — через поддержку (задача 21,
+        владелец 2026-11-10: кнопки возврата у клиента нет)."""
+        support = InlineKeyboardButton(
+            text=self._texts.get("buttons.support"),
+            callback_data=MenuCallback(screen=ScreenId.SUPPORT).pack(),
         )
+        text = self._texts.get("payment.double")
+        return Screen(text, InlineKeyboardMarkup(inline_keyboard=[[support]]))
 
     def _with_back(self, text: str) -> Screen:
         back = InlineKeyboardButton(
@@ -133,10 +115,8 @@ class TelegramPaymentMessages:
     async def access_delayed(self, telegram_id: int) -> None:
         await self._send(telegram_id, self._screens.delayed())
 
-    async def possible_double_payment(
-        self, telegram_id: int, order_id: int, refund_until: datetime
-    ) -> None:
-        await self._send(telegram_id, self._screens.double(order_id, refund_until))
+    async def possible_double_payment(self, telegram_id: int) -> None:
+        await self._send(telegram_id, self._screens.double())
 
     async def payment_disputed(
         self, telegram_id: int, expire_at: datetime | None, *, access_ended: bool

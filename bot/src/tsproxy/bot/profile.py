@@ -69,20 +69,22 @@ async def on_profile(callback: CallbackQuery, ctx: BotContext) -> None:
     await ctx.delivery.show(callback, await profile_screen(ctx, client))
 
 
-async def on_devices(callback: CallbackQuery, ctx: BotContext) -> None:
-    await callback.answer()
-    client = await ctx.clients.resolve(profile_of(callback.from_user))
+async def devices_screen(ctx: BotContext, client: Client) -> Screen:
+    """Экран «📱 Мои устройства»: список, «подписки нет» или «панель недоступна»."""
     screens = ProfileScreens(ctx.texts)
     try:
         devices = await ctx.profiles.devices(client.telegram_id)
     except RemnawaveUnavailable as error:
-        screen = await panel_unavailable_screen(ctx, client.telegram_id, error)
-    else:
-        if devices is None:
-            screen = await _no_account(ctx, screens)
-        else:
-            screen = screens.devices(devices)
-    await ctx.delivery.show(callback, screen)
+        return await panel_unavailable_screen(ctx, client.telegram_id, error)
+    if devices is None:
+        return await _no_account(ctx, screens)
+    return screens.devices(devices)
+
+
+async def on_devices(callback: CallbackQuery, ctx: BotContext) -> None:
+    await callback.answer()
+    client = await ctx.clients.resolve(profile_of(callback.from_user))
+    await ctx.delivery.show(callback, await devices_screen(ctx, client))
 
 
 async def on_delete_device(

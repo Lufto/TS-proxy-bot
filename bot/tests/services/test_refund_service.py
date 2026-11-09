@@ -625,97 +625,19 @@ async def test_lost_panel_answer_does_not_shorten_twice(
     assert await expire_of(setup) == clock() + 2 * MONTH
 
 
-# --- Случайная вторая оплата: клиент сам ---
+# --- Случайная вторая оплата: только через поддержку (владелец, 2026-11-10) ---
 
 
-async def double_paid(setup: Setup, client: Client) -> Order:
-    clock = setup.clock
+async def test_admin_refunds_second_payment(setup: Setup, client: Client, clock: FakeClock) -> None:
     first = await paid_order(setup, client, paid_at=clock(), expire_at=clock() + MONTH)
     second = await paid_order(setup, client, paid_at=clock(), expire_at=clock() + 2 * MONTH)
     await mark_double(setup, client, second, first)
-    return second
 
+    result = await setup.service.refund_by_admin(ADMIN, TELEGRAM_ID, second.id)
 
-async def test_client_refunds_second_payment_without_admin(
-    setup: Setup, client: Client, clock: FakeClock
-) -> None:
-    second = await double_paid(setup, client)
-
-    offer = await setup.service.double_payment(TELEGRAM_ID, second.id)
-    result = await setup.service.refund_double_payment(TELEGRAM_ID, second.id)
-
-    assert isinstance(offer, RefundablePayment) and offer.amount == PRICE
     assert isinstance(result, RefundResult)
     assert result.progress is RefundProgress.COMPLETED
     assert await expire_of(setup) == clock() + MONTH
-    [approved] = await events(setup, EventKind.REFUND_APPROVED)
-    assert approved.admin_id is None
-    assert approved.details is not None
-    assert approved.details["kind"] == RefundKind.DOUBLE_PAYMENT.value
-    assert not await events(setup, EventKind.ADMIN_ACTION)
-    assert any("вторую оплату" in text for text in setup.topic_texts())
-
-
-async def test_client_cannot_refund_ordinary_payment(
-    setup: Setup, client: Client, clock: FakeClock
-) -> None:
-    order = await paid_order(setup, client, paid_at=clock(), expire_at=clock() + MONTH)
-
-    result = await setup.service.refund_double_payment(TELEGRAM_ID, order.id)
-
-    assert result == RefundRefused(RefundRefusal.NOT_DOUBLE_PAYMENT)
-
-
-async def test_client_cannot_refund_someone_elses_payment(
-    setup: Setup, client: Client, clock: FakeClock, session: AsyncSession
-) -> None:
-    second = await double_paid(setup, client)
-    session.add(Client(telegram_id=OTHER_ID, first_seen_at=clock()))
-    await session.commit()
-
-    result = await setup.service.refund_double_payment(OTHER_ID, second.id)
-
-    assert result == RefundRefused(RefundRefusal.ORDER_NOT_FOUND)
-
-
-async def test_client_refund_only_within_seven_days(
-    setup: Setup, client: Client, clock: FakeClock
-) -> None:
-    second = await double_paid(setup, client)
-    clock.advance(timedelta(days=7, seconds=1))
-
-    result = await setup.service.refund_double_payment(TELEGRAM_ID, second.id)
-
-    assert result == RefundRefused(RefundRefusal.WINDOW_PASSED)
-    # через поддержку — можно: правило 30 дней
-    assert isinstance(
-        await setup.service.refund_by_admin(ADMIN, TELEGRAM_ID, second.id), RefundResult
-    )
-
-
-async def test_kept_second_payment_can_be_refunded_only_via_support(
-    setup: Setup, client: Client, clock: FakeClock
-) -> None:
-    second = await double_paid(setup, client)
-
-    assert await setup.service.keep_double_payment(TELEGRAM_ID, second.id) is None
-    result = await setup.service.refund_double_payment(TELEGRAM_ID, second.id)
-    again = await setup.service.keep_double_payment(TELEGRAM_ID, second.id)
-
-    assert result == RefundRefused(RefundRefusal.KEPT)
-    assert again == RefundRefused(RefundRefusal.KEPT)
-    assert len(await events(setup, EventKind.DOUBLE_PAYMENT_KEPT)) == 1
-    assert any("оставил" in text for text in setup.topic_texts())
-    assert await expire_of(setup) == clock() + 2 * MONTH
-
-
-async def test_keep_after_refund_is_refused(setup: Setup, client: Client) -> None:
-    second = await double_paid(setup, client)
-    await setup.service.refund_double_payment(TELEGRAM_ID, second.id)
-
-    result = await setup.service.keep_double_payment(TELEGRAM_ID, second.id)
-
-    assert result == RefundRefused(RefundRefusal.ALREADY_REFUNDED)
 
 
 # --- Оплата звёздами Telegram (задача 33): возвращаются звёзды через refundStarPayment ---

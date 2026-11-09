@@ -52,16 +52,12 @@ TEXT_PLACEHOLDERS: dict[str, set[str]] = {
     # задача 13: оплата засчитана
     "payment.paid": {"expire_at", "device_limit"},
     "payment.paid_prorated": {"expire_at", "device_limit", "amount", "price"},
-    # задача 14: две оплаты подряд — до какого времени можно вернуть вторую
-    "payment.double": {"until"},
     "payment.disputed": {"expire_at"},
-    # задача 21: случайная вторая оплата, сообщение о возврате, перенос подписки
-    "buttons.confirm_refund_double_payment": {"amount"},
-    "refund.double_ask": {"amount", "paid_at", "duration"},
-    "refund.duration_hours": {"days", "hours"},
+    # задача 21: сообщение о возврате, перенос подписки
     "refund.completed": {"amount", "expire_at"},
     "refund.completed_access_ended": {"amount"},
     "transfer.received": {"expire_at"},
+    "manual_grant.added": {"days", "expire_at"},
     # задача 33: оплата звёздами Telegram
     "buttons.pay_sbp": {"price"},
     "buttons.pay_stars": {"stars"},

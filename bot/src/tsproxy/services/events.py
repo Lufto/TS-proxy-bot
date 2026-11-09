@@ -47,14 +47,15 @@ class EventKind(StrEnum):
     # срок «до X» после возврата — посчитан и записан до запроса к панели
     REFUND_TERM_PLANNED = "refund_term_planned"
     REFUND_TERM_SHORTENED = "refund_term_shortened"  # срок укорочен после возврата
-    # клиент нажал «Оставить» под сообщением о двойной оплате — вернуть только через поддержку
-    DOUBLE_PAYMENT_KEPT = "double_payment_kept"
     COMPENSATION_GRANTED = "compensation_granted"  # компенсация за сбой
     ADMIN_ACTION = "admin_action"  # любое действие администратора
     FAKE_PAYMENT_NOTIFICATION = "fake_payment_notification"  # отклонённое поддельное уведомление
     # Ссылку подписки перевыпустил сам клиент (задача 31), кто — в `details["by"]`.
     # Перевыпуск администратором, как и любое его действие, — ADMIN_ACTION (задача 18)
     SUBSCRIPTION_REVOKED = "subscription_revoked"
+    # «Подключиться» при сбое панели: клиент ждёт ссылку / получил её (`details["by"]`)
+    CONNECT_WAITING = "connect_waiting"
+    CONNECT_DELIVERED = "connect_delivered"
     # задача 28: выключатель пробных. Последнее из двух — источник правды, вкл или выкл
     TRIALS_DISABLED = "trials_disabled"  # пробные выключены (администратором или при спаме)
     TRIALS_ENABLED = "trials_enabled"  # пробные снова включены администратором

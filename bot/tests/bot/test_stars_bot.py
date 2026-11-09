@@ -318,7 +318,7 @@ async def test_admin_refund_returns_stars(
 
 
 async def test_refund_router_is_wired_for_stars(ctx: BotContext) -> None:
-    # тот же сервис возвратов, что у кнопки клиента «вернуть вторую оплату»
+    # тот же сервис возвратов, что у кнопки администратора «↩️ Вернуть»
     assert ctx.refunds._refunds.supports(STARS_PROVIDER)
 
 

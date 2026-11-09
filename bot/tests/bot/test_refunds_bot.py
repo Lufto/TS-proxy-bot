@@ -15,8 +15,6 @@ from test_support_bot import open_ticket, tickets
 
 from tsproxy.bot.admin_callbacks import AdminRefundCallback, AdminTransferCallback
 from tsproxy.bot.callbacks import (
-    DoublePaymentAction,
-    DoublePaymentCallback,
     TicketAction,
     TicketCallback,
 )
@@ -43,11 +41,6 @@ MAX_TELEGRAM_ID = 2**63 - 1
 
 def press(data: str, *, sender_id: int = ADMIN_ID, chat_id: int | None = ADMIN_CHAT_ID) -> Update:
     return callback(user(sender_id, first_name="Саша"), data, chat_id=chat_id)
-
-
-def client_press(action: DoublePaymentAction, order_id: int) -> Update:
-    data = DoublePaymentCallback(action=action, order_id=order_id).pack()
-    return callback(user(CLIENT_ID), data)
 
 
 def markup_data(markup: object) -> list[str]:
@@ -269,74 +262,6 @@ async def mark_double(
         await session.commit()
 
 
-async def test_client_returns_second_payment_himself(
-    dispatcher: Dispatcher,
-    bot: Bot,
-    telegram: FakeTelegramSession,
-    remnawave: FakeRemnawave,
-    session_factory: async_sessionmaker[AsyncSession],
-    clock: FakeClock,
-    content: Content,
-    two_payments: tuple[Order, Order],
-) -> None:
-    first, second = two_payments
-    await mark_double(session_factory, first, second)
-
-    await dispatcher.feed_update(bot, client_press(DoublePaymentAction.ASK, second.id))
-    [ask] = telegram.sent(EditMessageText)
-    assert "150 ₽" in ask.text
-    assert DoublePaymentCallback(
-        action=DoublePaymentAction.CONFIRM, order_id=second.id
-    ).pack() in markup_data(ask.reply_markup)
-
-    await dispatcher.feed_update(bot, client_press(DoublePaymentAction.CONFIRM, second.id))
-
-    [_, done] = telegram.sent(EditMessageText)
-    assert done.text == content.texts.get("refund.double_progress.completed")
-    assert (await remnawave.get_account(CLIENT_ID)).expire_at == clock() + MONTH
-    [told] = to_client(telegram)
-    assert "Возврат 150 ₽ оформлен" in told.text
-
-
-async def test_client_keeps_second_payment(
-    dispatcher: Dispatcher,
-    bot: Bot,
-    telegram: FakeTelegramSession,
-    remnawave: FakeRemnawave,
-    session_factory: async_sessionmaker[AsyncSession],
-    clock: FakeClock,
-    content: Content,
-    two_payments: tuple[Order, Order],
-) -> None:
-    first, second = two_payments
-    await mark_double(session_factory, first, second)
-
-    await dispatcher.feed_update(bot, client_press(DoublePaymentAction.KEEP, second.id))
-    await dispatcher.feed_update(bot, client_press(DoublePaymentAction.CONFIRM, second.id))
-
-    [kept, refused] = telegram.sent(EditMessageText)
-    assert kept.text == content.texts.get("refund.double_kept")
-    assert refused.text == content.texts.get("refund.double_refused.kept")
-    assert (await remnawave.get_account(CLIENT_ID)).expire_at == clock() + 2 * MONTH
-
-
-async def test_client_cannot_refund_ordinary_payment(
-    dispatcher: Dispatcher,
-    bot: Bot,
-    telegram: FakeTelegramSession,
-    payments: FakePaymentProvider,
-    content: Content,
-    two_payments: tuple[Order, Order],
-) -> None:
-    _, second = two_payments  # двойной не отмечена
-
-    await dispatcher.feed_update(bot, client_press(DoublePaymentAction.CONFIRM, second.id))
-
-    [refused] = telegram.sent(EditMessageText)
-    assert refused.text == content.texts.get("refund.double_refused.other")
-    assert payments.ledger.find_by_order(second.id)[0].refunded == 0
-
-
 # --- Данные кнопок ---
 
 
@@ -350,9 +275,5 @@ def test_refund_and_transfer_buttons_fit_telegram_limit() -> None:
             from_stamp=4_102_444_800,  # 2100 год
             to_stamp=4_102_444_800,
         ).pack(),
-        *(
-            DoublePaymentCallback(action=action, order_id=big_order).pack()
-            for action in DoublePaymentAction
-        ),
     ]
     assert all(len(data.encode()) <= CALLBACK_DATA_MAX_BYTES for data in packed)

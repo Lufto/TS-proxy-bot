@@ -9,7 +9,7 @@ from aiogram.types import InlineKeyboardMarkup
 from bot_updates import CLIENT_ID, NOW
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from tsproxy.bot.callbacks import DoublePaymentAction, DoublePaymentCallback
+from tsproxy.bot.callbacks import MenuCallback, ScreenId
 from tsproxy.bot.context import BotContext
 from tsproxy.bot.fakes import FakeTelegramSession
 from tsproxy.bot.payments import PaymentScreens, TelegramPaymentMessages
@@ -89,22 +89,17 @@ async def test_delayed_message_says_payment_is_safe(
     assert sent.text == ctx.texts.get("payment.delayed")
 
 
-async def test_double_payment_message_offers_refund_until(
+async def test_double_payment_message_points_to_support(
     ctx: BotContext, telegram: FakeTelegramSession
 ) -> None:
-    """Две оплаты подряд — предложение вернуть вторую (задача 14, решение владельца п. 1)."""
-    await messages(ctx).possible_double_payment(CLIENT_ID, 42, NOW + timedelta(days=7))
+    """Две оплаты подряд: дни сложены, случайную — через поддержку, кнопки возврата нет."""
+    await messages(ctx).possible_double_payment(CLIENT_ID)
 
     [sent] = telegram.sent(SendMessage)
     assert "две оплаты" in sent.text
-    assert "31.10.2026, 15:00 МСК" in sent.text
-    # задача 21: клиент сам выбирает — вернуть вторую оплату или оставить
     assert isinstance(sent.reply_markup, InlineKeyboardMarkup)
     data = [b.callback_data for row in sent.reply_markup.inline_keyboard for b in row]
-    assert data == [
-        DoublePaymentCallback(action=DoublePaymentAction.ASK, order_id=42).pack(),
-        DoublePaymentCallback(action=DoublePaymentAction.KEEP, order_id=42).pack(),
-    ]
+    assert data == [MenuCallback(screen=ScreenId.SUPPORT).pack()]
 
 
 async def test_client_who_blocked_bot_is_marked_and_nothing_breaks(
@@ -143,7 +138,7 @@ async def test_payment_screens_use_only_required_texts(
     screens.paid(granted(account, paid=Decimal("75")))
     screens.pending()
     screens.delayed()
-    screens.double(1, NOW)
+    screens.double()
 
 
 async def test_dispute_message_points_to_support(

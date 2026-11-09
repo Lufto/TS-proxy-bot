@@ -1,5 +1,5 @@
 """Возвраты через поддержку (задача 21, решение владельца 2026-10-30): какие оплаты можно
-вернуть, случайная вторая оплата и новый срок после возврата."""
+вернуть и новый срок после возврата."""
 
 from datetime import UTC, datetime, timedelta
 
@@ -7,7 +7,6 @@ import pytest
 
 from tsproxy.domain.refund import (
     REFUND_END_MARGIN,
-    double_payment_refund_open,
     refund_list_since,
     refund_window_open,
     term_after_refund,
@@ -36,17 +35,6 @@ def test_refund_list_starts_30_days_ago() -> None:
 def test_refund_window_rejects_naive_time() -> None:
     with pytest.raises(ValueError):
         refund_window_open(PAID_AT, datetime(2026, 11, 2))  # noqa: DTZ001
-
-
-# --- Случайная вторая оплата: клиент сам, 7 дней ---
-
-
-def test_double_payment_can_be_refunded_by_client_for_seven_days() -> None:
-    assert double_payment_refund_open(PAID_AT, PAID_AT + timedelta(days=7))
-
-
-def test_double_payment_refund_closes_after_seven_days() -> None:
-    assert not double_payment_refund_open(PAID_AT, PAID_AT + timedelta(days=7, seconds=1))
 
 
 # --- Срок после возврата: минус всё, что дала эта оплата ---

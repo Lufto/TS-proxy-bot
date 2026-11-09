@@ -29,6 +29,7 @@ PLATFORM_TEXTS: dict[Platform, tuple[str, str]] = {
     Platform.ANDROID: ("buttons.platform_android", "instructions.android"),
     Platform.WINDOWS: ("buttons.platform_windows", "instructions.windows"),
     Platform.MACOS: ("buttons.platform_macos", "instructions.macos"),
+    Platform.LINUX: ("buttons.platform_linux", "instructions.linux"),
 }
 
 
@@ -219,6 +220,13 @@ class Screens:
         """Панель Remnawave не ответила — попросить попробовать позже."""
         return Screen(
             self._texts.get("connect.unavailable"),
+            InlineKeyboardMarkup(inline_keyboard=[self._back()]),
+        )
+
+    def connect_pending(self) -> Screen:
+        """«Подключиться» при сбое панели — бот пришлёт ссылку сам, когда панель ответит."""
+        return Screen(
+            self._texts.get("connect.pending"),
             InlineKeyboardMarkup(inline_keyboard=[self._back()]),
         )
 

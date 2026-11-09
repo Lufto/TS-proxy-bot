@@ -321,9 +321,8 @@ async def test_two_paid_invoices_are_double_payment(setup: Setup, client: Client
     await setup.stars.paid(setup.payment(first.order_id))
     await setup.stars.paid(setup.payment(second.order_id, charge="stxCharge-2"))
 
-    # дни сложены, клиенту — «вернуть вторую оплату» (возврат — refundStarPayment)
-    [(telegram_id, order_id, _)] = setup.pay.messages.doubles
-    assert (telegram_id, order_id) == (111, second.order_id)
+    # дни сложены, клиенту — «две оплаты; случайную — через поддержку»
+    assert setup.pay.messages.doubles == [111]
 
 
 async def test_charge_is_unique_per_order(setup: Setup, client: Client) -> None:

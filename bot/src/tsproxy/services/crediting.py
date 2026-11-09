@@ -28,9 +28,9 @@
 Задача 14 (решения владельца 2026-10-25):
 - **Случайная двойная оплата** — другой заказ клиента засчитан уже после создания этого
   (`domain.payments.possible_double_payment`): дни складываются как обычно, в «💰 Оплаты» —
-  пометка, клиенту — кнопки «Вернуть вторую оплату» (полностью, 7 дней) и «Оставить».
-  Сам возврат — задача 21 (`services.refunds`); номер первого заказа — в событии оплаты
-  (`possible_double_of`), по нему возврат клиентом и разрешается.
+  пометка, клиенту — «если вторая случайная, напишите в поддержку» (владелец 2026-11-10).
+  Возврат — администратор через «↩️ Вернуть» (задача 21, `services.refunds`); номер первого
+  заказа — в событии оплаты (`possible_double_of`).
 - **Доступ не выдан за 30 минут** — вместе с тревогой клиенту второе сообщение
   «оплата получена, доступ задерживается, разбираемся».
 """
@@ -53,8 +53,7 @@ from tsproxy.db.enums import OrderStatus
 from tsproxy.db.models import Client, Event, Order
 from tsproxy.db.repository import CREDITED_ORDER_STATUSES, claim_order_payment
 from tsproxy.domain.client_state import ClientSnapshot
-from tsproxy.domain.constants import DOUBLE_PAYMENT_REFUND_WINDOW
-from tsproxy.domain.dates import format_moscow, require_aware
+from tsproxy.domain.dates import require_aware
 from tsproxy.domain.grant import plan_grant_retry
 from tsproxy.domain.money import format_rubles, paid_duration
 from tsproxy.domain.payments import possible_double_payment
@@ -161,11 +160,8 @@ class PaymentMessages(Protocol):
         """«Доступ задерживается, разбираемся» — доступ не выдан за 30 минут (задача 14)."""
         ...
 
-    async def possible_double_payment(
-        self, telegram_id: int, order_id: int, refund_until: datetime
-    ) -> None:
-        """«Получили две оплаты, дни сложены» и кнопки «Вернуть вторую оплату» (до
-        `refund_until`) и «Оставить» для заказа `order_id` (задачи 14, 21)."""
+    async def possible_double_payment(self, telegram_id: int) -> None:
+        """«Получили две оплаты, дни сложены; случайную — через поддержку» (задачи 14, 21)."""
         ...
 
 
@@ -237,11 +233,7 @@ class CreditingService:
         if outcome is not PaymentOutcome.GRANTED:
             await self._messages.access_pending(credited.telegram_id)
         if credited.double_of is not None:
-            await self._messages.possible_double_payment(
-                credited.telegram_id,
-                credited.order_id,
-                credited.paid_at + DOUBLE_PAYMENT_REFUND_WINDOW,
-            )
+            await self._messages.possible_double_payment(credited.telegram_id)
         return CreditResult(order_id, outcome)
 
     async def _record_payment(
@@ -351,9 +343,7 @@ class CreditingService:
             text += "\n" + self._admin_texts.get("payments.stars", stars=credited.stars)
         if credited.double_of is not None:
             text += "\n" + self._admin_texts.get(
-                "payments.possible_double",
-                other_order_id=credited.double_of,
-                refund_until=format_moscow(credited.paid_at + DOUBLE_PAYMENT_REFUND_WINDOW),
+                "payments.possible_double", other_order_id=credited.double_of
             )
         await self._payments_topic.post(text)
         if prorated:

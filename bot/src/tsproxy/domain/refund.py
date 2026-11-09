@@ -12,7 +12,7 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from tsproxy.domain.constants import DOUBLE_PAYMENT_REFUND_WINDOW, ONE_DAY, REFUND_WINDOW_DAYS
+from tsproxy.domain.constants import ONE_DAY, REFUND_WINDOW_DAYS
 from tsproxy.domain.dates import require_aware
 
 REFUND_WINDOW = timedelta(days=REFUND_WINDOW_DAYS)
@@ -31,13 +31,6 @@ def refund_window_open(paid_at: datetime, now: datetime) -> bool:
 def refund_list_since(now: datetime) -> datetime:
     """С какого момента оплаты попадают в список «↩️ Вернуть»."""
     return require_aware(now) - REFUND_WINDOW
-
-
-def double_payment_refund_open(paid_at: datetime, now: datetime) -> bool:
-    """Клиент сам может вернуть случайную вторую оплату: прошло не больше 7 дней."""
-    require_aware(paid_at)
-    require_aware(now)
-    return now <= paid_at + DOUBLE_PAYMENT_REFUND_WINDOW
 
 
 @dataclass(frozen=True)

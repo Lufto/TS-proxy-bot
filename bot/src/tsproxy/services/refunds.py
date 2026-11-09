@@ -6,9 +6,7 @@
 сумму** оплаты через платёжку и снимает со срока всё, что эта оплата дала (`paid_duration`).
 
 **Случайная вторая оплата** (задача 14 отмечает её полем `possible_double_of` в событии
-оплаты): клиент сам, без администратора, может вернуть её кнопкой в течение 7 дней или
-нажать «Оставить». Оставил или 7 дней прошли — только через поддержку. Администраторам —
-сообщение в «💰 Оплаты» в обоих случаях.
+оплаты) — тоже через поддержку: кнопки возврата у клиента нет (владелец, 2026-11-10).
 
 Защиты:
 
@@ -56,7 +54,6 @@ from tsproxy.domain.constants import ONE_DAY
 from tsproxy.domain.money import paid_duration
 from tsproxy.domain.refund import (
     REFUND_END_MARGIN,
-    double_payment_refund_open,
     refund_list_since,
     refund_window_open,
     term_after_refund,
@@ -80,7 +77,7 @@ from tsproxy.services.admin import AdminActionKind, same_second
 from tsproxy.services.admin_topics import AdminTopic
 from tsproxy.services.alerts import Alerter
 from tsproxy.services.clock import Clock, utc_now
-from tsproxy.services.crediting import DOUBLE_DETAIL, paid_stars
+from tsproxy.services.crediting import paid_stars
 from tsproxy.services.events import EventKind, EventLog
 from tsproxy.services.locks import KeyedLocks
 
@@ -102,7 +99,6 @@ class RefundKind(StrEnum):
     """Кто решил вернуть. Пишется в `decision_reason` и в подробности событий."""
 
     SUPPORT = "support"  # администратор по обращению в поддержку
-    DOUBLE_PAYMENT = "double_payment"  # клиент сам — случайная вторая оплата
 
 
 class RefundRefusal(StrEnum):
@@ -113,13 +109,11 @@ class RefundRefusal(StrEnum):
     CLIENT_NOT_FOUND = "client_not_found"  # не клиент бота
     ORDER_NOT_FOUND = "order_not_found"  # нет такой оплаты у этого клиента
     NOT_GRANTED = "not_granted"  # доступ по оплате ещё не выдан (выдача идёт или сбой)
-    WINDOW_PASSED = "window_passed"  # старше 30 дней (у клиента — 7 дней)
+    WINDOW_PASSED = "window_passed"  # старше 30 дней
     ALREADY_REFUNDED = "already_refunded"  # уже возвращена или возвращается
     TRANSFERRED = "transferred"  # подписку перенесли на другой аккаунт после этой оплаты
     # оплату оспорили через банк: деньги клиенту вернул банк, дни уже сняты (задача 15)
     DISPUTED = "disputed"
-    NOT_DOUBLE_PAYMENT = "not_double_payment"  # клиент сам — только случайную вторую
-    KEPT = "kept"  # клиент нажал «Оставить» — теперь только через поддержку
 
 
 class RefundProgress(StrEnum):
@@ -270,55 +264,6 @@ class RefundService:
         """Вернуть всю сумму оплаты и снять её дни — после подтверждения администратором."""
         return await self._refund(telegram_id, order_id, RefundKind.SUPPORT, admin)
 
-    # --- Клиент: случайная вторая оплата ---
-
-    async def double_payment(
-        self, telegram_id: int, order_id: int
-    ) -> RefundablePayment | RefundRefused:
-        """Вторая оплата для подтверждения «вернуть?» клиенту. Ничего не меняет."""
-        return await self._payment(telegram_id, order_id, RefundKind.DOUBLE_PAYMENT)
-
-    async def refund_double_payment(
-        self, telegram_id: int, order_id: int
-    ) -> RefundResult | RefundRefused:
-        """Клиент сам возвращает случайную вторую оплату (7 дней, без администратора)."""
-        return await self._refund(telegram_id, order_id, RefundKind.DOUBLE_PAYMENT, None)
-
-    async def keep_double_payment(self, telegram_id: int, order_id: int) -> RefundRefused | None:
-        """«Оставить — продлить подписку»: вернуть потом можно только через поддержку.
-
-        `None` — оставлено. После 7 дней кнопка уже ничего не решает: ничего не пишем.
-        """
-        now = utc_now(self._clock)
-        async with self._locks.hold(("order", order_id)), self._session_factory() as session:
-            client = await _client(session, telegram_id)
-            if client is None:
-                return RefundRefused(RefundRefusal.CLIENT_NOT_FOUND)
-            order = await _client_order(session, client.id, order_id)
-            if order is None or order.paid_at is None:
-                return RefundRefused(RefundRefusal.ORDER_NOT_FOUND)
-            refusal = await _double_payment_refusal(session, order)
-            if refusal is not None:
-                return RefundRefused(refusal)
-            if order.status is OrderStatus.REFUNDED:
-                return RefundRefused(RefundRefusal.ALREADY_REFUNDED)
-            if not double_payment_refund_open(order.paid_at, now):
-                return None
-            await self._events.record(
-                session, EventKind.DOUBLE_PAYMENT_KEPT, client_id=client.id, order_id=order.id
-            )
-            await session.commit()
-            stars = await _order_stars(session, order.id)
-            text = self._admin_texts.get(
-                "refunds.topic.double_kept",
-                order_id=order.id,
-                amount=paid_text(self._admin_texts, _paid_amount(order), stars),
-                **_client_values(self._admin_texts, client),
-            )
-        logger.info("Клиент %s оставил вторую оплату, заказ %s", client.id, order_id)
-        await self._payments_topic.post(text)
-        return None
-
     # --- Платёжка сообщила итог проверки (задача 15) ---
 
     async def settle_review(self, request_id: int, outcome: RefundOutcome) -> RefundProgress:
@@ -401,7 +346,7 @@ class RefundService:
             order = await _client_order(session, client.id, order_id)
             if order is None or order.paid_at is None:
                 return RefundRefused(RefundRefusal.ORDER_NOT_FOUND)
-            refusal = await self._refusal(session, client, order, kind, now)
+            refusal = await self._refusal(session, client, order, now)
             if refusal is not None:
                 return RefundRefused(refusal)
             moved = await session.execute(
@@ -474,7 +419,7 @@ class RefundService:
             amount=_paid_amount(order),
             duration=_duration(order),
             refund_status=await _last_refund_status(session, order.id),
-            blocker=await self._refusal(session, client, order, kind, now),
+            blocker=await self._refusal(session, client, order, now),
             stars=await _order_stars(session, order.id),
         )
 
@@ -483,28 +428,18 @@ class RefundService:
         session: AsyncSession,
         client: Client,
         order: Order,
-        kind: RefundKind,
         now: datetime,
     ) -> RefundRefusal | None:
         """Почему эту оплату нельзя вернуть сейчас. `None` — можно."""
         if order.paid_at is None:
             return RefundRefusal.ORDER_NOT_FOUND
-        if kind is RefundKind.DOUBLE_PAYMENT:
-            refusal = await _double_payment_refusal(session, order)
-            if refusal is not None:
-                return refusal
         if order.status is OrderStatus.REFUNDED:
             return RefundRefusal.ALREADY_REFUNDED
         if await _disputed(session, order.id):
             return RefundRefusal.DISPUTED
         if order.status is not OrderStatus.ACCESS_GRANTED:
             return RefundRefusal.NOT_GRANTED
-        window_open = (
-            double_payment_refund_open(order.paid_at, now)
-            if kind is RefundKind.DOUBLE_PAYMENT
-            else refund_window_open(order.paid_at, now)
-        )
-        if not window_open:
+        if not refund_window_open(order.paid_at, now):
             return RefundRefusal.WINDOW_PASSED
         if await _transferred_since(session, client, order.paid_at):
             return RefundRefusal.TRANSFERRED
@@ -750,10 +685,7 @@ class RefundService:
             row = await session.get_one(RefundRequest, request_id)
             client = await session.get_one(Client, row.client_id)
             admin_name = await _admin_name(session, row)
-        if row.decision_reason == RefundKind.DOUBLE_PAYMENT.value:
-            who = texts.get("refunds.topic.by_client")
-        else:
-            who = texts.get("refunds.topic.by_admin", admin=admin_name or row.decided_by_admin_id)
+        who = texts.get("refunds.topic.by_admin", admin=admin_name or row.decided_by_admin_id)
         header = texts.get(
             "refunds.topic.header",
             request_id=row.id,
@@ -834,25 +766,6 @@ async def _last_refund_status(session: AsyncSession, order_id: int) -> RefundSta
         .order_by(RefundRequest.id.desc())
         .limit(1)
     )
-
-
-async def _double_payment_refusal(session: AsyncSession, order: Order) -> RefundRefusal | None:
-    """Клиент сам может вернуть только отмеченную вторую оплату и только пока не оставил её."""
-    details = await session.scalar(
-        select(Event.details).where(
-            Event.order_id == order.id, Event.kind == EventKind.PAYMENT_RECEIVED.value
-        )
-    )
-    if details is None or details.get(DOUBLE_DETAIL) is None:
-        return RefundRefusal.NOT_DOUBLE_PAYMENT
-    kept = await session.scalar(
-        select(
-            exists().where(
-                Event.order_id == order.id, Event.kind == EventKind.DOUBLE_PAYMENT_KEPT.value
-            )
-        )
-    )
-    return RefundRefusal.KEPT if kept else None
 
 
 async def _disputed(session: AsyncSession, order_id: int) -> bool:

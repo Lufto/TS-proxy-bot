@@ -203,11 +203,13 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         "buttons.platform_android",
         "buttons.platform_windows",
         "buttons.platform_macos",
+        "buttons.platform_linux",
         "menu.title",
         "connect.active",
         "connect.inactive",
         "connect.no_account",
         "connect.unavailable",
+        "connect.pending",
         "trial.granted",
         "trial.already_used",
         "trial.pending",
@@ -219,6 +221,7 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         "instructions.android",
         "instructions.windows",
         "instructions.macos",
+        "instructions.linux",
         "throttle.callback",
         "throttle.message",
         "errors.generic",
@@ -327,24 +330,11 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         # задача 20: извинение после сбоя
         "compensation.extended",
         "compensation.grace_extended",
-        # задача 21: случайная вторая оплата, сообщение о возврате, перенос подписки
-        "buttons.refund_double_payment",
-        "buttons.keep_double_payment",
-        "buttons.confirm_refund_double_payment",
-        "refund.double_ask",
-        "refund.duration_hours",
-        "refund.double_kept",
-        *(
-            f"refund.double_progress.{key}"
-            for key in ("completed", "term_pending", "in_review", "provider_pending", "failed")
-        ),
-        *(
-            f"refund.double_refused.{key}"
-            for key in ("window_passed", "kept", "already_refunded", "other")
-        ),
+        # задача 21: сообщение о возврате, перенос подписки
         "refund.completed",
         "refund.completed_access_ended",
         "transfer.received",
+        "manual_grant.added",
         # задача 33: оплата звёздами Telegram
         "commands.paysupport",
         "buttons.pay_sbp",
@@ -652,8 +642,6 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
                 "window_passed",
                 "already_refunded",
                 "transferred",
-                "not_double_payment",
-                "kept",
                 "disputed",
             )
         ),
@@ -662,13 +650,11 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
             for key in (
                 "header",
                 "by_admin",
-                "by_client",
                 "completed",
                 "term_pending",
                 "in_review",
                 "provider_pending",
                 "failed",
-                "double_kept",
             )
         ),
         *(

@@ -42,7 +42,7 @@ class FakePaymentMessages:
     granted: list[GrantedAccess] = field(default_factory=list)
     pending: list[int] = field(default_factory=list)
     delayed: list[int] = field(default_factory=list)
-    doubles: list[tuple[int, int, datetime]] = field(default_factory=list)
+    doubles: list[int] = field(default_factory=list)
     # задача 15: спор через банк — кому, новый срок и «доступ выключен»
     disputed: list[tuple[int, datetime | None, bool]] = field(default_factory=list)
 
@@ -55,10 +55,8 @@ class FakePaymentMessages:
     async def access_delayed(self, telegram_id: int) -> None:
         self.delayed.append(telegram_id)
 
-    async def possible_double_payment(
-        self, telegram_id: int, order_id: int, refund_until: datetime
-    ) -> None:
-        self.doubles.append((telegram_id, order_id, refund_until))
+    async def possible_double_payment(self, telegram_id: int) -> None:
+        self.doubles.append(telegram_id)
 
     async def payment_disputed(
         self, telegram_id: int, expire_at: datetime | None, *, access_ended: bool

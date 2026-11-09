@@ -51,8 +51,6 @@ RECENT_PAYMENTS_LIMIT = 3
 # включая отменённые (поздняя оплата засчитывается как обычная)
 FRESH_ORDER_AGE = timedelta(hours=2)
 STALE_ORDER_AGE = timedelta(hours=72)
-# Случайная вторая оплата: клиент сам возвращает её полностью в течение 7 дней (задача 21)
-DOUBLE_PAYMENT_REFUND_WINDOW = timedelta(days=7)
 # Ежедневная сверка с платёжкой: платежи за сутки; самые свежие ещё могут быть в пути
 PAYMENTS_RECONCILE_WINDOW = ONE_DAY
 PAYMENTS_RECONCILE_MARGIN = timedelta(minutes=30)
@@ -80,6 +78,9 @@ COMPENSATION_BONUS_DAYS = 1  # простой + 1 день
 # Падения ноды с перерывом меньше этого склеиваются в один инцидент («мигание»).
 # Значение выбрано агентом, нужно подтверждение владельца.
 OUTAGE_MERGE_GAP = timedelta(hours=1)
+
+# --- «Подключиться» при сбое панели (владелец, 2026-11-10) ---
+CONNECT_WAIT_WINDOW = ONE_DAY  # бот присылает ссылку сам, если панель ожила в течение суток
 
 # --- Перевыпуск ссылки подписки клиентом (задача 31, ideas.md №13) ---
 LINK_REVOKE_COOLDOWN = ONE_DAY  # не чаще раза в сутки на клиента

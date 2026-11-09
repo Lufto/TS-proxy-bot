@@ -1,18 +1,24 @@
 """«🚀 Подключиться»: страница подписки клиента и кнопка «📋 Скопировать ссылку».
 
 Прокси-аккаунт ищется по Telegram ID нажавшего — чужую ссылку подменой кнопки не получить.
+
+Панель не ответила — клиенту «пришлём ссылку сюда», и фоновая задача `deliver_pending_connects`
+присылает экран подключения, когда панель ожила (владелец, 2026-11-10; `services.connect_waits`).
 """
 
 import logging
 
 from aiogram import F, Router
 from aiogram.enums import ChatType
+from aiogram.exceptions import TelegramAPIError
 from aiogram.types import CallbackQuery
 
 from tsproxy.bot.callbacks import MenuCallback, ScreenId
 from tsproxy.bot.context import BotContext, profile_of
 from tsproxy.bot.screens import Screen
+from tsproxy.db.models import Client
 from tsproxy.integrations.remnawave_types import AccountNotFound, RemnawaveUnavailable
+from tsproxy.services.connect_waits import DeliveredBy
 
 logger = logging.getLogger(__name__)
 
@@ -31,16 +37,45 @@ async def panel_unavailable_screen(
     return ctx.screens.unavailable()
 
 
-async def connect_screen(ctx: BotContext, telegram_id: int) -> Screen:
-    """Экран «Подключиться»: ссылка подписки, «подписки нет» или «панель недоступна»."""
+async def connect_screen(ctx: BotContext, client: Client) -> Screen:
+    """Экран «Подключиться»: ссылка подписки, «подписки нет» или «пришлём ссылку, когда панель
+    ответит»."""
+    try:
+        screen = await _account_screen(ctx, client.telegram_id)
+    except RemnawaveUnavailable as error:
+        await panel_unavailable_screen(ctx, client.telegram_id, error)
+        await ctx.connect_waits.wait(client.id)
+        return ctx.screens.connect_pending()
+    await ctx.connect_waits.delivered(client.id, DeliveredBy.CLIENT)
+    return screen
+
+
+async def _account_screen(ctx: BotContext, telegram_id: int) -> Screen:
+    """Ссылка подписки или «подписки нет». Панель не ответила — `RemnawaveUnavailable`."""
     try:
         account = await ctx.remnawave.get_account(telegram_id)
     except AccountNotFound:
         # нормальная ситуация: клиент ещё не брал пробный и не покупал
         return ctx.screens.no_account(trial_available=await ctx.trial_switch.enabled())
-    except RemnawaveUnavailable as error:
-        return await panel_unavailable_screen(ctx, telegram_id, error)
     return ctx.screens.connect(account)
+
+
+async def deliver_pending_connects(ctx: BotContext) -> None:
+    """Фоновая задача: прислать экран подключения тем, кому панель не ответила."""
+    for telegram_id in await ctx.connect_waits.waiting():
+        try:
+            screen = await _account_screen(ctx, telegram_id)
+        except RemnawaveUnavailable:
+            return  # панель всё ещё не отвечает — следующий проход через минуту
+        client = await ctx.clients.find(telegram_id)
+        if client is None:
+            continue
+        # Отмечаем до отправки: сбой Telegram не должен слать ссылку каждую минуту
+        await ctx.connect_waits.delivered(client.id, DeliveredBy.BOT)
+        try:
+            await ctx.delivery.send(telegram_id, screen)
+        except TelegramAPIError:
+            logger.exception("Не удалось прислать ссылку клиенту %s", telegram_id)
 
 
 def create_connect_router() -> Router:
@@ -53,6 +88,6 @@ def create_connect_router() -> Router:
 async def on_connect(callback: CallbackQuery, ctx: BotContext) -> None:
     # Отвечаем на нажатие сразу: панель может думать до нескольких секунд
     await callback.answer()
-    await ctx.clients.resolve(profile_of(callback.from_user))
-    screen = await connect_screen(ctx, callback.from_user.id)
+    client = await ctx.clients.resolve(profile_of(callback.from_user))
+    screen = await connect_screen(ctx, client)
     await ctx.delivery.show(callback, screen)

@@ -59,7 +59,7 @@ from tsproxy.bot.admin_site_banner import banner_alert_button
 from tsproxy.bot.admin_stats import create_admin_stats_router
 from tsproxy.bot.admin_transfer import create_admin_transfer_router
 from tsproxy.bot.alert_sender import TelegramAlertSender
-from tsproxy.bot.connect import REMNAWAVE_UNAVAILABLE_ALERT
+from tsproxy.bot.connect import REMNAWAVE_UNAVAILABLE_ALERT, deliver_pending_connects
 from tsproxy.bot.context import BotContext
 from tsproxy.bot.delivery import ClientDelivery
 from tsproxy.bot.dispatcher import bot_commands, create_dispatcher
@@ -97,6 +97,7 @@ from tsproxy.services.client_card import ClientCardService
 from tsproxy.services.clients import ClientService
 from tsproxy.services.clock import Clock, system_clock, utc_now
 from tsproxy.services.compensation import CompensationService
+from tsproxy.services.connect_waits import ConnectWaits
 from tsproxy.services.crediting import CreditingService
 from tsproxy.services.events import EventLog
 from tsproxy.services.grace import GraceHandler
@@ -138,6 +139,8 @@ logger = logging.getLogger(__name__)
 ALERT_FLUSH_INTERVAL = timedelta(minutes=1)
 # Пробные, которые не выдались из-за панели, — доделываются сами (задача 07)
 PENDING_TRIALS_INTERVAL = timedelta(minutes=1)
+# «Подключиться» при сбое панели: раз в минуту прислать ссылку тем, кто ждёт
+PENDING_CONNECTS_INTERVAL = timedelta(minutes=1)
 # Ключ склейки тревоги «оплата выключена» (задача 29)
 PAYMENTS_OFF_ALERT = "payments_off"
 # Повторы выдачи доступа после оплаты — расписание каждого заказа в базе (задача 13)
@@ -450,6 +453,7 @@ def build_application(
         refunds=refunds,
         stars=stars,
         site_banner=site_banner,
+        connect_waits=ConnectWaits(session_factory, events, clock),
     )
     # Статистика и рассылка (задача 19)
     broadcasts = BroadcastService(
@@ -567,6 +571,12 @@ def build_application(
                     "pending_trials",
                     PENDING_TRIALS_INTERVAL,
                     lambda: deliver_pending_trials(ctx),
+                    run_at_start=True,
+                ),
+                PeriodicJob(
+                    "pending_connects",
+                    PENDING_CONNECTS_INTERVAL,
+                    lambda: deliver_pending_connects(ctx),
                     run_at_start=True,
                 ),
                 # Работает и при PAYMENTS_MODE=off: доделывает выдачу по уже оплаченным

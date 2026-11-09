@@ -263,6 +263,24 @@ async def test_malformed_delete_button_is_ignored(
     assert telegram.sent(EditMessageText) == []
 
 
+async def test_start_from_subscription_page_opens_devices(
+    dispatcher: Dispatcher,
+    bot: Bot,
+    telegram: FakeTelegramSession,
+    remnawave: FakeRemnawave,
+    content: Content,
+) -> None:
+    """Кнопка «Устройства» на странице подписки: `t.me/<бот>?start=devices`."""
+    await create_account(remnawave)
+    remnawave.simulate_device(CLIENT_ID, device("a"))
+
+    await dispatcher.feed_update(bot, message(user(CLIENT_ID), "/start devices"))
+
+    [sent] = telegram.sent(SendMessage)
+    assert content.texts.get("devices.title", used=1, limit=3) in sent.text
+    assert delete_button_data(sent.reply_markup) == [DeviceCallback(ref=device_ref("a")).pack()]
+
+
 async def test_devices_without_account(
     dispatcher: Dispatcher, bot: Bot, telegram: FakeTelegramSession, content: Content
 ) -> None:
