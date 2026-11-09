@@ -2,6 +2,7 @@ import { getLocale } from 'next-intl/server';
 import { getCommonData } from '@/app-layer/api/common';
 import { Footer } from '@/widgets/footer';
 import { Header } from '@/widgets/header';
+import { StatusBanner } from '@/widgets/status-banner';
 
 export const Layout: FCClass = async ({
   children,
@@ -12,6 +13,7 @@ export const Layout: FCClass = async ({
 
   return (
     <>
+      <StatusBanner />
       {data?.header && <Header data={data.header} />}
 
       {children}

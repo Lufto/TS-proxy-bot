@@ -1,0 +1,34 @@
+# Общие данные сайта ts-proxy.com (задача карты сайта 03). Сайт читает этот файл при сборке
+# (`web/scripts/generate-config.mjs`), руками в коде сайта ничего из этого не вписано.
+# Бот читает только tariffs.yaml; имя бота у него в .env (BOT_USERNAME) — держите одинаковым.
+
+# Адрес сайта — для карты сайта, превью ссылок и языковых версий страниц
+site_url: https://ts-proxy.com
+
+# Имя Telegram-бота без @
+bot_username: ts_proxy_creator_bot
+
+# Почта для обращений — в подвале сайта и в документах.
+# Меняете адрес — обновите дату редакции в соглашении и политике.
+support_email: support@ts-proxy.com
+
+# Адрес состояния бота для плашки о неполадках (задача карты 02)
+status_url: https://bot.ts-proxy.com/status
+
+# Приложения для подключения. Ссылки — с официальных сайтов happ.su и v2raytun.com (2026-11-09)
+apps:
+  happ:
+    name: Happ
+    site: https://happ.su
+    ios: https://apps.apple.com/app/happ-proxy-utility/id6504287215
+    android: https://play.google.com/store/apps/details?id=com.happproxy
+    android_apk: https://github.com/Happ-proxy/happ-android/releases/latest/download/Happ.apk
+    windows: https://github.com/Happ-proxy/happ-desktop/releases/latest/download/setup-Happ.x64.exe
+    macos: https://apps.apple.com/app/happ-proxy-utility/id6504287215
+  v2raytun:
+    name: v2RayTun
+    site: https://v2raytun.com
+    ios: https://apps.apple.com/app/v2raytun/id6476628951
+    android: https://play.google.com/store/apps/details?id=com.v2raytun.android
+    windows: https://storage.v2raytun.com/v2RayTun_Setup.exe
+    macos: https://apps.apple.com/app/v2raytun/id6476628951

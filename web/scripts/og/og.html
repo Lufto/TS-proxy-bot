@@ -1,0 +1,40 @@
+<!doctype html>
+<!-- Картинка превью ссылок (задача сайта 12) и значок для телефона. Пересобрать:
+     node scripts/og/render.mjs  → public/meta/og.png и public/meta/apple-touch-icon.png -->
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<style>
+  @font-face { font-family: 'Unbounded'; font-weight: 500 800; src: url('../../src/assets/fonts/unbounded-cyrillic.woff2') format('woff2'); unicode-range: U+0400-045F; }
+  @font-face { font-family: 'Unbounded'; font-weight: 500 800; src: url('../../src/assets/fonts/unbounded-latin.woff2') format('woff2'); unicode-range: U+0000-00FF, U+2014; }
+  @font-face { font-family: 'JetBrains Mono'; font-weight: 400 500; src: url('../../src/assets/fonts/jetbrains-mono-cyrillic.woff2') format('woff2'); unicode-range: U+0400-045F; }
+  @font-face { font-family: 'JetBrains Mono'; font-weight: 400 500; src: url('../../src/assets/fonts/jetbrains-mono-latin.woff2') format('woff2'); unicode-range: U+0000-00FF; }
+  * { margin: 0; box-sizing: border-box; }
+  body { background: #0B0B0B; }
+  #og { position: relative; width: 1200px; height: 630px; padding: 72px 80px; overflow: hidden; background: #0B0B0B;
+        color: #F3EFE6; display: flex; flex-direction: column; justify-content: space-between; }
+  #og::after { content: ''; position: absolute; right: -180px; bottom: -220px; width: 640px; height: 640px;
+               background: radial-gradient(circle, rgba(255, 91, 34, 0.35), transparent 65%); }
+  .logo { display: flex; align-items: center; gap: 22px; font: 800 40px/1 'Unbounded'; letter-spacing: -0.01em; }
+  .label { font: 500 22px/1 'JetBrains Mono'; letter-spacing: 0.08em; text-transform: uppercase; color: #FF5B22; }
+  h1 { font: 800 92px/0.98 'Unbounded'; letter-spacing: -0.02em; text-transform: uppercase; max-width: 960px; }
+  .bottom { display: flex; flex-direction: column; gap: 28px; position: relative; z-index: 1; }
+  #icon { width: 180px; height: 180px; background: #0B0B0B; display: flex; align-items: center; justify-content: center; }
+</style>
+</head>
+<body>
+  <div id="og">
+    <div class="logo">
+      <svg width="56" height="56" viewBox="0 0 32 32"><rect x="9" y="9" width="23" height="23" fill="#FF5B22"/><rect x="1" y="1" width="22" height="22" fill="#0B0B0B" stroke="#FF5B22" stroke-width="2"/><rect x="5" y="6" width="14" height="4" fill="#FF5B22"/><rect x="10" y="10" width="4" height="9" fill="#FF5B22"/></svg>
+      TS PROXY
+    </div>
+    <div class="bottom">
+      <span class="label">Прокси с шифрованием трафика</span>
+      <h1>Ваш трафик — только ваш</h1>
+    </div>
+  </div>
+  <div id="icon">
+    <svg width="132" height="132" viewBox="0 0 32 32"><rect x="9" y="9" width="23" height="23" fill="#FF5B22"/><rect x="1" y="1" width="22" height="22" fill="#0B0B0B" stroke="#FF5B22" stroke-width="2"/><rect x="5" y="6" width="14" height="4" fill="#FF5B22"/><rect x="10" y="10" width="4" height="9" fill="#FF5B22"/></svg>
+  </div>
+</body>
+</html>

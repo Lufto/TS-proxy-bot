@@ -2,6 +2,7 @@ import type { NextConfig } from 'next';
 import createNextIntlPlugin from 'next-intl/plugin';
 import process from 'node:process';
 import type { RemotePattern } from 'next/dist/shared/lib/image-config';
+import { SITE_CONFIG } from './src/generated-config';
 
 const generateApiUrl = (pathEnv?: string) => {
   const apiPath = process.env.HTTP_CLIENT === 'mock' ? '' : '/api';
@@ -55,6 +56,17 @@ const nextConfig: NextConfig = {
     fetches: {
       fullUrl: true,
     },
+  },
+  // Старые адреса сайта на чистом HTML: тарифы теперь на главной, поддержка — в боте
+  async redirects() {
+    const supportUrl = `https://t.me/${SITE_CONFIG.botUsername}?start=support`;
+    return [
+      // trailingSlash: сначала Next добавляет слэш, поэтому источники — со слэшем
+      { source: '/tariffs/', destination: '/#tariffs', permanent: true },
+      { source: '/en/tariffs/', destination: '/en/#tariffs', permanent: true },
+      { source: '/support/', destination: supportUrl, permanent: false },
+      { source: '/en/support/', destination: supportUrl, permanent: false },
+    ];
   },
   async rewrites() {
     // const currentHttp = process.env.IS_HTTPS === 'true' ? 'https://' : 'http://';

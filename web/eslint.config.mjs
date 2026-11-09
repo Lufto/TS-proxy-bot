@@ -42,6 +42,7 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     "custom_modules/**",
     "src/generated.ts",
+    "src/generated-config.ts",
   ]),
 ]);
 

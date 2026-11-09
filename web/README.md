@@ -19,6 +19,10 @@ npm run test:unit  # юнит-тесты (jest)
 
 Токен GitLab агентства не нужен: закрытые пакеты лежат архивами в `vendor/`.
 
+## Общий конфиг
+
+Тарифы, имя бота, почта поддержки, адрес сайта, адрес состояния бота и ссылки на приложения лежат в `../config/` (`tariffs.yaml`, `site.yaml`) — общие с ботом. `scripts/generate-config.mjs` перед `dev`, `build` и `test` пишет из них `src/generated-config.ts` (в git не попадает). В текстах `apiStatic` адрес `bot` — ссылка в бота, `support` — в поддержку бота, `{email}` — почта; руками они нигде не вписаны. Скидку сайт считает той же формулой, что бот (`src/shared/lib/tariffs`).
+
 ## Языки и адреса
 
 Язык по умолчанию русский, без приставки: `/`, `/help/`, `/terms/`, `/privacy/`. Английский — те же адреса с `/en`. Адрес без слэша (`/terms`) переадресуется на адрес со слэшем. На `/terms` и `/privacy` ссылается бот, эти адреса не меняем.
@@ -27,7 +31,9 @@ npm run test:unit  # юнит-тесты (jest)
 - Шапка и подвал: `apiStatic/<язык>/common.ts`.
 - Короткие подписи интерфейса (например, «страница не найдена»): `src/data/<язык>/*.json` (next-intl).
 
-Страница собирается из блоков. Блок — это виджет в `src/widgets/`. Его схема (valibot) зарегистрирована в `src/app-layer/config/block-schema.tsx`, компонент — в `block-component.tsx`. Сейчас есть только блок-заглушка `stub`.
+Страница собирается из блоков — виджетов в `src/widgets/`: `hero`, `features`, `steps`, `tariffs`, `devices`, `text-list`, `cta`, `page-head`, `document`, `app-steps`. Схема блока (valibot) зарегистрирована в `src/app-layer/config/block-schema.tsx`, компонент — в `block-component.tsx`. Новая страница — файл в `apiStatic/<язык>/constructor/page/` и строка в `src/shared/config/pages.ts` (карта сайта) и `scripts/check-site.mjs`.
+
+Плашка о неполадках — `src/widgets/status-banner`: раз в минуту спрашивает `status_url` бота, тексты — в `src/data/<язык>/common.json`. Картинка превью ссылок — `public/meta/og.png`, исходник и пересборка — `scripts/og/`.
 
 **UI-кит «Манифест»** — `/kit`, закрыт от поисковиков; пока нет главной, стоит и на корне (`app/[locale]/page.tsx`). Токены — `src/assets/styles/theme.css` (цвета `bg`, `surface`, `line`, `cream`, `muted`, `accent`, `on-accent`; шрифты `font-display`, `font-body`, `font-mono`) и `typography.css` (классы `t-display`, `t-h1`…`t-label`). Компоненты — `src/shared/ui/` (`button`, `link`, `logo`, `burger`, `reveal`, `lang-switch`), шапка и подвал — `src/widgets/header`, `src/widgets/footer`. Шрифты лежат в `src/assets/fonts` и подключены в `fonts.css`, без `next/font/google`. Черновики трёх вариантов и знаков удалены после выбора; они есть в истории git (коммит `588611b`).
 

@@ -19,7 +19,6 @@ export const commonDataSchema = v.partial(v.object({
     cta: v.string(),
     support: v.string(),
     links: v.array(navLinkSchema),
-    email: v.string(),
     copyright: v.string(),
   }),
 }));

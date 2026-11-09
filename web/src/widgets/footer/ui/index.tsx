@@ -1,5 +1,5 @@
 import type { TFooterData } from '@/app-layer/model/common';
-import { BOT_SUPPORT_URL, BOT_URL } from '@/shared/config/bot';
+import { BOT_SUPPORT_URL, BOT_URL, SUPPORT_EMAIL } from '@/shared/config/bot';
 import { Button } from '@/shared/ui/button';
 import { Link, LinkColor } from '@/shared/ui/link';
 import { Logo } from '@/shared/ui/logo';
@@ -28,8 +28,8 @@ export const Footer: FCClass<{ data: TFooterData }> = ({ data }) => (
           ))}
         </nav>
         <div className="flex flex-wrap items-center gap-x-24 gap-y-8">
-          <Link url={`mailto:${data.email}`} target="_self" color={LinkColor.muted} typography="t-caption">
-            {data.email}
+          <Link url={`mailto:${SUPPORT_EMAIL}`} target="_self" color={LinkColor.muted} typography="t-caption">
+            {SUPPORT_EMAIL}
           </Link>
           <span className="t-caption">
             ©

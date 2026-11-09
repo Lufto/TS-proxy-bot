@@ -24,7 +24,6 @@ const data: TCommonSchema = {
         { title: 'Пользовательское соглашение', url: '/terms/' },
         { title: 'Политика конфиденциальности', url: '/privacy/' },
       ],
-      email: 'support@ts-proxy.com',
       copyright: 'TS Proxy',
     },
   },

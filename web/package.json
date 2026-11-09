@@ -4,12 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k -n mock,next -c cyan,magenta \"idem_mock apiStatic watch\" \"next dev\"",
-    "build": "idem_mock apiStatic && next build",
+    "dev": "node scripts/generate-config.mjs && concurrently -k -n mock,next -c cyan,magenta \"idem_mock apiStatic watch\" \"next dev\"",
+    "build": "node scripts/generate-config.mjs && idem_mock apiStatic && next build",
     "start": "next start",
     "lint": "eslint \"**/*.{ts,tsx}\"",
     "test:unit": "jest",
-    "test": "idem_mock apiStatic && npm run test:unit && eslint \"**/*.{ts,tsx}\" && next build",
+    "test": "node scripts/generate-config.mjs && idem_mock apiStatic && npm run test:unit && eslint \"**/*.{ts,tsx}\" && next build",
     "lint-fix": "eslint \"**/*.{ts,tsx}\" --fix",
     "sprites": "svg-sprite -s --symbol-dest public/icons --symbol-sprite sprite.svg src/assets/svg/*.svg && echo 'Спрайты успешно обновлены' && node cli/generate-sprites/node-generate-sprites.mjs",
     "check": "node scripts/check-site.mjs"
