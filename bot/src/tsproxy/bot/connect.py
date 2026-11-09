@@ -17,13 +17,19 @@ from tsproxy.bot.callbacks import MenuCallback, ScreenId
 from tsproxy.bot.context import BotContext, profile_of
 from tsproxy.bot.screens import Screen
 from tsproxy.db.models import Client
-from tsproxy.integrations.remnawave_types import AccountNotFound, RemnawaveUnavailable
+from tsproxy.integrations.remnawave_types import (
+    AccountNotFound,
+    RemnawaveAuthError,
+    RemnawaveUnavailable,
+)
 from tsproxy.services.connect_waits import DeliveredBy
 
 logger = logging.getLogger(__name__)
 
 # Ключ склейки тревоги «панель недоступна» — общий для всего бота
 REMNAWAVE_UNAVAILABLE_ALERT = "remnawave_unavailable"
+# Панель не ответила или не приняла токен: клиенту одно и то же — «пришлём ссылку»
+PANEL_DOWN_ERRORS = (RemnawaveUnavailable, RemnawaveAuthError)
 
 
 async def panel_unavailable_screen(
@@ -42,8 +48,9 @@ async def connect_screen(ctx: BotContext, client: Client) -> Screen:
     ответит»."""
     try:
         screen = await _account_screen(ctx, client.telegram_id)
-    except RemnawaveUnavailable as error:
-        await panel_unavailable_screen(ctx, client.telegram_id, error)
+    except PANEL_DOWN_ERRORS as error:
+        logger.warning("Панель недоступна для клиента %s: %s", client.telegram_id, error)
+        await ctx.alerter.alert(REMNAWAVE_UNAVAILABLE_ALERT, source=connect_screen, error=error)
         await ctx.connect_waits.wait(client.id)
         return ctx.screens.connect_pending()
     await ctx.connect_waits.delivered(client.id, DeliveredBy.CLIENT)
@@ -51,7 +58,7 @@ async def connect_screen(ctx: BotContext, client: Client) -> Screen:
 
 
 async def _account_screen(ctx: BotContext, telegram_id: int) -> Screen:
-    """Ссылка подписки или «подписки нет». Панель не ответила — `RemnawaveUnavailable`."""
+    """Ссылка подписки или «подписки нет». Панель не ответила — `PANEL_DOWN_ERRORS`."""
     try:
         account = await ctx.remnawave.get_account(telegram_id)
     except AccountNotFound:
@@ -65,7 +72,7 @@ async def deliver_pending_connects(ctx: BotContext) -> None:
     for telegram_id in await ctx.connect_waits.waiting():
         try:
             screen = await _account_screen(ctx, telegram_id)
-        except RemnawaveUnavailable:
+        except PANEL_DOWN_ERRORS:
             return  # панель всё ещё не отвечает — следующий проход через минуту
         client = await ctx.clients.find(telegram_id)
         if client is None:

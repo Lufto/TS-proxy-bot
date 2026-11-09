@@ -1,0 +1,90 @@
+# Тревога: alert.<ключ>: title, threat, where (действие); вид сбоя: failure.remnawave.<вид>: what ({error} и подробности ошибки), causes — список cause/check, сначала самое вероятное
+alert:
+  # клиент нажал «🚀 Подключиться», а панель не ответила или не приняла токен
+  remnawave_unavailable:
+    title: Remnawave не отвечает
+    threat: клиенты не получают ссылку подписки, оплаты и пробные не выдают доступ.
+    where: клиент нажал «🚀 Подключиться», бот запрашивал его прокси-аккаунт в панели
+
+failure:
+  remnawave:
+    # вид не уточнён; {error} — текст ошибки
+    unavailable:
+      what: "панель не ответила: {error}"
+      causes:
+        - cause: Панель перегружена или перезапускается
+          check: <code>docker ps</code> (сколько работает remnawave), <code>docker logs --since 30m remnawave</code>, <code>free -m</code>
+        - cause: Плохо работает туннель Cloudflare
+          check: <code>docker logs --since 30m cloudflare-tunnel</code> (строки ERR, Retrying connection)
+        - cause: Плохая сеть самого сервера
+          check: не падали ли в то же время запросы к Telegram и Platega (журнал бота)
+    # {seconds} — сколько ждали ответа, {attempts} — сколько раз спросили
+    timeout:
+      what: не дождались ответа панели за {seconds} сек, попыток — {attempts}
+      causes:
+        - cause: Панель перегружена или перезапускается (обновление, перезагрузка, кончилась память)
+          check: <code>docker ps</code> (если remnawave «Up 2 minutes» — был перезапуск), <code>docker logs --since 30m remnawave</code>, <code>free -m</code>
+        - cause: Плохо работает туннель Cloudflare — запрос висит на стороне Cloudflare
+          check: <code>docker logs --since 30m cloudflare-tunnel</code> (строки ERR, Retrying connection), туннель в Cloudflare Zero Trust → Networks → Tunnels
+        - cause: Плохая сеть самого сервера у хостера
+          check: не падали ли в то же время запросы к Telegram и Platega (журнал бота), страница состояния хостера
+    # {error} — вид сетевой ошибки (ConnectError и т. п.), {attempts} — сколько раз спросили
+    no_connection:
+      what: не удалось соединиться с панелью ({error}), попыток — {attempts}
+      causes:
+        - cause: Сервер не находит адрес панели в DNS или нет исходящей сети
+          check: с сервера бота — <code>getent hosts</code> и <code>curl -sI</code> на адрес из REMNAWAVE_URL
+        - cause: REMNAWAVE_URL ведёт прямо на контейнер, а он остановлен
+          check: строка REMNAWAVE_URL в .env бота, <code>docker ps</code>
+        - cause: Cloudflare недоступен из сети хостера
+          check: cloudflarestatus.com
+    # {status} — HTTP-код ответа, {attempts} — сколько раз спросили
+    server_error:
+      what: панель ответила HTTP {status}, попыток — {attempts}
+      causes:
+        - cause: Контейнер панели упал или перезапускается (502 — Cloudflare не достучался до панели)
+          check: <code>docker ps</code>, <code>docker logs --tail 100 remnawave</code>, health.log бэкапа
+        - cause: Туннель Cloudflare не подключён или в нём старый адрес панели (530, 502)
+          check: <code>docker logs --tail 50 cloudflare-tunnel</code> (connection refused), состояние туннеля в кабинете Cloudflare
+        - cause: Не работает база или Redis панели (500)
+          check: <code>docker ps</code> (remnawave-db, remnawave-redis), <code>docker logs --tail 50 remnawave-db</code>, <code>df -h</code>
+        - cause: Панель только запускается и ещё не готова (503)
+          check: <code>docker logs remnawave</code> — идут ли миграции
+    # {attempts} — сколько раз спросили
+    rate_limited:
+      what: панель ответила HTTP 429 «слишком много запросов», попыток — {attempts}
+      causes:
+        - cause: Сработало ограничение Cloudflare перед панелью
+          check: Cloudflare → Security → Events, фильтр по адресу панели
+        - cause: Бот сам шлёт слишком много запросов (сверка и клиенты одновременно)
+          check: журнал бота — сколько запросов к панели в эту минуту
+    # {error} — «Панель не приняла токен: HTTP 401»
+    token_rejected:
+      what: "{error}"
+      causes:
+        - cause: Токен удалили или перевыпустили в панели, а в .env бота остался старый (чаще при 401)
+          check: список API-токенов в панели, дата создания токена бота; значение токена в чат не выводить
+        - cause: У токена нет нужных прав (чаще при 403, после обновления панели)
+          check: в панели «API-токены» → права токена бота (пользователи, ноды, сквады, HWID, настройки подписки, метаданные)
+        - cause: Ответ 403 прислал Cloudflare, а не панель (ошибка 1010, правило WAF)
+          check: Cloudflare → Security → Events; в журнале бота HTML-страница Cloudflare вместо JSON
+        - cause: Панель восстановили или перенесли с другим APP_SECRET — старые токены недействительны
+          check: не было ли восстановления или переезда панели; выпустить новый токен
+    # {error} — сколько полей не прошло и первое из них
+    bad_response:
+      what: "{error}"
+      causes:
+        - cause: Панель обновили, а бот закреплён на SDK своей версии
+          check: версия панели (<code>docker inspect remnawave</code>, поле Image) против версии remnawave-api в боте
+        - cause: В панели запись, которой SDK не ждёт (если ошибка у одного клиента или ноды)
+          check: журнал бота — на каком запросе ошибка, эту запись в панели
+        - cause: Вместо ответа панели пришла страница Cloudflare
+          check: Cloudflare → Security → Events
+    # {error} — версия панели и под какую написан бот
+    unexpected_version:
+      what: "{error}"
+      causes:
+        - cause: Панель обновили на новую основную версию (образ latest или ручное обновление)
+          check: строка image в docker-compose.yml панели, <code>docker inspect remnawave</code>
+        - cause: Панель вернула пустую или странную строку версии
+          check: журнал бота

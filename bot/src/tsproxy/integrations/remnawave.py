@@ -31,6 +31,7 @@ from remnawave.models.hwid import HwidDeviceDto
 from remnawave.models.nodes import NodeResponseDto
 
 from tsproxy.config import RunMode
+from tsproxy.integrations.failures import Failure
 from tsproxy.integrations.remnawave_types import (
     ANNOUNCE_HEADER,
     DEV_SQUAD_NAME,
@@ -43,6 +44,7 @@ from tsproxy.integrations.remnawave_types import (
     ProxyAccount,
     RemnawaveAuthError,
     RemnawaveError,
+    RemnawaveFailure,
     RemnawaveRejected,
     RemnawaveResponseError,
     RemnawaveUnavailable,
@@ -95,23 +97,62 @@ def create_http_client(
     )
 
 
-def _translate(error: Exception) -> RemnawaveError:
-    """Ошибки SDK, httpx и pydantic → наши ошибки. Секретов в тексте нет."""
+def _translate(error: Exception, attempts: int) -> RemnawaveError:
+    """Ошибки SDK, httpx и pydantic → наши ошибки с видом сбоя. Секретов в тексте нет.
+
+    `attempts` — сколько раз спросили панель, для «что случилось» в тревоге."""
+    if isinstance(error, httpx.TimeoutException):
+        return RemnawaveUnavailable(
+            f"Панель не ответила за {REQUEST_TIMEOUT_SECONDS:g} с: {type(error).__name__}",
+            failure=Failure(
+                RemnawaveFailure.TIMEOUT,
+                {"seconds": int(REQUEST_TIMEOUT_SECONDS), "attempts": attempts},
+            ),
+        )
     if isinstance(error, httpx.RequestError):
         # SDK пропускает сетевые ошибки httpx как есть (не превращает в ApiError)
-        return RemnawaveUnavailable(f"Панель недоступна: {type(error).__name__}")
+        return RemnawaveUnavailable(
+            f"Панель недоступна: {type(error).__name__}",
+            failure=Failure(
+                RemnawaveFailure.NO_CONNECTION,
+                {"error": type(error).__name__, "attempts": attempts},
+            ),
+        )
     if isinstance(error, pydantic.ValidationError):
-        return RemnawaveResponseError(f"Ответ панели не той формы: {error.error_count()} ошибок")
+        field = ".".join(str(part) for part in error.errors()[0]["loc"])
+        return RemnawaveResponseError(
+            f"Ответ панели не той формы: {error.error_count()} ошибок, первая — {field}",
+            failure=Failure(
+                RemnawaveFailure.BAD_RESPONSE, {"errors": error.error_count(), "field": field}
+            ),
+        )
     if isinstance(error, ApiError):
-        status = error.status_code
-        if status == 0 or status == HTTP_TOO_MANY_REQUESTS or status >= HTTP_SERVER_ERROR:
-            return RemnawaveUnavailable(f"Панель ответила HTTP {status}")
-        if status in AUTH_STATUSES:
-            return RemnawaveAuthError(f"Панель не приняла токен: HTTP {status}")
-        if status == HTTP_NOT_FOUND:
-            return AccountNotFound(error.message)
-        return RemnawaveRejected(error.message, status_code=status, code=_error_code(error))
+        return _translate_status(error, attempts)
     raise TypeError(f"Неожиданная ошибка: {type(error).__name__}") from error
+
+
+def _translate_status(error: ApiError, attempts: int) -> RemnawaveError:
+    status = error.status_code
+    message = f"Панель ответила HTTP {status}"
+    if status == HTTP_TOO_MANY_REQUESTS:
+        return RemnawaveUnavailable(
+            message, failure=Failure(RemnawaveFailure.RATE_LIMITED, {"attempts": attempts})
+        )
+    if status >= HTTP_SERVER_ERROR:
+        details = {"status": status, "attempts": attempts}
+        return RemnawaveUnavailable(
+            message, failure=Failure(RemnawaveFailure.SERVER_ERROR, details)
+        )
+    if status == 0:
+        return RemnawaveUnavailable(message)
+    if status in AUTH_STATUSES:
+        return RemnawaveAuthError(
+            f"Панель не приняла токен: HTTP {status}",
+            failure=Failure(RemnawaveFailure.TOKEN_REJECTED, {"status": status}),
+        )
+    if status == HTTP_NOT_FOUND:
+        return AccountNotFound(error.message)
+    return RemnawaveRejected(error.message, status_code=status, code=_error_code(error))
 
 
 def _error_code(error: ApiError) -> str | None:
@@ -198,7 +239,7 @@ class RemnawaveApiClient:
             try:
                 return await request()
             except (httpx.RequestError, ApiError, pydantic.ValidationError) as error:
-                translated = _translate(error)
+                translated = _translate(error, attempt)
                 if not isinstance(translated, RemnawaveUnavailable) or attempt == attempts:
                     raise translated from error
                 logger.warning(
@@ -245,7 +286,11 @@ class RemnawaveApiClient:
         major = version.split(".", 1)[0]
         if not major.isdigit() or int(major) != SUPPORTED_PANEL_MAJOR:
             raise UnexpectedPanelVersion(
-                f"Панель {version}, а бот написан под {SUPPORTED_PANEL_MAJOR}.x"
+                f"Панель {version}, а бот написан под {SUPPORTED_PANEL_MAJOR}.x",
+                failure=Failure(
+                    RemnawaveFailure.UNEXPECTED_VERSION,
+                    {"version": version, "expected": f"{SUPPORTED_PANEL_MAJOR}.x"},
+                ),
             )
         if version != TESTED_PANEL_VERSION:
             logger.warning("Панель Remnawave %s, бот проверен на %s", version, TESTED_PANEL_VERSION)

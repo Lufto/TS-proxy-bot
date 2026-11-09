@@ -24,6 +24,11 @@
 не отвечает» → «Поставить плашку»). Кнопки задаёт сборка приложения, вызывающий код о них
 не знает. Сводка о повторах уходит без кнопки: кнопка есть под первой тревогой.
 
+Новый вызов `alert` (bot-alerts, задача 02) собирает тревогу из четырёх частей: что случилось
+(по виду сбоя из ошибки, `failure.<вид>.what`), где заметили (`alert.<ключ>.where` и модуль.функция
+переданного источника), чем грозит, куда смотреть (`failure.<вид>.causes`). Старый `raise_alert`
+с готовым текстом пока остаётся (уберёт задача 09). Склейка у обоих — по ключу.
+
 Для ежедневного отчёта (задача 22) тревоги считаются по дням (по Москве), вместе
 со склеенными повторами. Счёт тоже в памяти — с запуска бота (`counting_since`).
 """
@@ -31,13 +36,14 @@
 import html
 import logging
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Protocol
 
-from tsproxy.content.loader import Texts
+from tsproxy.content.loader import Html, Texts
 from tsproxy.domain.dates import MOSCOW
+from tsproxy.integrations.failures import ServiceError
 from tsproxy.services.clock import Clock, utc_now
 from tsproxy.services.masking import Masker
 
@@ -47,6 +53,10 @@ DEFAULT_ALERT_GLUE_WINDOW = timedelta(minutes=10)
 SECONDS_PER_MINUTE = 60
 # Сколько дней помнить счёт тревог: отчёту нужен только вчерашний
 ALERT_COUNT_KEEP_DAYS = 7
+TELEGRAM_TEXT_LIMIT = 4096
+# Запас под заголовок сводки повторов: в ней целиком повторяется первая тревога
+SUMMARY_RESERVE = 200
+CUT_MARK = "…"
 
 
 @dataclass(frozen=True)
@@ -70,7 +80,7 @@ class _GluedAlert:
     """Окно склейки одного ключа: когда открыто, текст первой тревоги и сколько было повторов."""
 
     opened_at: datetime
-    text: str  # уже замаскированный
+    text: Html  # уже замаскированный и готовый для отправки
     repeats: int = 0
 
 
@@ -113,7 +123,26 @@ class Alerter:
 
     async def raise_alert(self, key: str, text: str) -> None:
         """Поднять тревогу. `key` — что считать одинаковым (например, `remnawave_unavailable`),
-        `text` — обычный текст без разметки. Никогда не бросает исключение из-за отправки."""
+        `text` — обычный текст без разметки. Никогда не бросает исключение из-за отправки.
+
+        Старый способ: новые тревоги — через `alert`."""
+        masked = self._mask(text)
+        await self._raise(key, Html(html.escape(masked)))
+
+    async def alert(
+        self,
+        key: str,
+        *,
+        source: Callable[..., object],
+        error: Exception | None = None,
+        **values: object,
+    ) -> None:
+        """Поднять тревогу из описания `alert.<key>` в `alerts/`. `source` — функция, где заметили
+        сбой (в тексте — её модуль и имя), `error` — что случилось, `values` — подстановки
+        в описание. Склейка — по `key`. Никогда не бросает исключение из-за отправки."""
+        await self._raise(key, self._compose(key, source, error, values))
+
+    async def _raise(self, key: str, body: Html) -> None:
         now = utc_now(self._clock)
         self._count(now)
         window = self._windows.get(key)
@@ -122,12 +151,83 @@ class Alerter:
             return
         if window is not None:
             await self._close(key, window)
-        masked = self._mask(text)
         # окно открываем до отправки: пока ждём Telegram, повторы уже склеиваются
-        self._windows[key] = _GluedAlert(opened_at=now, text=masked)
-        await self._send(
-            key, self._texts.get("alerts.prefix") + html.escape(masked), self._buttons.get(key)
-        )
+        self._windows[key] = _GluedAlert(opened_at=now, text=body)
+        await self._send(key, self._texts.get("alerts.prefix") + body, self._buttons.get(key))
+
+    def _compose(
+        self,
+        key: str,
+        source: Callable[..., object],
+        error: Exception | None,
+        values: Mapping[str, object],
+    ) -> Html:
+        """Текст тревоги не длиннее предела Telegram: урезаются подробности ошибки, не части."""
+        limit = TELEGRAM_TEXT_LIMIT - len(self._texts.get("alerts.prefix")) - SUMMARY_RESERVE
+        masked = {name: self._masked(value) for name, value in values.items()}
+        details = self._error_details(error)
+        text = self._render(key, source, error, masked, details)
+        while len(text) > limit and details:
+            name = max(details, key=lambda n: len(html.escape(details[n])))
+            value = details[name]
+            if len(value) <= len(CUT_MARK):
+                break  # урезать уже нечего: длинные сами тексты из alerts/
+            room = max(0, len(html.escape(value)) - (len(text) - limit) - len(CUT_MARK))
+            details = {**details, name: _cut(value, room) + CUT_MARK}
+            text = self._render(key, source, error, masked, details)
+        return text
+
+    def _masked(self, value: object) -> object:
+        return self._mask(value) if isinstance(value, str) else value
+
+    def _error_details(self, error: Exception | None) -> dict[str, str]:
+        """Всё, что пришло из ошибки, — замаскированными строками (их можно урезать)."""
+        if error is None:
+            return {}
+        details = {"error": str(error)}
+        if isinstance(error, ServiceError) and error.failure is not None:
+            details |= {name: str(value) for name, value in error.failure.details.items()}
+        return {name: self._mask(value) for name, value in details.items()}
+
+    def _render(
+        self,
+        key: str,
+        source: Callable[..., object],
+        error: Exception | None,
+        values: Mapping[str, object],
+        details: Mapping[str, str],
+    ) -> Html:
+        texts = self._texts
+        lines = [texts.get(f"alert.{key}.title", **values)]
+        if error is not None:
+            what = self._what(error, details)
+            lines.append(texts.get("alert_format.what", text=Html(what)))
+        action = Html(texts.get(f"alert.{key}.where", **values))
+        lines.append(texts.get("alert_format.where", action=action, source=_source_name(source)))
+        threat = Html(texts.get(f"alert.{key}.threat", **values))
+        lines.append(texts.get("alert_format.threat", text=threat))
+        if isinstance(error, ServiceError) and error.failure is not None:
+            lines.extend(self._causes(error.failure.kind))
+        return Html("\n".join(lines))
+
+    def _what(self, error: Exception, details: Mapping[str, str]) -> str:
+        if isinstance(error, ServiceError) and error.failure is not None:
+            return self._texts.get(f"failure.{error.failure.kind}.what", **details)
+        return self._texts.get("alert_format.error", name=type(error).__name__, **details)
+
+    def _causes(self, kind: str) -> list[str]:
+        prefix = f"failure.{kind}.causes"
+        lines = [self._texts.get("alert_format.causes")]
+        for number in self._texts.ids_under(prefix):
+            lines.append(
+                self._texts.get(
+                    "alert_format.cause",
+                    number=number,
+                    cause=Html(self._texts.get(f"{prefix}.{number}.cause")),
+                    check=Html(self._texts.get(f"{prefix}.{number}.check")),
+                )
+            )
+        return lines
 
     async def flush_repeats(self) -> None:
         """Закрыть окна, время которых вышло, и отправить сводки о повторах."""
@@ -166,3 +266,18 @@ class Alerter:
         # а ошибки Telegram и сети бывают разных типов. Ошибку не прячем — пишем в лог.
         except Exception:
             logger.exception("Не удалось отправить тревогу %s в группу администраторов", key)
+
+
+def _source_name(source: Callable[..., object]) -> str:
+    """Место в коде для «где заметили»: `tsproxy.bot.connect.connect_screen`."""
+    return f"{source.__module__}.{source.__qualname__}"
+
+
+def _cut(value: str, room: int) -> str:
+    """Начало строки, которое после экранирования для HTML займёт не больше `room` символов."""
+    used = 0
+    for index, char in enumerate(value):
+        used += len(html.escape(char))
+        if used > room:
+            return value[:index]
+    return value

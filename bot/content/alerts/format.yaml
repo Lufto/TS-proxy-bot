@@ -1,0 +1,11 @@
+# Части тревоги в «🚨 Тревоги» (заголовок — alerts.prefix + alert.<ключ>.title); {text} — уже готовый текст части
+alert_format:
+  what: "Что случилось: {text}"
+  # {action} — alert.<ключ>.where, {source} — модуль и функция бота
+  where: "Где заметили: {action} — <code>{source}</code>"
+  threat: "Чем грозит: {text}"
+  causes: "Куда смотреть (сначала самое вероятное):"
+  # {number} — номер причины, {cause} и {check} — из failure.<вид>.causes
+  cause: "{number}. {cause} — {check}"
+  # ошибка без вида сбоя; {name} — тип ошибки, {error} — её текст
+  error: "{name}: {error}"

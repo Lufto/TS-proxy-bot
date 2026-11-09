@@ -5,12 +5,15 @@ import pytest
 
 from tsproxy.content.loader import (
     ContentError,
+    check_alert_texts,
     load_content,
     load_stars_rate,
     load_tariffs,
     load_texts,
     quick_reply_ids,
 )
+from tsproxy.integrations import remnawave_types
+from tsproxy.integrations.failures import ServiceError
 from tsproxy.integrations.payments_types import PaymentStatus
 
 REPO_CONTENT = Path(__file__).parent.parent / "content"
@@ -209,3 +212,69 @@ def test_every_payment_status_has_admin_label() -> None:
     content = load_content(REPO_CONTENT, REPO_CONFIG)
     for status in PaymentStatus:
         assert content.admin_texts.get(f"payments.status.{status.value}")
+
+
+# --- Описания тревог и видов сбоя (alerts/) ---
+
+ALERT = (
+    "alert:\n  panel_down:\n    title: Панель лежит\n    threat: клиенты без ссылок\n"
+    "    where: клиент нажал кнопку\n"
+)
+FAILURE = (
+    "failure:\n  panel:\n    timeout:\n      what: не дождались ответа\n      causes:\n"
+    "        - cause: панель перезапускается\n          check: docker ps\n"
+)
+
+
+def test_list_of_texts_is_numbered_from_one(tmp_path: Path) -> None:
+    texts = load_texts(write_folder(tmp_path, FAILURE))
+    assert texts.get("failure.panel.timeout.causes.1.check") == "docker ps"
+
+
+def test_complete_alert_and_failure_pass(tmp_path: Path) -> None:
+    check_alert_texts(load_texts(write_folder(tmp_path, ALERT + FAILURE)), ["panel.timeout"])
+
+
+@pytest.mark.parametrize("part", ["title", "threat", "where"])
+def test_alert_without_part_stops_startup(tmp_path: Path, part: str) -> None:
+    broken = "\n".join(line for line in ALERT.splitlines() if f"{part}:" not in line)
+    with pytest.raises(ContentError, match=rf"alert\.panel_down\.{part}"):
+        check_alert_texts(load_texts(write_folder(tmp_path, broken + "\n")), [])
+
+
+@pytest.mark.parametrize(
+    ("text", "error"),
+    [
+        (
+            FAILURE.replace("      what: не дождались ответа\n", ""),
+            r"failure\.panel\.timeout\.what",
+        ),
+        (FAILURE.split("      causes:")[0], "причин"),
+        (FAILURE.replace("\n          check: docker ps", ""), r"causes\.1\.check"),
+    ],
+)
+def test_failure_without_text_or_causes_stops_startup(
+    tmp_path: Path, text: str, error: str
+) -> None:
+    with pytest.raises(ContentError, match=error):
+        check_alert_texts(load_texts(write_folder(tmp_path, text)), [])
+
+
+def test_failure_kind_from_code_without_texts_stops_startup(tmp_path: Path) -> None:
+    texts = load_texts(write_folder(tmp_path, FAILURE))
+    with pytest.raises(ContentError, match=r"failure\.panel\.refused"):
+        check_alert_texts(texts, ["panel.timeout", "panel.refused"])
+
+
+def test_failure_kind_of_error_without_details_needs_only_error_text() -> None:
+    """Ошибку создают и без подробностей (подделка панели в тестах) — тревога всё равно
+    собирается: общий вид сбоя класса подставляет только {error}."""
+    admin_texts = load_content(REPO_CONTENT, REPO_CONFIG).admin_texts
+    errors = [
+        cls
+        for cls in vars(remnawave_types).values()
+        if isinstance(cls, type) and issubclass(cls, ServiceError) and cls.default_kind
+    ]
+    assert errors
+    for cls in errors:
+        assert admin_texts.placeholders(f"failure.{cls.default_kind}.what") <= {"error"}

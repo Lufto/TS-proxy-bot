@@ -7,6 +7,8 @@ from pathlib import Path
 import pytest
 
 from tsproxy.content.loader import Texts, load_content
+from tsproxy.integrations.failures import Failure
+from tsproxy.integrations.remnawave_types import RemnawaveFailure, RemnawaveUnavailable
 from tsproxy.services.alerts import Alerter
 from tsproxy.services.fakes import FakeAlertSender, FakeClock, SentMessage
 from tsproxy.services.masking import Masker
@@ -18,6 +20,15 @@ THREAD_ID = 2
 WINDOW = timedelta(minutes=10)
 SUBSCRIPTION_URL = "https://sub.ts-proxy.com/AbCdEfGh12345678"
 SUBSCRIPTION_CODE_HEAD = "AbCdEfGh1234"
+TELEGRAM_LIMIT = 4096
+PANEL_502 = RemnawaveUnavailable(
+    "Панель ответила HTTP 502",
+    failure=Failure(RemnawaveFailure.SERVER_ERROR, {"status": 502, "attempts": 3}),
+)
+
+
+async def open_connect() -> None:
+    """Место в коде, где «заметили» сбой, — для тревог в тестах."""
 
 
 @pytest.fixture
@@ -168,3 +179,70 @@ def test_window_must_be_positive(
 ) -> None:
     with pytest.raises(ValueError, match="больше нуля"):
         Alerter(sender, admin_texts, CHAT_ID, THREAD_ID, clock, mask, timedelta(0))
+
+
+# --- Тревога из четырёх частей: что случилось, где заметили, чем грозит, куда смотреть ---
+
+
+async def test_alert_tells_what_where_threat_and_causes(
+    alerter: Alerter, sender: FakeAlertSender, admin_texts: Texts
+) -> None:
+    await alerter.alert("remnawave_unavailable", source=open_connect, error=PANEL_502)
+
+    [message] = sender.sent
+    text = message.text
+    assert text.startswith("🚨 " + admin_texts.get("alert.remnawave_unavailable.title"))
+    assert "HTTP 502" in text
+    assert "попыток — 3" in text
+    assert admin_texts.get("alert.remnawave_unavailable.where") in text
+    assert f"{__name__}.open_connect" in text
+    assert admin_texts.get("alert.remnawave_unavailable.threat") in text
+    first = admin_texts.get("failure.remnawave.server_error.causes.1.cause")
+    second = admin_texts.get("failure.remnawave.server_error.causes.2.cause")
+    assert "1. " + first in text
+    assert text.index(first) < text.index(second)
+
+
+async def test_alert_masks_and_escapes_everything_from_error(
+    alerter: Alerter, sender: FakeAlertSender, bot_token: str
+) -> None:
+    error = RemnawaveUnavailable(f"<b>bot{bot_token}</b> {SUBSCRIPTION_URL}")
+    await alerter.alert("remnawave_unavailable", source=open_connect, error=error)
+
+    text = sender.sent[0].text
+    assert bot_token not in text
+    assert SUBSCRIPTION_CODE_HEAD not in text
+    assert "&lt;b&gt;" in text
+
+
+async def test_huge_error_is_cut_but_keeps_every_part(
+    alerter: Alerter, sender: FakeAlertSender, admin_texts: Texts
+) -> None:
+    error = RemnawaveUnavailable("<сбой> " * 5000)
+    await alerter.alert("remnawave_unavailable", source=open_connect, error=error)
+
+    text = sender.sent[0].text
+    assert len(text) <= TELEGRAM_LIMIT
+    assert "&lt;сбой&gt;" in text
+    assert f"{__name__}.open_connect" in text
+    assert admin_texts.get("alert.remnawave_unavailable.threat") in text
+    last = admin_texts.ids_under("failure.remnawave.unavailable.causes")[-1]
+    assert admin_texts.get(f"failure.remnawave.unavailable.causes.{last}.check") in text
+
+
+async def test_new_alerts_are_glued_by_key(
+    alerter: Alerter, sender: FakeAlertSender, clock: FakeClock
+) -> None:
+    for _ in range(5):
+        await alerter.alert("remnawave_unavailable", source=open_connect, error=PANEL_502)
+    assert len(sender.sent) == 1
+
+    clock.advance(WINDOW)
+    await alerter.flush_repeats()
+
+    [_, summary] = sender.sent
+    assert "4" in summary.text
+    assert "HTTP 502" in summary.text
+    # готовый текст тревоги не экранируется второй раз
+    assert "<code>" in summary.text
+    assert "&lt;code" not in summary.text

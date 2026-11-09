@@ -2,6 +2,7 @@
 
 from datetime import timedelta
 
+import pytest
 from aiogram import Bot, Dispatcher
 from aiogram.methods import EditMessageText, SendMessage
 from aiogram.types import InlineKeyboardButton
@@ -16,6 +17,7 @@ from bot_updates import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from tsproxy.bot.admin_site_banner import banner_alert_button
 from tsproxy.bot.callbacks import MenuCallback, ScreenId
 from tsproxy.bot.connect import deliver_pending_connects
 from tsproxy.bot.context import BotContext
@@ -23,15 +25,27 @@ from tsproxy.bot.fakes import FakeTelegramSession
 from tsproxy.content.loader import Content
 from tsproxy.db.models import Client
 from tsproxy.domain.dates import format_moscow
+from tsproxy.integrations.failures import Failure
 from tsproxy.integrations.fakes import FakeRemnawave
 from tsproxy.integrations.remnawave_types import (
     AccountStatus,
     ProxyAccount,
+    RemnawaveAuthError,
+    RemnawaveError,
+    RemnawaveFailure,
     RemnawaveUnavailable,
 )
 from tsproxy.services.fakes import FakeAlertSender, FakeClock
 
 CONNECT = MenuCallback(screen=ScreenId.CONNECT).pack()
+PANEL_502 = RemnawaveUnavailable(
+    "Панель ответила HTTP 502",
+    failure=Failure(RemnawaveFailure.SERVER_ERROR, {"status": 502, "attempts": 3}),
+)
+TOKEN_REJECTED = RemnawaveAuthError(
+    "Панель не приняла токен: HTTP 401",
+    failure=Failure(RemnawaveFailure.TOKEN_REJECTED, {"status": 401}),
+)
 EXPIRE_AT = NOW + timedelta(days=30)
 
 
@@ -129,15 +143,20 @@ async def test_expired_subscription_suggests_tariffs(
     assert content.texts.get("buttons.tariffs") in [b.text for b in buttons(edited)]
 
 
-async def test_panel_unavailable_apologizes_and_alerts(
+@pytest.mark.parametrize(
+    ("error", "cause"), [(PANEL_502, "HTTP 502"), (TOKEN_REJECTED, "HTTP 401")]
+)
+async def test_panel_failure_apologizes_and_alerts_with_real_cause(
     dispatcher: Dispatcher,
     bot: Bot,
     telegram: FakeTelegramSession,
     remnawave: FakeRemnawave,
     alert_sender: FakeAlertSender,
     content: Content,
+    error: RemnawaveError,
+    cause: str,
 ) -> None:
-    remnawave.fail_next(RemnawaveUnavailable("timeout"))
+    remnawave.fail_next(error)
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), CONNECT))
 
@@ -145,7 +164,33 @@ async def test_panel_unavailable_apologizes_and_alerts(
     assert edited.text == content.texts.get("connect.pending")
     [alert] = alert_sender.sent
     assert (alert.chat_id, alert.thread_id) == (ADMIN_CHAT_ID, ALERTS_THREAD_ID)
-    assert content.admin_texts.get("alerts.remnawave_unavailable") in alert.text
+    assert content.admin_texts.get("alert.remnawave_unavailable.title") in alert.text
+    assert cause in alert.text
+    assert "tsproxy.bot.connect.connect_screen" in alert.text
+    assert alert.button == banner_alert_button(content.admin_texts)
+
+
+async def test_502_and_rejected_token_point_to_different_causes(
+    dispatcher: Dispatcher,
+    bot: Bot,
+    remnawave: FakeRemnawave,
+    alert_sender: FakeAlertSender,
+    clock: FakeClock,
+    content: Content,
+) -> None:
+    for error in (PANEL_502, TOKEN_REJECTED):
+        remnawave.fail_next(error)
+        await dispatcher.feed_update(bot, callback(user(CLIENT_ID), CONNECT))
+        clock.advance(timedelta(hours=1))  # новое окно склейки
+
+    alerts = [m.text for m in alert_sender.sent if "tsproxy.bot.connect" in m.text]
+    [after_502, after_token] = alerts
+    server_cause = content.admin_texts.get("failure.remnawave.server_error.causes.1.cause")
+    token_cause = content.admin_texts.get("failure.remnawave.token_rejected.causes.1.cause")
+    assert server_cause in after_502
+    assert token_cause not in after_502
+    assert token_cause in after_token
+    assert server_cause not in after_token
 
 
 async def test_link_is_sent_once_when_panel_answers_again(

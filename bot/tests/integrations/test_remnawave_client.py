@@ -29,6 +29,7 @@ from tsproxy.integrations.remnawave_types import (
     AccountNotFound,
     AccountStatus,
     RemnawaveAuthError,
+    RemnawaveFailure,
     RemnawaveRejected,
     RemnawaveResponseError,
     RemnawaveUnavailable,
@@ -271,8 +272,11 @@ async def test_version_accepted(panel: MockPanel, make_client: MakeClient, versi
 @pytest.mark.parametrize("version", ["2.7.4", "4.0.0", "dev"])
 async def test_version_refused(panel: MockPanel, make_client: MakeClient, version: str) -> None:
     panel.on("GET", "/api/system/metadata", ok(metadata(version)))
-    with pytest.raises(UnexpectedPanelVersion):
+    with pytest.raises(UnexpectedPanelVersion) as caught:
         await make_client(RunMode.PROD).check_panel_version()
+    assert caught.value.failure is not None
+    assert caught.value.failure.kind == RemnawaveFailure.UNEXPECTED_VERSION
+    assert caught.value.failure.details["version"] == version
 
 
 # --- Ошибки, таймауты, повторы ---
@@ -294,10 +298,34 @@ async def test_read_gives_up_after_limited_attempts(
         raise httpx.ReadTimeout("timed out", request=request)
 
     panel.on("GET", USER_PATH, timeout)
-    with pytest.raises(RemnawaveUnavailable):
+    with pytest.raises(RemnawaveUnavailable) as caught:
         await make_client(RunMode.PROD).get_account(100)
     assert len(panel.requests) == 3
     assert len(sleeps) == 2
+    failure = caught.value.failure
+    assert failure is not None
+    assert failure.kind == RemnawaveFailure.TIMEOUT
+    assert failure.details == {"seconds": 10, "attempts": 3}
+
+
+async def test_server_error_keeps_status_and_attempts(
+    panel: MockPanel, make_client: MakeClient
+) -> None:
+    panel.on("GET", USER_PATH, fail(502, {"message": "Bad gateway"}))
+    with pytest.raises(RemnawaveUnavailable) as caught:
+        await make_client(RunMode.PROD).get_account(100)
+    failure = caught.value.failure
+    assert failure is not None
+    assert failure.kind == RemnawaveFailure.SERVER_ERROR
+    assert failure.details == {"status": 502, "attempts": 3}
+
+
+async def test_too_many_requests_is_own_kind(panel: MockPanel, make_client: MakeClient) -> None:
+    panel.on("GET", "/api/nodes", fail(429, {"message": "slow down"}))
+    with pytest.raises(RemnawaveUnavailable) as caught:
+        await make_client(RunMode.PROD).list_nodes()
+    assert caught.value.failure is not None
+    assert caught.value.failure.kind == RemnawaveFailure.RATE_LIMITED
 
 
 async def test_network_error_is_unavailable(panel: MockPanel, make_client: MakeClient) -> None:
@@ -305,8 +333,10 @@ async def test_network_error_is_unavailable(panel: MockPanel, make_client: MakeC
         raise httpx.ConnectError("refused", request=request)
 
     panel.on("GET", "/api/nodes", refused)
-    with pytest.raises(RemnawaveUnavailable):
+    with pytest.raises(RemnawaveUnavailable) as caught:
         await make_client(RunMode.PROD).list_nodes()
+    assert caught.value.failure is not None
+    assert caught.value.failure.kind == RemnawaveFailure.NO_CONNECTION
 
 
 async def test_create_not_retried(panel: MockPanel, make_client: MakeClient) -> None:
@@ -341,6 +371,9 @@ async def test_bad_token(panel: MockPanel, make_client: MakeClient) -> None:
         await make_client(RunMode.PROD).get_account(100)
     assert TOKEN not in str(caught.value)
     assert len(panel.requests) == 1
+    assert caught.value.failure is not None
+    assert caught.value.failure.kind == RemnawaveFailure.TOKEN_REJECTED
+    assert caught.value.failure.details == {"status": 401}
 
 
 async def test_rejected_request(panel: MockPanel, make_client: MakeClient) -> None:
@@ -359,8 +392,11 @@ async def test_unexpected_response_shape(panel: MockPanel, make_client: MakeClie
     broken = user()
     del broken["shortUuid"]
     panel.on("GET", USER_PATH, ok(broken))
-    with pytest.raises(RemnawaveResponseError):
+    with pytest.raises(RemnawaveResponseError) as caught:
         await make_client(RunMode.PROD).get_account(100)
+    assert caught.value.failure is not None
+    assert caught.value.failure.kind == RemnawaveFailure.BAD_RESPONSE
+    assert "shortUuid" in str(caught.value.failure.details["field"])
 
 
 # --- Объявление в приложении (задача 35): настройки подписки панели ---

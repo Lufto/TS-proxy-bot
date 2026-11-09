@@ -16,6 +16,7 @@ from typing import Any
 import yaml
 
 from tsproxy.domain.site_banner import SiteBanner
+from tsproxy.integrations.remnawave_types import RemnawaveFailure
 
 # Тексты клиента — из client/, администратора — из admin/ и alerts/; все .yaml папки — один набор
 CLIENT_FOLDERS = ("client",)
@@ -29,6 +30,13 @@ QUICK_PARTS = ("button", "text")
 QUICK_REPLY_ID_MAX_LENGTH = 32
 QUICK_REPLY_ID_PATTERN = rf"[a-z0-9_]{{1,{QUICK_REPLY_ID_MAX_LENGTH}}}"
 QUICK_REPLY_ID = re.compile(QUICK_REPLY_ID_PATTERN)
+# Описания тревог (alerts/): alert.<ключ>.* и failure.<вид сбоя>.* — см. alerts/remnawave.yaml
+ALERT_GROUP = "alert"
+ALERT_PARTS = ("title", "threat", "where")
+FAILURE_GROUP = "failure"
+FAILURE_CAUSE_PARTS = ("cause", "check")
+# Виды сбоя из кода: у каждого должны быть тексты в alerts/
+FAILURE_KINDS: tuple[str, ...] = (*RemnawaveFailure,)
 
 
 class ContentError(Exception):
@@ -43,8 +51,13 @@ class Tariff:
     price: Decimal
 
 
+class Html(str):
+    """Уже готовый HTML (например, собранная часть тревоги): `Texts.get` его не экранирует."""
+
+
 class Texts:
-    """Тексты по ключам вида `menu.title`. Подстановки `{name}` экранируются для HTML."""
+    """Тексты по ключам вида `menu.title`. Подстановки `{name}` экранируются для HTML,
+    кроме `Html`."""
 
     def __init__(self, items: Mapping[str, str], source: str) -> None:
         self._items = dict(items)
@@ -60,7 +73,10 @@ class Texts:
             template = self._items[key]
         except KeyError:
             raise ContentError(f"{self._source}: нет текста {key}") from None
-        escaped = {name: html.escape(str(value)) for name, value in values.items()}
+        escaped = {
+            name: value if isinstance(value, Html) else html.escape(str(value))
+            for name, value in values.items()
+        }
         try:
             return template.format_map(escaped)
         except KeyError as error:
@@ -101,6 +117,9 @@ def _flatten(node: object, prefix: str, source: str) -> dict[str, str]:
         for key, value in node.items():
             flat |= _flatten(value, f"{prefix}.{key}" if prefix else str(key), source)
         return flat
+    if isinstance(node, list) and prefix:
+        # список — по номерам с единицы: causes.1, causes.2
+        return _flatten({str(number): item for number, item in enumerate(node, 1)}, prefix, source)
     raise ContentError(f"{source}: {prefix or 'корень'} должен быть текстом или группой текстов")
 
 
@@ -392,6 +411,7 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
         "alerts.prefix",
         "alerts.repeated",
         "alerts.remnawave_unavailable",
+        "alert.remnawave_unavailable.title",
         "alerts.remnawave_at_start",
         "alerts.bot_error",
         # задача 29: оплата выключена
@@ -862,6 +882,31 @@ def quick_reply_ids(admin_texts: Texts) -> list[str]:
     return ids
 
 
+def check_alert_texts(admin_texts: Texts, failure_kinds: Iterable[str]) -> None:
+    """У каждой тревоги есть заголовок, «чем грозит» и «где заметили»; у каждого вида сбоя —
+    описание и хотя бы одна причина с проверкой. Виды сбоя из кода (`failure_kinds`) — все
+    с текстами. Иначе бот не стартует: неполная тревога не должна дойти до группы."""
+    for alert in admin_texts.ids_under(ALERT_GROUP):
+        admin_texts.require(f"{ALERT_GROUP}.{alert}.{part}" for part in ALERT_PARTS)
+    written = [
+        f"{service}.{kind}"
+        for service in admin_texts.ids_under(FAILURE_GROUP)
+        for kind in admin_texts.ids_under(f"{FAILURE_GROUP}.{service}")
+    ]
+    for kind in dict.fromkeys([*failure_kinds, *written]):
+        _check_failure_texts(admin_texts, f"{FAILURE_GROUP}.{kind}")
+
+
+def _check_failure_texts(admin_texts: Texts, prefix: str) -> None:
+    admin_texts.require([f"{prefix}.what"])
+    causes = admin_texts.ids_under(f"{prefix}.causes")
+    if not causes:
+        raise ContentError(f"{ADMIN_FOLDERS[1]}/: у {prefix} нет ни одной причины (causes)")
+    admin_texts.require(
+        f"{prefix}.causes.{number}.{part}" for number in causes for part in FAILURE_CAUSE_PARTS
+    )
+
+
 def load_content(directory: Path, config_dir: Path) -> Content:
     """Тексты бота — из `directory`, тарифы — из общего конфига сервиса `config_dir`.
 
@@ -876,4 +921,5 @@ def load_content(directory: Path, config_dir: Path) -> Content:
     content.texts.require(REQUIRED_TEXTS)
     content.admin_texts.require(REQUIRED_ADMIN_TEXTS)
     quick_reply_ids(content.admin_texts)
+    check_alert_texts(content.admin_texts, FAILURE_KINDS)
     return content

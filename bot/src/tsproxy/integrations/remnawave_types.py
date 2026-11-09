@@ -13,6 +13,7 @@ from typing import Protocol
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 from tsproxy.config import RunMode
+from tsproxy.integrations.failures import ServiceError
 
 # Прокси-аккаунты, которые бот создаёт сам. Всё остальное в панели — нынешние клиенты.
 PROD_USERNAME_PREFIX = "tg_"
@@ -95,7 +96,20 @@ class Node(BaseModel):
 # --- Ошибки ---
 
 
-class RemnawaveError(Exception):
+class RemnawaveFailure(StrEnum):
+    """Виды сбоя Remnawave; значение — ключ текстов `failure.<вид>` в `alerts/remnawave.yaml`."""
+
+    UNAVAILABLE = "remnawave.unavailable"  # вид не уточнён (подделка в тестах, HTTP 0)
+    NO_CONNECTION = "remnawave.no_connection"
+    TIMEOUT = "remnawave.timeout"
+    SERVER_ERROR = "remnawave.server_error"  # 5xx
+    RATE_LIMITED = "remnawave.rate_limited"  # 429
+    TOKEN_REJECTED = "remnawave.token_rejected"  # noqa: S105 — 401/403, не пароль
+    BAD_RESPONSE = "remnawave.bad_response"
+    UNEXPECTED_VERSION = "remnawave.unexpected_version"
+
+
+class RemnawaveError(ServiceError):
     """Общий предок всех ошибок обёртки Remnawave."""
 
 
@@ -114,9 +128,13 @@ class OperationNotAllowed(RemnawaveError):
 class RemnawaveUnavailable(RemnawaveError):
     """Панель не ответила: сеть, таймаут, 5xx или 429. Повтор позже может помочь."""
 
+    default_kind = RemnawaveFailure.UNAVAILABLE
+
 
 class RemnawaveAuthError(RemnawaveError):
     """Панель не приняла токен (401/403). Повтор не поможет — нужен новый токен."""
+
+    default_kind = RemnawaveFailure.TOKEN_REJECTED
 
 
 class RemnawaveRejected(RemnawaveError):
@@ -131,9 +149,13 @@ class RemnawaveRejected(RemnawaveError):
 class RemnawaveResponseError(RemnawaveError):
     """Ответ панели не совпал с ожидаемой формой (обычно — другая версия панели)."""
 
+    default_kind = RemnawaveFailure.BAD_RESPONSE
+
 
 class UnexpectedPanelVersion(RemnawaveError):
     """Версия панели не та, под которую написан бот. Запускаться нельзя."""
+
+    default_kind = RemnawaveFailure.UNEXPECTED_VERSION
 
 
 # --- Защита нынешних клиентов ---

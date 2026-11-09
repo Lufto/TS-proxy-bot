@@ -11,7 +11,7 @@ from tsproxy.bot.callbacks import MenuCallback, ScreenId
 from tsproxy.bot.fakes import FakeTelegramSession
 from tsproxy.content.loader import Content
 from tsproxy.integrations.fakes import FakeRemnawave
-from tsproxy.integrations.remnawave_types import RemnawaveAuthError
+from tsproxy.integrations.remnawave_types import RemnawaveResponseError
 from tsproxy.services.fakes import FakeAlertSender
 
 
@@ -24,15 +24,15 @@ async def test_handler_error_is_logged_alerted_and_apologized(
     content: Content,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    remnawave.fail_next(RemnawaveAuthError("HTTP 401"))
+    remnawave.fail_next(RemnawaveResponseError("другая версия панели"))
 
     with caplog.at_level(logging.ERROR):
         await dispatcher.feed_update(
             bot, callback(user(CLIENT_ID), MenuCallback(screen=ScreenId.CONNECT).pack())
         )
 
-    assert any("RemnawaveAuthError" in r.getMessage() for r in caplog.records)
+    assert any("RemnawaveResponseError" in r.getMessage() for r in caplog.records)
     [alert] = alert_sender.sent
-    assert "RemnawaveAuthError" in alert.text
+    assert "RemnawaveResponseError" in alert.text
     [apology] = telegram.sent(SendMessage)
     assert (apology.chat_id, apology.text) == (CLIENT_ID, content.texts.get("errors.generic"))
