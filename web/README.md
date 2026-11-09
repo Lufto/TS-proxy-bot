@@ -29,7 +29,7 @@ npm run test:unit  # юнит-тесты (jest)
 
 Страница собирается из блоков. Блок — это виджет в `src/widgets/`. Его схема (valibot) зарегистрирована в `src/app-layer/config/block-schema.tsx`, компонент — в `block-component.tsx`. Сейчас есть только блок-заглушка `stub`.
 
-**UI-кит** — `src/widgets/kit/`: три варианта стиля (`?v=a|b|c`) по адресу `/kit`, закрыт от поисковиков. Пока выбираем стиль, кит стоит и на корне (`app/[locale]/page.tsx`); когда будет главная, корень вернётся к конструктору.
+**UI-кит «Манифест»** — `/kit`, закрыт от поисковиков; пока нет главной, стоит и на корне (`app/[locale]/page.tsx`). Токены — `src/assets/styles/theme.css` (цвета `bg`, `surface`, `line`, `cream`, `muted`, `accent`, `on-accent`; шрифты `font-display`, `font-body`, `font-mono`) и `typography.css` (классы `t-display`, `t-h1`…`t-label`). Компоненты — `src/shared/ui/` (`button`, `link`, `logo`, `burger`, `reveal`, `lang-switch`), шапка и подвал — `src/widgets/header`, `src/widgets/footer`. Шрифты лежат в `src/assets/fonts` и подключены в `fonts.css`, без `next/font/google`. Черновики трёх вариантов и знаков — `/kit/variants` (`src/widgets/kit-variants/`), удаляются, когда знак утверждён.
 
 Папка `pages/` в корне пустая, но удалять её нельзя. Без неё Next примет `src/pages/` (реализации страниц для `app/`) за старый Pages Router, и сборка упадёт.
 

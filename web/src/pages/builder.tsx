@@ -1,4 +1,3 @@
-import cx from 'classix';
 import type { Metadata } from 'next';
 import type { ComponentType } from 'react';
 import { blockComponent } from '@/app-layer/config/block-component';
@@ -39,13 +38,7 @@ const BuilderPage = async (params: PropsPage) => {
   if (!content) return null;
 
   return (
-    <main
-      className={cx(
-        'pt-64',
-        'md:pt-92',
-        'xxl:pt-101',
-      )}
-    >
+    <main>
       {content.map((block) => {
         const blockConfig = blockComponent[block.type];
         if (!blockConfig) return null;

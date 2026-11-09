@@ -1,22 +1,22 @@
 import { getLocale } from 'next-intl/server';
 import { getCommonData } from '@/app-layer/api/common';
+import { Footer } from '@/widgets/footer';
+import { Header } from '@/widgets/header';
+
 export const Layout: FCClass = async ({
   children,
 }) => {
   const locale = await getLocale();
   const res = await getCommonData(locale);
+  const data = res ? res.data : undefined;
 
   return (
     <>
-      {res && res.data?.header && (
-        <header>{res.data.header.title}</header>
-      )}
+      {data?.header && <Header data={data.header} />}
 
       {children}
 
-      {res && res.data?.footer && (
-        <footer>{res.data.footer.title}</footer>
-      )}
+      {data?.footer && <Footer data={data.footer} />}
     </>
   );
 };

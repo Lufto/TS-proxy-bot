@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./fonts.css";
 @import "./base.css";
 @import "./typography.css";
 @import "./components.css";
@@ -17,4 +18,19 @@
 
   --color-white-100: #FFFFFF;
   --color-black-100: #000000;
+
+  /* Кит «Манифест» (выбор владельца, задача сайта 05) */
+  --color-bg: #0B0B0B;
+  --color-surface: #161616;
+  --color-line: #2B2B2B;
+  --color-cream: #F3EFE6;
+  --color-muted: #9D978B;
+  --color-accent: #FF5B22;
+  --color-on-accent: #0B0B0B;
+
+  --font-display: 'Unbounded', sans-serif;
+  --font-body: 'Golos Text', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  --ease-snap: cubic-bezier(0.7, 0, 0.2, 1);
 }

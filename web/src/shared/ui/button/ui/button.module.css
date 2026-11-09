@@ -1,0 +1,92 @@
+/* Кнопки кита «Манифест» (выбор владельца, задача сайта 05):
+   главная — «Бегущая строка», вторая — светлая плашка, заливка которой уходит вниз */
+/* Слой components: утилиты Tailwind (t:hidden, w-full) перебивают стили модуля */
+@layer components {
+  .button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    border: 1px solid transparent;
+    font-family: var(--font-display);
+    font-weight: 500;
+    font-size: 14px;
+    letter-spacing: 0.04em;
+    line-height: 1;
+    text-transform: uppercase;
+    max-width: 100%;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: color 200ms ease, background-color 200ms ease, border-color 200ms ease,
+      background-size 320ms var(--ease-snap);
+  }
+
+  .button:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 3px;
+  }
+
+  .disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .l { height: 56px; padding: 0 28px; }
+  .m { height: 44px; padding: 0 20px; }
+
+  /* Узкие телефоны: длинная подпись крупной кнопки должна влезать в 320 px */
+  @media (max-width: 400px) {
+    .button { letter-spacing: 0.02em; }
+    .l { padding: 0 16px; }
+  }
+
+  /* Надпись и её копия для «Бегущей строки» */
+  .label {
+    display: inline-grid;
+    overflow: hidden;
+    padding-block: 0.15em;
+  }
+
+  .label > span,
+  .label::after {
+    grid-area: 1 / 1;
+    transition: transform 360ms var(--ease-snap);
+  }
+
+  .label::after {
+    content: attr(data-label);
+    transform: translateY(160%);
+  }
+
+  .arrow { transition: transform 360ms var(--ease-snap); }
+
+  .primary {
+    color: var(--color-on-accent);
+    background-color: var(--color-accent);
+  }
+
+  .secondary {
+    color: var(--color-on-accent);
+    background: linear-gradient(var(--color-cream), var(--color-cream)) no-repeat bottom / 100% 100%;
+    background-origin: border-box;
+    border-color: var(--color-cream);
+  }
+
+  .ghost {
+    color: var(--color-cream);
+    background: transparent;
+  }
+
+  @media (hover: hover) {
+    .primary:not(.disabled):hover .label > span { transform: translateY(-160%); }
+    .primary:not(.disabled):hover .label::after { transform: none; }
+    .primary:not(.disabled):hover .arrow { transform: translateX(10px); }
+
+    .secondary:not(.disabled):hover {
+      color: var(--color-cream);
+      background-size: 100% 0%;
+    }
+
+    .ghost:not(.disabled):hover { color: var(--color-accent); }
+  }
+}

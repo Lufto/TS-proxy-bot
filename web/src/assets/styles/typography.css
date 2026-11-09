@@ -1,16 +1,44 @@
-.fontHeading {
-  font-family: var(--unbounded-fonts), serif;
-  font-weight: 700;
-  text-transform: uppercase;
-}
-
-.font {
-  font-family: var(--montserrat-fonts), serif;
-  letter-spacing: 0;
-}
+/* Шкала текста кита «Манифест». Заголовки — Unbounded заглавными,
+   текст — Golos Text, метки и цифры — JetBrains Mono */
 
 @layer components {
-  .h1 {
-    color: black;
+  .t-display,
+  .t-h1,
+  .t-h2 {
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    line-height: 0.98;
+    text-transform: uppercase;
+    text-wrap: balance;
+    overflow-wrap: break-word;
+  }
+
+  /* Нижние границы подобраны под 320 px: Unbounded широкий, «ПОДКЛЮЧЕНИЕ» должно влезать */
+  .t-display { font-size: clamp(30px, 7vw, 108px); }
+  .t-h1 { font-size: clamp(26px, 5vw, 60px); }
+  .t-h2 { font-size: clamp(24px, 3.4vw, 40px); }
+
+  .t-h3 {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: clamp(20px, 2vw, 24px);
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+    text-wrap: balance;
+  }
+
+  .t-body-l { font-size: clamp(17px, 1.6vw, 20px); line-height: 1.55; }
+  .t-body { font-size: 16px; line-height: 1.5; }
+  .t-caption { font-size: 13px; line-height: 1.5; color: var(--color-muted); }
+
+  .t-label {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    line-height: 1.4;
+    text-transform: uppercase;
+    color: var(--color-muted);
   }
 }

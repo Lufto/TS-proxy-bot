@@ -1,14 +1,7 @@
 @layer base {
   html {
     font-size: 16px;
-
-    /* Почему-то при локе скролла происходит скролл вниз маленький */
-    /* Видимо браузер пытается сохранить позицию из-за fill gap паддинга */
-    /* Это свойство говорит браузеру, что это делать не надо */
-
-    .grecaptcha-badge {
-      display: none;
-    }
+    color-scheme: dark;
   }
 
   body {
@@ -16,10 +9,17 @@
     flex-direction: column;
     width: 100%;
     min-height: 100vh;
-    line-height: 130%;
-    font-family: var(--montserrat-fonts), serif;
+    line-height: 1.5;
+    font-family: var(--font-body);
     font-weight: 400;
-    background-color: var(--color-white-100);
+    color: var(--color-cream);
+    background-color: var(--color-bg);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    color: var(--color-on-accent);
+    background: var(--color-accent);
   }
 
   main {
@@ -30,7 +30,7 @@
   form,
   input,
   textarea {
-    font-family: var(--montserrat-fonts), serif;
+    font-family: var(--font-body);
     font-weight: 400;
   }
 }

@@ -6,10 +6,26 @@ const data: TCommonSchema = {
   statusCode: 200,
   data: {
     header: {
-      title: 'TS Proxy',
+      nav: [
+        { title: 'Тарифы', url: '/#tariffs' },
+        { title: 'Инструкции', url: '/help/' },
+      ],
+      cta: 'Открыть бота',
+      menuOpen: 'Открыть меню',
+      menuClose: 'Закрыть меню',
+      langLabel: 'Язык сайта',
     },
     footer: {
-      title: '© TS Proxy',
+      tagline: 'Прокси с шифрованием трафика. Подключение и оплата — в Telegram-боте.',
+      cta: 'Открыть бота',
+      support: 'Написать в поддержку',
+      links: [
+        { title: 'Инструкции', url: '/help/' },
+        { title: 'Пользовательское соглашение', url: '/terms/' },
+        { title: 'Политика конфиденциальности', url: '/privacy/' },
+      ],
+      email: 'support@ts-proxy.com',
+      copyright: 'TS Proxy',
     },
   },
 };

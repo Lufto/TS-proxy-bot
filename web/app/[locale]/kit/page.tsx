@@ -1,13 +1,16 @@
 import type { Metadata } from 'next';
-import { createKitMetadata, KitPage, resolveKitVariant } from '@/widgets/kit';
-import type { TKitSearchParams } from '@/widgets/kit/model/page';
+import { AppLayout } from '@/app-layer/layout';
+import { KitPage } from '@/widgets/kit';
 
-type TProps = { searchParams: TKitSearchParams };
+export const metadata: Metadata = {
+  title: 'UI-кит — TS Proxy',
+  robots: { index: false, follow: false },
+};
 
-export async function generateMetadata({ searchParams }: TProps): Promise<Metadata> {
-  return createKitMetadata(searchParams);
-}
-
-export default async function Kit({ searchParams }: TProps) {
-  return <KitPage variantId={await resolveKitVariant(searchParams)} />;
+export default function Kit() {
+  return (
+    <AppLayout>
+      <KitPage />
+    </AppLayout>
+  );
 }
