@@ -6,7 +6,9 @@
    10 минут) — отсчёт от времени этой первой тревоги.
 2. Повторы с тем же ключом внутри окна не отправляются, только считаются.
 3. Когда окно закончилось и повторы были, уходит одна сводка «повторов за M мин: N»
-   (текст `alerts.repeated`).
+   (текст `alerts.repeated`). Если «что случилось» за окно было разным (только у тревог
+   через `alert`), сводка считает повторы по каждому: «×14 — HTTP 502, ×3 — не дождались…»;
+   не влезшие в предел Telegram причины сводятся в одну строку «другие причины».
    Сводку отправляет `flush_repeats()` (его раз в минуту вызывает планировщик фоновых задач)
    или, если раньше пришла новая тревога с тем же ключом, сама `raise_alert` — сначала сводка
    за прошлое окно, потом новая тревога, которая открывает следующее окно.
@@ -37,7 +39,7 @@ import html
 import logging
 from collections import Counter
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from typing import Protocol
 
@@ -57,6 +59,8 @@ TELEGRAM_TEXT_LIMIT = 4096
 # Запас под заголовок сводки повторов: в ней целиком повторяется первая тревога
 SUMMARY_RESERVE = 200
 CUT_MARK = "…"
+# Сколько символов каждой подробности ошибки оставить в причине для сводки повторов
+CAUSE_DETAIL_LIMIT = 100
 
 
 @dataclass(frozen=True)
@@ -77,11 +81,14 @@ class AlertSender(Protocol):
 
 @dataclass
 class _GluedAlert:
-    """Окно склейки одного ключа: когда открыто, текст первой тревоги и сколько было повторов."""
+    """Окно склейки одного ключа: когда открыто, текст и «что случилось» первой тревоги,
+    сколько было повторов и сколько из них с каким «что случилось»."""
 
     opened_at: datetime
     text: Html  # уже замаскированный и готовый для отправки
+    cause: Html | None  # у тревог через старый `raise_alert` причины нет
     repeats: int = 0
+    causes: Counter[Html] = field(default_factory=Counter)
 
 
 class Alerter:
@@ -140,19 +147,22 @@ class Alerter:
         """Поднять тревогу из описания `alert.<key>` в `alerts/`. `source` — функция, где заметили
         сбой (в тексте — её модуль и имя), `error` — что случилось, `values` — подстановки
         в описание. Склейка — по `key`. Никогда не бросает исключение из-за отправки."""
-        await self._raise(key, self._compose(key, source, error, values))
+        body = self._compose(key, source, error, values)
+        await self._raise(key, body, self._cause(error))
 
-    async def _raise(self, key: str, body: Html) -> None:
+    async def _raise(self, key: str, body: Html, cause: Html | None = None) -> None:
         now = utc_now(self._clock)
         self._count(now)
         window = self._windows.get(key)
         if window is not None and not self._is_closed(window, now):
             window.repeats += 1
+            if cause is not None:
+                window.causes[cause] += 1
             return
         if window is not None:
             await self._close(key, window)
         # окно открываем до отправки: пока ждём Telegram, повторы уже склеиваются
-        self._windows[key] = _GluedAlert(opened_at=now, text=body)
+        self._windows[key] = _GluedAlert(opened_at=now, text=body, cause=cause)
         await self._send(key, self._texts.get("alerts.prefix") + body, self._buttons.get(key))
 
     def _compose(
@@ -210,6 +220,18 @@ class Alerter:
             lines.extend(self._causes(error.failure.kind))
         return Html("\n".join(lines))
 
+    def _cause(self, error: Exception | None) -> Html | None:
+        """«Что случилось» для счёта в сводке повторов — с короткими подробностями ошибки."""
+        if error is None:
+            return None
+        details = {
+            name: value
+            if len(value) <= CAUSE_DETAIL_LIMIT
+            else _cut(value, CAUSE_DETAIL_LIMIT) + CUT_MARK
+            for name, value in self._error_details(error).items()
+        }
+        return Html(self._what(error, details))
+
     def _what(self, error: Exception, details: Mapping[str, str]) -> str:
         if isinstance(error, ServiceError) and error.failure is not None:
             return self._texts.get(f"failure.{error.failure.kind}.what", **details)
@@ -250,13 +272,42 @@ class Alerter:
         del self._windows[key]
         if window.repeats == 0:
             return
-        summary = self._texts.get(
+        prefix = self._texts.get("alerts.prefix")
+        summary = self._summary(window, causes=Html(""))
+        room = TELEGRAM_TEXT_LIMIT - len(prefix) - len(summary)
+        if room > 0 and set(window.causes) - {window.cause}:
+            summary = self._summary(window, causes=self._repeat_causes(window, room))
+        await self._send(key, prefix + summary)
+
+    def _summary(self, window: _GluedAlert, causes: Html) -> str:
+        return self._texts.get(
             "alerts.repeated",
             count=window.repeats,
             minutes=int(self._glue_window.total_seconds()) // SECONDS_PER_MINUTE,
+            causes=causes,
             text=window.text,
         )
-        await self._send(key, self._texts.get("alerts.prefix") + summary)
+
+    def _repeat_causes(self, window: _GluedAlert, room: int) -> Html:
+        """Строки «×N — что случилось», частые сверху, не длиннее `room` символов; не влезшие
+        причины — одной строкой «другие причины»."""
+        other_reserve = len("\n" + self._texts.get("alerts.repeated_other", count=window.repeats))
+        lines: list[str] = []
+        used = 0
+        shown = 0
+        for cause, count in window.causes.most_common():
+            line = "\n" + self._texts.get("alerts.repeated_cause", count=count, cause=cause)
+            if used + len(line) + other_reserve > room:
+                break
+            lines.append(line)
+            used += len(line)
+            shown += count
+        if shown < window.repeats:
+            other = self._texts.get("alerts.repeated_other", count=window.repeats - shown)
+            lines.append("\n" + other)
+        if used + other_reserve > room:
+            return Html("")
+        return Html("".join(lines))
 
     async def _send(self, key: str, message: str, button: AlertButton | None = None) -> None:
         logger.warning("Тревога %s: %s", key, message)

@@ -410,6 +410,8 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
     {
         "alerts.prefix",
         "alerts.repeated",
+        "alerts.repeated_cause",
+        "alerts.repeated_other",
         "alerts.remnawave_unavailable",
         "alert.remnawave_unavailable.title",
         "alerts.remnawave_at_start",

@@ -246,3 +246,75 @@ async def test_new_alerts_are_glued_by_key(
     # готовый текст тревоги не экранируется второй раз
     assert "<code>" in summary.text
     assert "&lt;code" not in summary.text
+
+
+# --- Сводка повторов по причинам: сколько раз каждое «что случилось» за окно ---
+
+PANEL_TIMEOUT = RemnawaveUnavailable(
+    "Панель не ответила вовремя",
+    failure=Failure(RemnawaveFailure.TIMEOUT, {"seconds": 10, "attempts": 3}),
+)
+
+
+async def test_summary_counts_each_cause_of_repeats(
+    alerter: Alerter, sender: FakeAlertSender, clock: FakeClock
+) -> None:
+    for _ in range(15):
+        await alerter.alert("remnawave_unavailable", source=open_connect, error=PANEL_502)
+    for _ in range(3):
+        await alerter.alert("remnawave_unavailable", source=open_connect, error=PANEL_TIMEOUT)
+    assert len(sender.sent) == 1
+
+    clock.advance(WINDOW)
+    await alerter.flush_repeats()
+
+    [_, summary] = sender.sent
+    assert "Повторов за 10 мин после первой тревоги: 17" in summary.text
+    assert "×14 — панель ответила HTTP 502, попыток — 3" in summary.text
+    assert "×3 — не дождались ответа панели за 10 сек, попыток — 3" in summary.text
+    assert summary.button is None
+
+
+async def test_summary_of_one_cause_has_no_breakdown(
+    alerter: Alerter, sender: FakeAlertSender, clock: FakeClock
+) -> None:
+    for _ in range(5):
+        await alerter.alert("remnawave_unavailable", source=open_connect, error=PANEL_502)
+    clock.advance(WINDOW)
+    await alerter.flush_repeats()
+
+    [first, summary] = sender.sent
+    assert summary.text == (
+        "🚨 Повторов за 10 мин после первой тревоги: 4\n" + first.text.removeprefix("🚨 ")
+    )
+
+
+async def test_summary_of_many_causes_fits_telegram_limit(
+    alerter: Alerter, sender: FakeAlertSender, clock: FakeClock
+) -> None:
+    huge = RemnawaveUnavailable("<сбой> " * 5000)
+    await alerter.alert("remnawave_unavailable", source=open_connect, error=huge)
+    for number in range(300):
+        error = RemnawaveUnavailable(f"сбой №{number} " + "<длинный текст> " * 50)
+        await alerter.alert("remnawave_unavailable", source=open_connect, error=error)
+    clock.advance(WINDOW)
+    await alerter.flush_repeats()
+
+    [_, summary] = sender.sent
+    assert len(summary.text) <= TELEGRAM_LIMIT
+    assert "Повторов за 10 мин после первой тревоги: 300" in summary.text
+    assert "×1 — " in summary.text
+
+
+async def test_summary_of_old_alerts_stays_as_before(
+    alerter: Alerter, sender: FakeAlertSender, clock: FakeClock
+) -> None:
+    await alerter.raise_alert("remnawave_down", "Remnawave не отвечает: HTTP 502")
+    await alerter.raise_alert("remnawave_down", "Remnawave не отвечает: таймаут")
+    clock.advance(WINDOW)
+    await alerter.flush_repeats()
+
+    [_, summary] = sender.sent
+    assert summary.text == (
+        "🚨 Повторов за 10 мин после первой тревоги: 1\nRemnawave не отвечает: HTTP 502"
+    )
