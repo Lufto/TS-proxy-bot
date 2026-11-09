@@ -35,6 +35,11 @@ const nextConfig: NextConfig = {
           '@/generated': './src/shared/api/empty-mock.ts',
         },
   },
+  // Выкатка (задача сайта 16): на сервер едет готовая папка .next/standalone, без исходников и npm.
+  // Запускать только с HOSTNAME=localhost: с другим адресом Next путает свой адрес с localhost,
+  // и переадресация языка уходит в бесконечный круг (проверено 2026-11-09). Наружу его отдаёт
+  // systemd-socket-proxyd — см. ops/tsproxy-web
+  output: 'standalone',
   reactStrictMode: true,
   trailingSlash: true,
   env: {

@@ -1,0 +1,14 @@
+# Пересылает соединения с 172.18.0.1:8091 на сайт (localhost:8092). systemd-socket-proxyd
+# входит в systemd — ставить ничего не нужно.
+[Unit]
+Description=TS Proxy site — proxy from the tunnel entry to Next
+Requires=tsproxy-web.service tsproxy-web-proxy.socket
+After=tsproxy-web.service tsproxy-web-proxy.socket
+
+[Service]
+ExecStart=/usr/lib/systemd/systemd-socket-proxyd localhost:8092
+DynamicUser=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes

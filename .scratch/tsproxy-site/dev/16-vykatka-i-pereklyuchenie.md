@@ -4,9 +4,13 @@
 
 **Blocked by:** 08; 10; 12; 15; задача карты «Выкатка сайта на сервер»
 
-**Status:** ready-for-agent
+**Status:** ready-for-human
 
 - [ ] Служба сайта, путь до `ts-proxy.com`, команда выкатки и отката записаны в `ops/` и проверены
 - [ ] Проверка сайта по HTTP проходит против `ts-proxy.com`; ссылки из бота открываются
 - [ ] Плашка видна на живом сайте, когда бот остановлен (проверка с «ок» владельца)
 - [ ] `site/` удалён; `docs/server-setup.md` и README сайта отражают новую схему
+
+## Comments
+
+2026-11-09: готово к запуску владельцем: `ops/tsproxy-web/` (install, deploy, rollback, uninstall, службы, README с порядком и шагом в панели Cloudflare). Сборка `output: standalone` проверена локально в той же схеме (Next на localhost, `npm run check` — 24 адреса). Найдено и обойдено: Next 16 не на localhost зацикливает переадресацию языка — отсюда `systemd-socket-proxyd`. `docs/server-setup.md` ссылается на README. После переключения домена — удалить `site/` и поправить README сайта.

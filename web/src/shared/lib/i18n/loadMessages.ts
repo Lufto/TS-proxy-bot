@@ -1,29 +1,21 @@
-import fs from 'fs';
-import path from 'path';
 import { notFound } from 'next/navigation';
-import { PATH_DATA_LOCALE } from '@/shared/enums';
+import enCommon from '@/data/en/common.json';
+import ruCommon from '@/data/ru/common.json';
+
+// Подписи интерфейса по языкам. Обычный импорт, а не чтение папки с диска: так сборщик знает,
+// какие файлы нужны, и не тащит весь проект в .next/standalone (задача сайта 16).
+// Новый файл в src/data/<язык>/ — добавьте его сюда
+const MESSAGES: Record<string, Record<string, unknown>> = {
+  ru: { common: ruCommon },
+  en: { common: enCommon },
+};
 
 export async function loadMessages(locale: string) {
-  const dataPath = path.join(process.cwd(), PATH_DATA_LOCALE, locale);
+  const messages = MESSAGES[locale];
 
-  if (!fs.existsSync(dataPath)) {
+  if (!messages) {
     notFound();
   }
 
-  try {
-    const files = fs.readdirSync(dataPath).filter(file => file.endsWith('.json'));
-    const messages: Record<string, any> = {};
-
-    for (const file of files) {
-      const filePath = path.join(dataPath, file);
-      const content = fs.readFileSync(filePath, 'utf-8');
-      const namespace = path.basename(file, '.json');
-      messages[namespace] = JSON.parse(content);
-    }
-
-    return messages;
-  }
-  catch {
-    notFound();
-  }
+  return messages;
 }

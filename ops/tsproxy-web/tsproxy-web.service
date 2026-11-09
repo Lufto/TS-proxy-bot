@@ -1,0 +1,43 @@
+# Сайт ts-proxy.com (задача сайта 16): собранный Next из web/ (output: standalone).
+# Релизы — /opt/tsproxy-web/releases/<время>, текущий — ссылка /opt/tsproxy-web/current.
+# Слушает только localhost:8092: с другим адресом Next 16 путает свой адрес, и переадресация
+# языка уходит в круг. Наружу (туннелю Cloudflare) его отдаёт tsproxy-web-proxy на 172.18.0.1:8091.
+[Unit]
+Description=TS Proxy site (Next.js)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=tsproxy-web
+Group=tsproxy-web
+WorkingDirectory=/opt/tsproxy-web/current
+Environment=NODE_ENV=production HOSTNAME=localhost PORT=8092 NEXT_TELEMETRY_DISABLED=1
+ExecStart=/opt/tsproxy-web/node/bin/node server.js
+Restart=always
+RestartSec=5
+# Кэш Next (.next/cache в релизе — ссылка сюда): единственное, куда сайт пишет
+CacheDirectory=tsproxy-web
+
+# Ограничения: сайт ничего не пишет, кроме своего кэша
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target

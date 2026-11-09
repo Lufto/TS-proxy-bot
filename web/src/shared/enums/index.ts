@@ -5,8 +5,6 @@ export enum MEDIA_SIZES {
   MOBILE = 320,
 }
 
-export const PATH_DATA_LOCALE = 'src/data';
-
 export enum RES_STATUS {
   success = 'success',
   error = 'error',

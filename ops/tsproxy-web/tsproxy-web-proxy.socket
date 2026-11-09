@@ -1,0 +1,12 @@
+# Вход сайта для туннеля Cloudflare (задача сайта 16): 172.18.0.1:8091 — адрес хоста в сети
+# Docker панели, рядом с ботом (8090). Соединения передаёт tsproxy-web-proxy.service.
+# FreeBind: сокет поднимается, даже если сеть Docker ещё не создана при загрузке.
+[Unit]
+Description=TS Proxy site — entry for the Cloudflare tunnel
+
+[Socket]
+ListenStream=172.18.0.1:8091
+FreeBind=yes
+
+[Install]
+WantedBy=sockets.target
