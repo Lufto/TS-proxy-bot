@@ -17,6 +17,7 @@ from tsproxy.services.job_health import JobHealth, JobState
 logger = logging.getLogger(__name__)
 
 JOB_STALE_ALERT = "job_stale"
+JOB_STALE_NEVER_ALERT = "job_stale_never"  # ни разу не отработала с запуска бота
 # Отдельный ключ: «ожила» сразу после «зависла» не должна склеиться с ней в повтор
 JOB_RECOVERED_ALERT = "job_recovered"
 
@@ -34,33 +35,31 @@ class JobWatchdog:
         stale = {state.name: state for state in self._health.stale()}
         for name in sorted(stale.keys() - self._alerted):
             logger.error("Фоновая задача %s зависла или падает", name)
-            await self._alerter.raise_alert(
-                f"{JOB_STALE_ALERT}:{name}", self._stale_text(stale[name])
-            )
+            await self._alert_stale(stale[name])
         for name in sorted(self._alerted - stale.keys()):
             logger.info("Фоновая задача %s снова работает", name)
-            await self._alerter.raise_alert(
-                f"{JOB_RECOVERED_ALERT}:{name}", self._texts.get("alerts.job_recovered", name=name)
+            await self._alerter.alert(
+                JOB_RECOVERED_ALERT,
+                source=self.run,
+                glue=f"{JOB_RECOVERED_ALERT}:{name}",
+                name=name,
             )
         self._alerted = set(stale)
 
-    def _stale_text(self, state: JobState) -> str:
+    async def _alert_stale(self, state: JobState) -> None:
         if state.running_since is not None:
             hint = self._texts.get(
-                "alerts.job_hint_running", since=format_moscow(state.running_since)
+                "alert.job_stale.hint_running", since=format_moscow(state.running_since)
             )
         else:
-            hint = self._texts.get("alerts.job_hint_failing")
-        if state.last_success is None:
-            return self._texts.get(
-                "alerts.job_stale_never",
-                name=state.name,
-                since=format_moscow(state.watched_since),
-                hint=hint,
-            )
-        return self._texts.get(
-            "alerts.job_stale",
+            hint = self._texts.get("alert.job_stale.hint_failing")
+        never = state.last_success is None
+        since = state.watched_since if state.last_success is None else state.last_success
+        await self._alerter.alert(
+            JOB_STALE_NEVER_ALERT if never else JOB_STALE_ALERT,
+            source=self.run,
+            glue=f"{JOB_STALE_ALERT}:{state.name}",
             name=state.name,
-            since=format_moscow(state.last_success),
+            since=format_moscow(since),
             hint=hint,
         )

@@ -21,7 +21,6 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from tsproxy.content.loader import Texts
 from tsproxy.db.models import Event
 from tsproxy.domain.constants import TRIAL_SPAM_WINDOW
 from tsproxy.domain.trial import recent_trials, trial_spam_detected
@@ -34,6 +33,10 @@ logger = logging.getLogger(__name__)
 SECONDS_PER_MINUTE = 60
 SWITCH_KINDS = (EventKind.TRIALS_DISABLED.value, EventKind.TRIALS_ENABLED.value)
 SPAM_REASON = "spam"
+# Каждое выключение или включение — своя тревога (склейка по событию журнала)
+TRIALS_DISABLED_ALERT = "trials_disabled"
+TRIALS_ENABLED_ALERT = "trials_enabled"
+TRIALS_SPAM_ALERT = "trials_spam"
 
 
 class TrialSwitch:
@@ -44,13 +47,11 @@ class TrialSwitch:
         session_factory: async_sessionmaker[AsyncSession],
         events: EventLog,
         alerter: Alerter,
-        admin_texts: Texts,
         clock: Clock,
     ) -> None:
         self._session_factory = session_factory
         self._events = events
         self._alerter = alerter
-        self._admin_texts = admin_texts
         self._clock = clock
         self._enabled: bool | None = None  # None — ещё не прочитано из журнала
         self._recent: list[datetime] = []
@@ -73,9 +74,11 @@ class TrialSwitch:
                 return False
             event = await self._switch(EventKind.TRIALS_DISABLED, admin_id=admin_id)
         logger.warning("Пробные выключены администратором %s", admin_id)
-        await self._alerter.raise_alert(
-            f"trials_disabled_{event.id}",
-            self._admin_texts.get("alerts.trials_disabled", admin_id=admin_id),
+        await self._alerter.alert(
+            TRIALS_DISABLED_ALERT,
+            source=self.disable,
+            glue=f"{TRIALS_DISABLED_ALERT}_{event.id}",
+            admin_id=admin_id,
         )
         return True
 
@@ -87,9 +90,11 @@ class TrialSwitch:
             event = await self._switch(EventKind.TRIALS_ENABLED, admin_id=admin_id)
             self._recent = []
         logger.warning("Пробные включены администратором %s", admin_id)
-        await self._alerter.raise_alert(
-            f"trials_enabled_{event.id}",
-            self._admin_texts.get("alerts.trials_enabled", admin_id=admin_id),
+        await self._alerter.alert(
+            TRIALS_ENABLED_ALERT,
+            source=self.enable,
+            glue=f"{TRIALS_ENABLED_ALERT}_{event.id}",
+            admin_id=admin_id,
         )
         return True
 
@@ -108,9 +113,12 @@ class TrialSwitch:
             )
         minutes = int(TRIAL_SPAM_WINDOW.total_seconds()) // SECONDS_PER_MINUTE
         logger.warning("Похоже на спам: %s пробных за %s мин — пробные выключены", count, minutes)
-        await self._alerter.raise_alert(
-            f"trials_spam_{event.id}",
-            self._admin_texts.get("alerts.trials_spam", count=count, minutes=minutes),
+        await self._alerter.alert(
+            TRIALS_SPAM_ALERT,
+            source=self.note_new_trial,
+            glue=f"{TRIALS_SPAM_ALERT}_{event.id}",
+            count=count,
+            minutes=minutes,
         )
 
     async def _switch(

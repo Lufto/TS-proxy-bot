@@ -54,7 +54,7 @@ def make_switch(
 
     def make() -> TrialSwitch:
         alerter = Alerter(sender, admin_texts, CHAT_ID, THREAD_ID, clock, mask)
-        return TrialSwitch(session_factory, EventLog(clock, mask), alerter, admin_texts, clock)
+        return TrialSwitch(session_factory, EventLog(clock, mask), alerter, clock)
 
     return make
 
@@ -92,9 +92,9 @@ async def test_admin_disables_trials_with_journal_and_alert(
     assert action.details == {"action": "trials_disabled"}
     [alert] = sender.sent
     assert (alert.chat_id, alert.thread_id) == (CHAT_ID, THREAD_ID)
-    assert alert.text == admin_texts.get("alerts.prefix") + admin_texts.get(
-        "alerts.trials_disabled", admin_id=ADMIN_ID
-    )
+    assert admin_texts.get("alert.trials_disabled.title") in alert.text
+    assert admin_texts.get("alert.trials_disabled.what", admin_id=ADMIN_ID) in alert.text
+    assert "TrialSwitch.disable" in alert.text
 
 
 async def test_second_disable_changes_nothing(
@@ -135,9 +135,8 @@ async def test_disabled_survives_restart_and_admin_turns_back_on(
     assert await restarted.enabled()
     assert await make_switch().enabled()
     [*_, alert] = sender.sent
-    assert alert.text == admin_texts.get("alerts.prefix") + admin_texts.get(
-        "alerts.trials_enabled", admin_id=ADMIN_ID
-    )
+    assert admin_texts.get("alert.trials_enabled.title") in alert.text
+    assert admin_texts.get("alert.trials_enabled.what", admin_id=ADMIN_ID) in alert.text
     [_, action_on] = await events_of(session_factory, EventKind.ADMIN_ACTION)
     assert action_on.details == {"action": "trials_enabled"}
 
@@ -175,9 +174,13 @@ async def test_201st_trial_in_ten_minutes_switches_trials_off_once(
 
     assert not await switch.enabled()
     [alert] = sender.sent
-    assert alert.text == admin_texts.get("alerts.prefix") + admin_texts.get(
-        "alerts.trials_spam", count=TRIAL_SPAM_LIMIT + 1, minutes=SPAM_MINUTES
+    assert admin_texts.get("alert.trials_spam.title") in alert.text
+    what = admin_texts.get(
+        "alert.trials_spam.what", count=TRIAL_SPAM_LIMIT + 1, minutes=SPAM_MINUTES
     )
+    assert what in alert.text
+    assert "TrialSwitch.note_new_trial" in alert.text
+    assert admin_texts.get("alert.trials_spam.causes.1.cause") in alert.text
     [state] = await events_of(session_factory, EventKind.TRIALS_DISABLED)
     assert state.admin_id is None  # выключила система
     assert state.details == {"reason": "spam", "count": TRIAL_SPAM_LIMIT + 1}

@@ -200,11 +200,8 @@ async def _open_topic(bot: Bot, ctx: BotContext, ticket: TicketRef, sender: User
     except (TelegramBadRequest, TelegramForbiddenError) as error:
         # группа не форум, у бота нет права «Управление темами», бота убрали из группы
         logger.error("Обращение #%s: тема не создана: %s", ticket.id, error.message)
-        await ctx.alerter.raise_alert(
-            SUPPORT_TOPIC_ALERT,
-            ctx.admin_texts.get(
-                "alerts.support_topic_failed", ticket_id=ticket.id, error=error.message
-            ),
+        await ctx.alerter.alert(
+            SUPPORT_TOPIC_ALERT, source=_open_topic, error=error, ticket_id=ticket.id
         )
         return None
     topic_id = topic.message_thread_id

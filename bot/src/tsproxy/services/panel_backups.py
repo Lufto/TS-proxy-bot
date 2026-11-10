@@ -94,9 +94,10 @@ class PanelBackupMonitor:
             logger.error("Бэкап панели: не прочитать журнал или папку копий: %s", error)
             current = {(PANEL_BACKUP_UNREADABLE_ALERT, "")}
             if not current <= self._alerted:
-                await self._alerter.raise_alert(
-                    PANEL_BACKUP_UNREADABLE_ALERT,
-                    self._texts.get("alerts.panel_backup_unreadable", error=str(error)),
+                # в «что случилось» — сама ошибка чтения (PermissionError и т. п.), без обёртки
+                cause = error.__cause__ if isinstance(error.__cause__, OSError) else error
+                await self._alerter.alert(
+                    PANEL_BACKUP_UNREADABLE_ALERT, source=self.check, error=cause
                 )
             self._alerted = current
             return
@@ -105,8 +106,8 @@ class PanelBackupMonitor:
             if self._signature(problem, status) in self._alerted:
                 continue
             logger.error("Бэкап панели: проблема %s", problem.value)
-            await self._alerter.raise_alert(
-                PANEL_BACKUP_ALERTS[problem], self._text(problem, status)
+            await self._alerter.alert(
+                PANEL_BACKUP_ALERTS[problem], source=self.check, **self._values(problem, status)
             )
         self._alerted = current
 
@@ -130,15 +131,14 @@ class PanelBackupMonitor:
         newest = status.newest
         return PANEL_BACKUP_ALERTS[problem], str(newest.path) if newest is not None else ""
 
-    def _text(self, problem: PanelBackupProblem, status: PanelBackupStatus) -> str:
+    def _values(self, problem: PanelBackupProblem, status: PanelBackupStatus) -> dict[str, str]:
+        """Подстановки в тревогу: какая копия не ушла или когда была последняя."""
         if problem is PanelBackupProblem.NOT_SENT:
-            return self._texts.get(
-                "alerts.panel_backup_not_sent", copy=status.log.last_ok_copy or ""
-            )
+            return {"copy": status.log.last_ok_copy or ""}
         newest = status.newest
         since = (
             format_moscow(newest.modified_at)
             if newest is not None
-            else self._texts.get("alerts.panel_backup_never")
+            else self._texts.get("alert.panel_backup_stale.never")
         )
-        return self._texts.get("alerts.panel_backup_stale", since=since)
+        return {"since": since}

@@ -306,7 +306,11 @@ async def test_topic_creation_failure_raises_alert(
 
     [alert] = alert_sender.sent
     assert alert.thread_id == ALERTS_THREAD_ID
-    assert "not enough rights" in alert.text
+    assert content.admin_texts.get("alert.support_topic_failed.title", ticket_id=1) in alert.text
+    assert "TelegramBadRequest" in alert.text and "not enough rights" in alert.text
+    assert "tsproxy.bot.support._open_topic" in alert.text
+    rights = content.admin_texts.get("alert.support_topic_failed.causes.1.cause")
+    assert rights in alert.text
     assert texts_to(telegram, CLIENT_ID) == [content.texts.get("support.not_delivered")]
 
     # следующая попытка создаёт тему и подтверждает обращение

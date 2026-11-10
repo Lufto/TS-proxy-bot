@@ -89,6 +89,8 @@ async def test_stale_copy_alerts_once(
     [alert] = sender.sent
     assert "26 часов" in alert.text
     assert "23.10.2026" in alert.text
+    assert "PanelBackupMonitor.check" in alert.text
+    assert admin_texts().get("alert.panel_backup_stale.causes.3.cause") in alert.text
 
 
 async def test_no_copies_and_no_log_is_stale(
@@ -175,4 +177,8 @@ async def test_unreadable_dir_alerts(
         os.chmod(copies, 0o700)
 
     [alert] = sender.sent
-    assert "прав" in alert.text
+    texts = admin_texts()
+    assert texts.get("alert.panel_backup_unreadable.title") in alert.text
+    assert "Что случилось: PermissionError" in alert.text  # без обёртки бота
+    assert "PanelBackupMonitor.check" in alert.text
+    assert texts.get("alert.panel_backup_unreadable.causes.1.cause") in alert.text
