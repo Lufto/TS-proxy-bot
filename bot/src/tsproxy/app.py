@@ -29,6 +29,7 @@ Ctrl+C или `systemctl stop` (SIGINT/SIGTERM) — мягкая останов�
 
 import asyncio
 import contextlib
+import functools
 import logging
 import signal
 from collections.abc import Awaitable, Callable, Generator, Sequence
@@ -74,7 +75,7 @@ from tsproxy.bot.support_reminders import SupportReminders
 from tsproxy.bot.throttling import RateLimiter
 from tsproxy.bot.trial import deliver_pending_trials
 from tsproxy.config import PaymentsMode, RunMode, Settings
-from tsproxy.content.loader import Content
+from tsproxy.content.loader import Content, Texts
 from tsproxy.db.engine import create_engine, create_session_factory
 from tsproxy.domain.monitoring import DAILY_JOB_STALE_AFTER, next_daily_run, periodic_stale_after
 from tsproxy.integrations.fake_payments import FakePaymentLedger, FakePaymentProvider
@@ -96,6 +97,7 @@ from tsproxy.services.admin import AdminService
 from tsproxy.services.admin_topics import AdminTopic
 from tsproxy.services.alerts import Alerter
 from tsproxy.services.announcement import AnnouncementService
+from tsproxy.services.bot_errors import alert_bot_error
 from tsproxy.services.broadcast import BroadcastService
 from tsproxy.services.client_card import ClientCardService
 from tsproxy.services.clients import ClientService
@@ -214,7 +216,8 @@ class PeriodicJobs:
     """Простой планировщик: каждая задача — свой цикл «подождать, выполнить».
 
     Каждый запуск отмечается в `health` (начала, успешно закончила, упала) — по этим
-    отметкам работают сторож фоновых задач и `/health` (задача 22).
+    отметкам работают сторож фоновых задач и `/health` (задача 22). Упавший запуск
+    передаётся в `on_error` (имя задачи и ошибка) — сборка поднимает «Ошибку в боте».
     """
 
     def __init__(
@@ -222,9 +225,11 @@ class PeriodicJobs:
         jobs: Sequence[Job],
         health: JobHealth | None = None,
         clock: Clock = system_clock,
+        on_error: Callable[[str, Exception], Awaitable[None]] | None = None,
     ) -> None:
         self._jobs = tuple(jobs)
         self._clock = clock
+        self._on_error = on_error
         self.health = health if health is not None else JobHealth(clock)
         for job in self._jobs:
             self.health.watch(job.name, stale_after(job))
@@ -270,9 +275,11 @@ class PeriodicJobs:
             await job.run()
         # Одна неудача не должна останавливать задачу навсегда: пишем в лог с трассировкой
         # и пробуем в следующий раз. Отметку «упала» видит сторож фоновых задач.
-        except Exception:
+        except Exception as error:
             self.health.failed(job.name)
             logger.exception("Фоновая задача %s завершилась ошибкой", job.name)
+            if self._on_error is not None:
+                await self._on_error(job.name, error)
             return
         self.health.succeeded(job.name)
 
@@ -643,8 +650,15 @@ def build_application(
             ],
             job_health,
             clock,
+            on_error=functools.partial(_job_failed, alerter, content.admin_texts),
         ),
     )
+
+
+async def _job_failed(alerter: Alerter, texts: Texts, name: str, error: Exception) -> None:
+    """Фоновая задача упала — «Ошибка в боте» с её именем."""
+    action = texts.get("bot_error_action.job", name=name)
+    await alert_bot_error(alerter, texts, error, action)
 
 
 def _monitoring_jobs(

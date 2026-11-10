@@ -61,6 +61,8 @@ ALERT_COUNT_KEEP_DAYS = 7
 TELEGRAM_TEXT_LIMIT = 4096
 # Запас под заголовок сводки повторов: в ней целиком повторяется первая тревога
 SUMMARY_RESERVE = 200
+# Где заметили: функция или готовое место в коде (из трассировки — у «Ошибки в боте»)
+type Source = Callable[..., object] | str
 CUT_MARK = "…"
 # Сколько символов каждой подробности ошибки оставить в причине для сводки повторов
 CAUSE_DETAIL_LIMIT = 100
@@ -143,13 +145,14 @@ class Alerter:
         self,
         key: str,
         *,
-        source: Callable[..., object],
+        source: Source,
         error: Exception | None = None,
         glue: str | None = None,
         **values: object,
     ) -> None:
         """Поднять тревогу из описания `alert.<key>` в `alerts/`. `source` — функция, где заметили
-        сбой (в тексте — её модуль и имя), `error` — что случилось, `values` — подстановки
+        сбой (в тексте — её модуль и имя), или готовое место из трассировки
+        (`tsproxy.bot.connect._account_screen:63`); `error` — что случилось, `values` — подстановки
         в описание. Склейка — по `glue`, если он задан, иначе по `key`. Никогда не бросает
         исключение из-за отправки."""
         body = self._compose(key, source, error, values)
@@ -173,7 +176,7 @@ class Alerter:
     def _compose(
         self,
         key: str,
-        source: Callable[..., object],
+        source: Source,
         error: Exception | None,
         values: Mapping[str, object],
     ) -> Html:
@@ -193,6 +196,8 @@ class Alerter:
         return text
 
     def _masked(self, value: object) -> object:
+        if isinstance(value, Html):
+            return Html(self._mask(value))  # готовый HTML (из `Texts.get`) не экранируем второй раз
         return self._mask(value) if isinstance(value, str) else value
 
     def _error_details(self, error: Exception | None) -> dict[str, str]:
@@ -207,7 +212,7 @@ class Alerter:
     def _render(
         self,
         key: str,
-        source: Callable[..., object],
+        source: Source,
         error: Exception | None,
         values: Mapping[str, object],
         details: Mapping[str, str],
@@ -330,8 +335,10 @@ class Alerter:
             logger.exception("Не удалось отправить тревогу %s в группу администраторов", key)
 
 
-def _source_name(source: Callable[..., object]) -> str:
+def _source_name(source: Source) -> str:
     """Место в коде для «где заметили»: `tsproxy.bot.connect.connect_screen`."""
+    if isinstance(source, str):
+        return source
     return f"{source.__module__}.{source.__qualname__}"
 
 

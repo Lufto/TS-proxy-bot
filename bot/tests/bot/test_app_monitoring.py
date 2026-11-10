@@ -57,6 +57,26 @@ async def test_jobs_mark_success_and_failure() -> None:
     assert states["bad"].running_since is None
 
 
+async def test_failed_job_is_reported_with_its_name() -> None:
+    reported: list[tuple[str, str]] = []
+
+    async def bad() -> None:
+        raise RuntimeError("всегда падает")
+
+    async def on_error(name: str, error: Exception) -> None:
+        reported.append((name, str(error)))
+
+    jobs = PeriodicJobs(
+        [PeriodicJob("bad", timedelta(hours=1), bad, run_at_start=True)],
+        on_error=on_error,
+    )
+    jobs.start()
+    await wait_for(lambda: reported)
+    await jobs.stop()
+
+    assert reported == [("bad", "всегда падает")]
+
+
 async def test_hung_job_stays_running_for_watchdog() -> None:
     clock = FakeClock(NOW)
     started = asyncio.Event()

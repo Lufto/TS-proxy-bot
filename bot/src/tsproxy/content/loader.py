@@ -429,7 +429,15 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
         "alert.node_down.no_status",
         "reconcile_parts.accounts",
         "reconcile_parts.nodes",
-        "alerts.bot_error",
+        "alert.bot_error.title",
+        "alert.bot_error.no_place",
+        "bot_error_action.button",
+        "bot_error_action.command",
+        "bot_error_action.message",
+        "bot_error_action.other",
+        "bot_error_action.job",
+        "bot_error_action.chat.private",
+        "bot_error_action.chat.group",
         # задача 29: оплата выключена
         "alerts.payments_off",
         # задача 16: обращения в поддержку
