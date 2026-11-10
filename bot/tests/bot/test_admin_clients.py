@@ -37,7 +37,7 @@ from tsproxy.domain.constants import (
 )
 from tsproxy.domain.dates import format_moscow
 from tsproxy.integrations.fakes import FakeRemnawave
-from tsproxy.integrations.remnawave_types import Device, RemnawaveUnavailable
+from tsproxy.integrations.remnawave_types import Device, RemnawaveAuthError, RemnawaveUnavailable
 from tsproxy.services.clients import ClientProfile, ClientService
 from tsproxy.services.events import EventKind
 from tsproxy.services.fakes import FakeClock
@@ -494,8 +494,30 @@ async def test_panel_down_on_confirm_keeps_question(
     await dispatcher.feed_update(bot, press(extend_confirm(7, None)))
 
     [reply] = sent_to(telegram, ADMIN_CHAT_ID)
-    assert reply.text == content.admin_texts.get("admin.panel_unavailable")
+    assert reply.text.startswith("⚠️ Не вышло")
+    assert "Почему: панель не ответила: timeout" in reply.text
+    unavailable_cause = content.admin_texts.get("failure.remnawave.unavailable.causes.1.cause")
+    assert f"Что делать: {unavailable_cause}" in reply.text
     assert telegram.sent(EditMessageText) == []
+
+
+async def test_rejected_token_on_confirm_says_why_and_what_to_do(
+    dispatcher: Dispatcher,
+    bot: Bot,
+    telegram: FakeTelegramSession,
+    remnawave: FakeRemnawave,
+    content: Content,
+    bot_client: None,
+) -> None:
+    """Раньше «токен не принят» уходил в «Ошибку в боте» — теперь это понятное предупреждение."""
+    remnawave.fail_next(RemnawaveAuthError("Панель не приняла токен: HTTP 401"))
+
+    await dispatcher.feed_update(bot, press(extend_confirm(7, None)))
+
+    [reply] = sent_to(telegram, ADMIN_CHAT_ID)
+    assert "HTTP 401" in reply.text
+    token_cause = content.admin_texts.get("failure.remnawave.token_rejected.causes.1.cause")
+    assert token_cause in reply.text
 
 
 # --- Тексты и данные кнопок ---

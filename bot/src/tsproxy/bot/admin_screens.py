@@ -18,7 +18,7 @@ from tsproxy.bot.admin_callbacks import (
     AdminRefundCallback,
     expire_stamp,
 )
-from tsproxy.content.loader import Texts
+from tsproxy.content.loader import Html, Texts
 from tsproxy.db.models import Client
 from tsproxy.domain.constants import MAX_MANUAL_GRANT_DAYS
 from tsproxy.domain.dates import format_moscow
@@ -128,8 +128,9 @@ class AdminScreens:
     def client_not_found(self, telegram_id: int) -> AdminScreen:
         return self._text("admin.client_not_found", telegram_id=telegram_id)
 
-    def panel_unavailable(self) -> AdminScreen:
-        return self._text("admin.panel_unavailable")
+    def panel_unavailable(self, reason: Html) -> AdminScreen:
+        """Панель не выполнила запрос; `reason` — почему и что делать (`Alerter.explain`)."""
+        return self._text("admin.panel_unavailable", reason=reason)
 
     def cancelled(self) -> AdminScreen:
         return self._text("admin.cancelled")

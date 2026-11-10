@@ -144,7 +144,8 @@ async def test_panel_down(
 
     reply = await reply_to(announce_dispatcher, bot, telegram, announce(f"/announce {TEXT}"))
 
-    assert reply == content.admin_texts.get("admin.panel_unavailable")
+    assert reply is not None and reply.startswith("⚠️ Не вышло")
+    assert "panel down" in reply
     assert "announce" not in remnawave.subscription_headers
 
 

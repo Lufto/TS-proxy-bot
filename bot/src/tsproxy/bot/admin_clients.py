@@ -31,12 +31,12 @@ from tsproxy.bot.admin_callbacks import (
 from tsproxy.bot.admin_refund_screens import refund_list_screen
 from tsproxy.bot.admin_screens import AdminScreen, AdminScreens
 from tsproxy.bot.callbacks import MenuCallback, ScreenId
+from tsproxy.bot.connect import PANEL_DOWN_ERRORS
 from tsproxy.bot.context import BotContext
 from tsproxy.bot.screens import Screen
 from tsproxy.domain.admin import GrantDaysOutOfRange, parse_client_query
 from tsproxy.domain.dates import format_moscow
 from tsproxy.domain.profile import plural_form
-from tsproxy.integrations.remnawave_types import RemnawaveUnavailable
 from tsproxy.services.admin import ExtensionOutcome, RevokeOutcome, TrialResetOutcome
 from tsproxy.services.support import TicketRef
 
@@ -155,9 +155,9 @@ async def _preview_screen(ctx: BotContext, telegram_id: int, days: int) -> Admin
         preview = await ctx.admin.preview_extension(telegram_id, days)
     except GrantDaysOutOfRange:
         return screens.days_out_of_range()
-    except RemnawaveUnavailable as error:
+    except PANEL_DOWN_ERRORS as error:
         logger.warning("Предпросмотр выдачи клиенту %s: панель не ответила: %s", telegram_id, error)
-        return screens.panel_unavailable()
+        return screens.panel_unavailable(ctx.alerter.explain(error))
     client = None if preview is None else await ctx.clients.find(telegram_id)
     if preview is None or client is None:
         return screens.client_not_found(telegram_id)
@@ -184,10 +184,10 @@ async def on_extend(
             days,
             expected_expire_at=stamp_expire(callback_data.stamp),
         )
-    except RemnawaveUnavailable as error:
+    except PANEL_DOWN_ERRORS as error:
         # Сообщение с «✅ Да» оставляем: шаги выдачи абсолютные, повтор безопасен
         logger.warning("Ручная выдача клиенту %s: панель не ответила: %s", telegram_id, error)
-        await send_from(callback, bot, ctx, screens.panel_unavailable())
+        await send_from(callback, bot, ctx, screens.panel_unavailable(ctx.alerter.explain(error)))
         return
     match result.outcome:
         case ExtensionOutcome.EXTENDED if result.expire_at is not None:
@@ -248,9 +248,9 @@ async def on_client_action(
                 )
             case AdminAction.CANCEL:
                 await replace_screen(callback, bot, ctx, screens.cancelled())
-    except RemnawaveUnavailable as error:
+    except PANEL_DOWN_ERRORS as error:
         logger.warning("Админка, клиент %s: панель не ответила: %s", telegram_id, error)
-        await send_from(callback, bot, ctx, screens.panel_unavailable())
+        await send_from(callback, bot, ctx, screens.panel_unavailable(ctx.alerter.explain(error)))
 
 
 async def _devices_screen(ctx: BotContext, telegram_id: int) -> AdminScreen:
@@ -271,9 +271,9 @@ async def on_delete_device(
         result = await ctx.admin.delete_device(
             callback.from_user.id, telegram_id, callback_data.ref
         )
-    except RemnawaveUnavailable as error:
+    except PANEL_DOWN_ERRORS as error:
         logger.warning("Удаление устройства клиента %s: панель не ответила: %s", telegram_id, error)
-        await send_from(callback, bot, ctx, screens.panel_unavailable())
+        await send_from(callback, bot, ctx, screens.panel_unavailable(ctx.alerter.explain(error)))
         return
     if result is None:
         screen = screens.result("admin.devices.no_account", telegram_id)
@@ -327,8 +327,10 @@ class AdminCardClientActions:
             raise RuntimeError("aiogram не передал бота в нажатие")
         try:
             await send_from(callback, bot, ctx, await screen(ctx, telegram_id))
-        except RemnawaveUnavailable as error:
+        except PANEL_DOWN_ERRORS as error:
             logger.warning(
                 "Карточка обращения, клиент %s: панель не ответила: %s", telegram_id, error
             )
-            await send_from(callback, bot, ctx, _screens(ctx).panel_unavailable())
+            await send_from(
+                callback, bot, ctx, _screens(ctx).panel_unavailable(ctx.alerter.explain(error))
+            )

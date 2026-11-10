@@ -158,6 +158,28 @@ class Alerter:
         body = self._compose(key, source, error, values)
         await self._raise(glue or key, body, self._cause(error))
 
+    def explain(self, error: Exception) -> Html:
+        """Для предупреждения администратору (bot-alerts, задача 08): «почему» — настоящая
+        причина из ошибки, «что делать» — самая вероятная причина вида сбоя и её проверка.
+        Всё из ошибки замаскировано и экранировано. Тревогу не поднимает."""
+        texts = self._texts
+        lines = [
+            texts.get(
+                "warning_format.why", text=Html(self._what(error, self._error_details(error)))
+            )
+        ]
+        if isinstance(error, ServiceError) and error.failure is not None:
+            prefix = f"failure.{error.failure.kind}.causes"
+            first = texts.ids_under(prefix)[0]
+            lines.append(
+                texts.get(
+                    "warning_format.todo",
+                    cause=Html(texts.get(f"{prefix}.{first}.cause")),
+                    check=Html(texts.get(f"{prefix}.{first}.check")),
+                )
+            )
+        return Html("\n".join(lines))
+
     async def _raise(self, key: str, body: Html, cause: Html | None = None) -> None:
         now = utc_now(self._clock)
         self._count(now)

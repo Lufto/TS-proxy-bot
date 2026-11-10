@@ -46,7 +46,7 @@ def create_admin_announce_router(access: AdminAccess, announcements: Announcemen
             reply = await _handle(texts, announcements, message.from_user.id, argument)
         except RemnawaveUnavailable as error:
             logger.warning("/announce: панель не ответила: %s", error)
-            reply = texts.get("admin.panel_unavailable")
+            reply = texts.get("admin.panel_unavailable", reason=ctx.alerter.explain(error))
         except RemnawaveAuthError as error:
             logger.error("/announce: панель не дала доступ к настройкам подписки: %s", error)
             reply = texts.get("admin.announce.no_rights")

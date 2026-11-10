@@ -27,13 +27,13 @@ from tsproxy.bot.admin_callbacks import (
 from tsproxy.bot.admin_clients import on_foreign_press, replace_screen
 from tsproxy.bot.admin_screens import AdminScreen
 from tsproxy.bot.callbacks import MenuCallback, ScreenId
+from tsproxy.bot.connect import PANEL_DOWN_ERRORS
 from tsproxy.bot.context import BotContext
 from tsproxy.bot.screens import Screen
-from tsproxy.content.loader import Texts
+from tsproxy.content.loader import Html, Texts
 from tsproxy.domain.admin import parse_client_query
 from tsproxy.domain.constants import ONE_DAY
 from tsproxy.domain.dates import format_moscow
-from tsproxy.integrations.remnawave_types import RemnawaveUnavailable
 from tsproxy.services.transfer import (
     TransferDone,
     TransferPreview,
@@ -61,8 +61,9 @@ class TransferScreens:
     def usage(self) -> AdminScreen:
         return self._text("usage")
 
-    def panel_unavailable(self) -> AdminScreen:
-        return AdminScreen(self._texts.get("admin.panel_unavailable"))
+    def panel_unavailable(self, reason: Html) -> AdminScreen:
+        """Панель не выполнила запрос; `reason` — почему и что делать (`Alerter.explain`)."""
+        return AdminScreen(self._texts.get("admin.panel_unavailable", reason=reason))
 
     def preview(self, preview: TransferPreview) -> AdminScreen:
         no_subscription = self._texts.get("admin.transfer.no_subscription")
@@ -130,9 +131,9 @@ def create_admin_transfer_router(access: AdminAccess, transfers: TransferService
         payment_id = parts[2]
         try:
             preview = await transfers.preview(from_id, to_id, payment_id)
-        except RemnawaveUnavailable as error:
+        except PANEL_DOWN_ERRORS as error:
             logger.warning("Перенос %s → %s: панель не ответила: %s", from_id, to_id, error)
-            await message.answer(screens.panel_unavailable().text)
+            await message.answer(screens.panel_unavailable(ctx.alerter.explain(error)).text)
             return
         if isinstance(preview, TransferRefused):
             screen = screens.refused(preview, from_id=from_id, to_id=to_id, payment_id=payment_id)
@@ -159,9 +160,11 @@ def create_admin_transfer_router(access: AdminAccess, transfers: TransferService
                 expected_from=from_expire,
                 expected_to=stamp_expire(callback_data.to_stamp),
             )
-        except RemnawaveUnavailable as error:
+        except PANEL_DOWN_ERRORS as error:
             logger.warning("Перенос на %s: панель не ответила: %s", to_id, error)
-            await replace_screen(callback, bot, ctx, screens.panel_unavailable())
+            await replace_screen(
+                callback, bot, ctx, screens.panel_unavailable(ctx.alerter.explain(error))
+            )
             return
         if isinstance(result, TransferRefused):
             from_id = await transfers.order_owner(callback_data.order_id)
