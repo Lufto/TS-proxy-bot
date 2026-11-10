@@ -17,8 +17,8 @@ venv/
 bot.py
 rem.py
 
-# база бота и её копии
-data/
+# база бота и её копии (только bot/data: web/src/data — тексты сайта, их храним)
+bot/data/
 *.db
 *.db-journal
 
