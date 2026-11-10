@@ -51,6 +51,7 @@ from tsproxy.db.enums import OrderStatus, RefundStatus
 from tsproxy.db.models import Client, Event, Order, RefundRequest
 from tsproxy.db.repository import affected_rows
 from tsproxy.domain.constants import ONE_DAY
+from tsproxy.domain.dates import format_moscow
 from tsproxy.domain.money import paid_duration
 from tsproxy.domain.refund import (
     REFUND_END_MARGIN,
@@ -75,7 +76,7 @@ from tsproxy.integrations.remnawave_types import (
 )
 from tsproxy.services.admin import AdminActionKind, same_second
 from tsproxy.services.admin_topics import AdminTopic
-from tsproxy.services.alerts import Alerter
+from tsproxy.services.alerts import Alerter, Source
 from tsproxy.services.clock import Clock, utc_now
 from tsproxy.services.crediting import paid_stars
 from tsproxy.services.events import EventKind, EventLog
@@ -476,10 +477,12 @@ class RefundService:
             refund = await self._refunds.refund(paid, row.amount, refund_idempotency_key(row.id))
         except PaymentUnavailable as error:
             logger.warning("Возврат %s: платёжка не ответила: %s", row.id, error)
-            await self._alert("refund_provider_unavailable", row, error=str(error))
+            await self._alert(
+                "refund_provider_unavailable", row, source=self._return_money, error=error
+            )
             return
         except PaymentError as error:
-            await self._fail(row, f"{type(error).__name__}: {error}")
+            await self._fail(row, f"{type(error).__name__}: {error}", error)
             return
         await self._apply_outcome(row, refund)
 
@@ -536,8 +539,11 @@ class RefundService:
             await session.commit()
         logger.info("Возврат %s: платёжка вернула %s", row.id, amount)
 
-    async def _fail(self, row: RefundRequest, error: str) -> None:
-        """Платёжка отказала: деньги не вернулись — заказ снова «доступ выдан», тревога."""
+    async def _fail(
+        self, row: RefundRequest, error: str, cause: PaymentError | None = None
+    ) -> None:
+        """Платёжка отказала: деньги не вернулись — заказ снова «доступ выдан», тревога.
+        `cause` — ошибка платёжки, если отказ пришёл ею (тогда причины — по виду сбоя)."""
         logger.error("Возврат %s: платёжка отказала: %s", row.id, error)
         async with self._session_factory() as session:
             await session.execute(
@@ -558,7 +564,9 @@ class RefundService:
                 details={REQUEST_DETAIL: row.id, "error": error},
             )
             await session.commit()
-        await self._alert("refund_provider_rejected", row, error=error)
+        await self._alert(
+            "refund_provider_rejected", row, source=self._fail, error=cause, reason=error
+        )
 
     async def _shorten(self, row: RefundRequest) -> tuple[RefundProgress, datetime | None]:
         """Снять дни оплаты. Сбой панели — тревога, повтор фоновой задачей."""
@@ -570,7 +578,7 @@ class RefundService:
                 after = await self._apply_term(row, client, _duration(order))
         except RemnawaveError as error:
             logger.warning("Возврат %s: срок не укорочен: %s", row.id, error)
-            await self._alert("refund_term_pending", row, error=f"{type(error).__name__}: {error}")
+            await self._alert("refund_term_pending", row, source=self._shorten, error=error)
             return RefundProgress.TERM_PENDING, None
         async with self._session_factory() as session:
             await session.execute(
@@ -603,7 +611,12 @@ class RefundService:
         if planned is not None and not _plan_still_valid(planned, account):
             # После расчёта срок изменили (оплата, администратор): считаем заново от
             # нынешнего — бесплатных дней не остаётся, но пусть администратор проверит
-            await self._alert("refund_term_changed", row, error=account.expire_at.isoformat())
+            await self._alert(
+                "refund_term_changed",
+                row,
+                source=self._apply_term,
+                expire_at=format_moscow(account.expire_at),
+            )
             planned = None
         if planned is None:
             term = term_after_refund(account.expire_at, duration, now)
@@ -696,17 +709,26 @@ class RefundService:
         status = texts.get(f"refunds.topic.{progress.value}")
         await self._payments_topic.post("\n".join([header, who, status]))
 
-    async def _alert(self, kind: str, row: RefundRequest, *, error: str) -> None:
+    async def _alert(
+        self,
+        kind: str,
+        row: RefundRequest,
+        *,
+        source: Source,
+        error: Exception | None = None,
+        **values: object,
+    ) -> None:
+        """Тревога о возврате `row` — одна на возврат и вид тревоги."""
         amount = paid_text(self._admin_texts, row.amount, await self._stars(row.order_id))
-        await self._alerter.raise_alert(
-            f"{kind}:{row.id}",
-            self._admin_texts.get(
-                f"alerts.{kind}",
-                request_id=row.id,
-                order_id=row.order_id,
-                amount=amount,
-                error=error,
-            ),
+        await self._alerter.alert(
+            kind,
+            source=source,
+            error=error,
+            glue=f"{kind}:{row.id}",
+            request_id=row.id,
+            order_id=row.order_id,
+            amount=amount,
+            **values,
         )
 
     async def _row(self, request_id: int) -> RefundRequest:

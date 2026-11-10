@@ -95,6 +95,7 @@ FORGED_ID_DETAIL_LENGTH = 64
 PAYMENT_CHECK_REFUSED_ALERT = "payment_check_refused"
 # Платёж не сошёлся с заказом — тревога на каждый заказ
 PAYMENT_REJECTED_ALERT = "payment_rejected"
+REFUND_OVERDUE_ALERT = "refund_review_overdue"
 # Статусы, которые обычная проверка разбирает сама; остальные — `PaymentStatusChanges`
 ORDINARY_STATUSES = (PaymentStatus.SUCCEEDED, PaymentStatus.CANCELED, PaymentStatus.PENDING)
 # Уведомление с таким статусом по засчитанному заказу — повтор, к платёжке не идём
@@ -400,15 +401,14 @@ class PaymentChecks:
             )
             await session.commit()
         logger.warning("Возврат %s: больше суток на проверке у платёжки", refund.id)
-        await self._alerter.raise_alert(
-            f"refund_review_overdue:{refund.id}",
-            self._admin_texts.get(
-                "alerts.refund_review_overdue",
-                request_id=refund.id,
-                order_id=refund.order_id,
-                amount=paid_text(self._admin_texts, refund.amount, None),
-                hours=waited // ONE_HOUR,
-            ),
+        await self._alerter.alert(
+            REFUND_OVERDUE_ALERT,
+            source=self.check_refunds,
+            glue=f"{REFUND_OVERDUE_ALERT}:{refund.id}",
+            request_id=refund.id,
+            order_id=refund.order_id,
+            amount=paid_text(self._admin_texts, refund.amount, None),
+            hours=waited // ONE_HOUR,
         )
 
     async def _credit(self, order: Order, state: PaymentState) -> CheckOutcome:

@@ -64,6 +64,7 @@ from tsproxy.integrations.remnawave_types import (
 )
 from tsproxy.services.admin import AdminActionKind
 from tsproxy.services.alerts import Alerter
+from tsproxy.services.bot_errors import code_place
 from tsproxy.services.clock import Clock, utc_now
 from tsproxy.services.compensation_log import ACTION, AMOUNT_SECONDS, grace_extension
 from tsproxy.services.events import EventKind, EventLog
@@ -71,6 +72,9 @@ from tsproxy.services.grace import client_snapshot
 from tsproxy.services.locks import KeyedLocks
 
 logger = logging.getLogger(__name__)
+
+# Прогон прервался — тревога на каждый прогон
+COMPENSATION_FAILED_ALERT = "compensation_failed"
 
 # Ход прогона в «🚨 Тревоги» — после каждых стольких клиентов (значение выбрано агентом)
 PROGRESS_EVERY = 25
@@ -348,11 +352,12 @@ class CompensationService:
         # повторное нажатие продолжит с того же места, дважды никому не начислит
         except Exception as error:
             logger.exception("Компенсация #%s прервалась", run.run_id)
-            await self._alerter.raise_alert(
-                f"compensation_failed:{run.run_id}",
-                self._admin_texts.get(
-                    "alerts.compensation_failed", run_id=run.run_id, error=type(error).__name__
-                ),
+            await self._alerter.alert(
+                COMPENSATION_FAILED_ALERT,
+                source=code_place(error) or self._run_in_background,
+                error=error,
+                glue=f"{COMPENSATION_FAILED_ALERT}:{run.run_id}",
+                run_id=run.run_id,
             )
         finally:
             self._running.discard(run.run_id)

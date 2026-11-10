@@ -74,11 +74,14 @@ async def test_admin_sets_banner_and_other_admins_learn_it(
 
     assert await switch.current() is SiteBanner.MAINTENANCE
     [alert] = sender.sent
-    assert alert.text == admin_texts.get("alerts.prefix") + admin_texts.get(
-        "alerts.site_banner_set",
+    assert admin_texts.get("alert.site_banner_set.title") in alert.text
+    what = admin_texts.get(
+        "alert.site_banner_set.what",
         banner=admin_texts.get("admin.site_banner.names.maintenance"),
         admin_id=ADMIN_ID,
     )
+    assert what in alert.text
+    assert "SiteBannerSwitch.set" in alert.text
     async with session_factory() as session:
         kinds = list(await session.scalars(select(Event.kind).order_by(Event.id)))
     assert kinds == [EventKind.SITE_BANNER_SET.value, EventKind.ADMIN_ACTION.value]

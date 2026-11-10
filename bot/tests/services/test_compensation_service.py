@@ -476,6 +476,8 @@ async def test_background_failure_raises_alert(s: Setup, active: Client) -> None
 
     [alert] = s.alerts.sent
     assert f"#{run.run_id}" in alert.text
+    assert "panel down" in alert.text
+    assert "<code>tsproxy." in alert.text  # место — из трассировки
     assert await expire_of(s, ACTIVE_ID) == ACTIVE_EXPIRE
 
 

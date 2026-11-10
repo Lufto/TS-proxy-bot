@@ -637,7 +637,7 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
             f"alerts.chargeback_access.{key}"
             for key in ("shortened", "ended", "no_account", "failed")
         ),
-        "alerts.refund_review_overdue",
+        "alert.refund_review_overdue.title",
         *(
             f"payments.status.{key}"
             for key in (
@@ -662,11 +662,11 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
             )
         ),
         # задача 21: возвраты через поддержку и перенос подписки
-        "alerts.refund_provider_unavailable",
-        "alerts.refund_provider_rejected",
-        "alerts.refund_term_pending",
-        "alerts.refund_term_changed",
-        "alerts.transfer_source_not_ended",
+        "alert.refund_provider_unavailable.title",
+        "alert.refund_provider_rejected.title",
+        "alert.refund_term_pending.title",
+        "alert.refund_term_changed.title",
+        "alert.transfer_source_not_ended.title",
         "refunds.button",
         "refunds.list.title",
         "refunds.list.empty",
@@ -755,7 +755,7 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
         "admin.trials.disable_button",
         "admin.trials.enable_button",
         # задачи сайта 14, 15: плашка о неполадках на сайте
-        "alerts.site_banner_set",
+        "alert.site_banner_set.title",
         "admin.site_banner.state",
         "admin.site_banner.switched",
         "admin.site_banner.unchanged",
@@ -766,7 +766,7 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
             for banner in SiteBanner
         ),
         # задача 20: компенсация при сбое ноды
-        "alerts.compensation_failed",
+        "alert.compensation_failed.title",
         "admin.compensation.offer",
         "admin.compensation.button",
         "admin.compensation.confirm",
@@ -826,13 +826,10 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
         "units.stars",
         "payments.stars",
         "report.payments_stars",
-        "alerts.stars_returned",
-        "alerts.stars_not_returned",
-        "alerts.stars_unrecorded",
-        *(
-            f"alerts.stars_reason.{key}"
-            for key in ("unknown_order", "other_charge", "not_credited")
-        ),
+        "alert.stars_returned.title",
+        "alert.stars_not_returned.title",
+        "alert.stars_unrecorded.title",
+        *(f"stars_reason.{key}" for key in ("unknown_order", "other_charge", "not_credited")),
         *(
             f"admin.broadcast.{key}"
             for key in (

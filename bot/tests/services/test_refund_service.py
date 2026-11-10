@@ -552,7 +552,10 @@ async def test_review_declined_later_makes_payment_refundable_again(
     assert progress is RefundProgress.FAILED
     assert await order_status(setup, order) is OrderStatus.ACCESS_GRANTED
     assert await expire_of(setup) == clock() + 2 * MONTH
-    assert setup.alerts.sent
+    [alert] = setup.alerts.sent
+    assert "платёжка отклонила возврат после проверки" in alert.text
+    assert "RefundService._fail" in alert.text
+    assert "баланс в кабинете Platega" in alert.text  # своя причина: отказ без ошибки
 
 
 async def test_provider_rejects_refund(setup: Setup, client: Client, clock: FakeClock) -> None:
@@ -566,7 +569,9 @@ async def test_provider_rejects_refund(setup: Setup, client: Client, clock: Fake
     # деньги не вернулись — оплату можно попробовать вернуть ещё раз
     assert await order_status(setup, order) is OrderStatus.ACCESS_GRANTED
     assert await expire_of(setup) == clock() + 2 * MONTH
-    assert "cancel not supported" in setup.alerts.sent[0].text
+    [alert] = setup.alerts.sent
+    assert "cancel not supported" in alert.text
+    assert "Платёж в состоянии" in alert.text  # причины вида сбоя «платёжка отказала»
     assert await events(setup, EventKind.REFUND_FAILED)
 
 
@@ -603,7 +608,9 @@ async def test_panel_down_after_money_returned_is_retried(
 
     assert result.progress is RefundProgress.TERM_PENDING
     assert await statuses(setup) == [RefundStatus.REFUNDED]
-    assert setup.alerts.sent
+    [alert] = setup.alerts.sent
+    assert "срок не укорочен" in alert.text
+    assert "RefundService._shorten" in alert.text
 
     setup.remnawave.down = False
     await setup.service.retry_unfinished()

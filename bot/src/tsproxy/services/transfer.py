@@ -27,6 +27,7 @@ from tsproxy.content.loader import Texts
 from tsproxy.db.enums import OrderStatus
 from tsproxy.db.models import Client, Order, RefundRequest
 from tsproxy.domain.client_state import ClientSnapshot
+from tsproxy.domain.dates import format_moscow
 from tsproxy.domain.transfer import TransferPlan, plan_transfer
 from tsproxy.domain.trial import paid_access_limits
 from tsproxy.integrations.remnawave_types import (
@@ -45,6 +46,9 @@ from tsproxy.services.locks import KeyedLocks
 from tsproxy.services.refunds import OPEN_STATUSES
 
 logger = logging.getLogger(__name__)
+
+# Старый аккаунт не отключился — тревога на каждый перенос
+TRANSFER_ALERT = "transfer_source_not_ended"
 
 
 class TransferRefusal(StrEnum):
@@ -257,15 +261,14 @@ class TransferService:
             await self._remnawave.disable_account(telegram_id)
         except RemnawaveError as error:
             logger.exception("Перенос: старый аккаунт клиента %s не отключён", prepared.source.id)
-            await self._alerter.raise_alert(
-                f"transfer_source_not_ended:{prepared.source.id}",
-                self._admin_texts.get(
-                    "alerts.transfer_source_not_ended",
-                    from_id=telegram_id,
-                    to_id=prepared.target.telegram_id,
-                    expire_at=target_account.expire_at.isoformat(),
-                    error=f"{type(error).__name__}: {error}",
-                ),
+            await self._alerter.alert(
+                TRANSFER_ALERT,
+                source=self._end_source,
+                error=error,
+                glue=f"{TRANSFER_ALERT}:{prepared.source.id}",
+                from_id=telegram_id,
+                to_id=prepared.target.telegram_id,
+                expire_at=format_moscow(target_account.expire_at),
             )
             raise
 

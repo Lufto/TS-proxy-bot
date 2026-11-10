@@ -39,6 +39,9 @@ from tsproxy.services.stars import StarsInvoice, StarsPaid, StarsPayment
 
 logger = logging.getLogger(__name__)
 
+# Оплата звёздами не записана — тревога на каждый платёж
+STARS_UNRECORDED_ALERT = "stars_unrecorded"
+
 # Что сказать клиенту, если оплата не подошла к заказу
 PAID_NOTICES = {
     StarsPaid.RETURNED: "stars.returned",
@@ -150,15 +153,14 @@ async def on_successful_payment(message: Message, ctx: BotContext) -> None:
             paid.invoice_payload,
             paid.total_amount,
         )
-        await ctx.alerter.raise_alert(
-            f"stars_unrecorded:{paid.telegram_payment_charge_id}",
-            ctx.admin_texts.get(
-                "alerts.stars_unrecorded",
-                stars=paid.total_amount,
-                telegram_id=telegram_id,
-                payload=paid.invoice_payload,
-                charge_id=paid.telegram_payment_charge_id,
-            ),
+        await ctx.alerter.alert(
+            STARS_UNRECORDED_ALERT,
+            source=on_successful_payment,
+            glue=f"{STARS_UNRECORDED_ALERT}:{paid.telegram_payment_charge_id}",
+            stars=paid.total_amount,
+            telegram_id=telegram_id,
+            payload=paid.invoice_payload,
+            charge_id=paid.telegram_payment_charge_id,
         )
         await ctx.delivery.send(
             telegram_id, _notice(ctx.texts, "stars.unrecorded", paid.total_amount)

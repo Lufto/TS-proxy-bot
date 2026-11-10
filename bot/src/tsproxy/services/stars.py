@@ -59,6 +59,10 @@ from tsproxy.services.orders import OrderService
 
 logger = logging.getLogger(__name__)
 
+# Звёзды не засчитаны — тревога на каждый платёж
+STARS_RETURNED_ALERT = "stars_returned"
+STARS_NOT_RETURNED_ALERT = "stars_not_returned"
+
 # Заказ с засчитанной оплатой — платить по счёту ещё раз нельзя
 PAID_STATUSES = (*CREDITED_ORDER_STATUSES, OrderStatus.REFUNDED)
 
@@ -73,7 +77,7 @@ class StarsPaid(StrEnum):
 
 
 class StarsMismatch(StrEnum):
-    """Почему оплату звёздами не засчитали (`alerts.stars_reason.*`)."""
+    """Почему оплату звёздами не засчитали (`stars_reason.*`)."""
 
     UNKNOWN_ORDER = "unknown_order"  # нет такого заказа звёздами у этого клиента
     OTHER_CHARGE = "other_charge"  # заказ уже оплачен другим платежом
@@ -273,20 +277,17 @@ class StarsPayments:
     async def _alert_return(
         self, payment: StarsPayment, reason: StarsMismatch, error: str | None
     ) -> None:
-        texts = self._admin_texts
-        values: dict[str, object] = {
-            "stars": payment.total_amount,
-            "telegram_id": payment.telegram_id,
-            "payload": payment.payload,
-            "reason": texts.get(f"alerts.stars_reason.{reason.value}"),
-        }
-        if error is None:
-            text = texts.get("alerts.stars_returned", **values)
-        else:
-            text = texts.get(
-                "alerts.stars_not_returned", charge_id=payment.charge_id, error=error, **values
-            )
-        await self._alerter.raise_alert(f"stars_returned:{payment.charge_id}", text)
+        await self._alerter.alert(
+            STARS_RETURNED_ALERT if error is None else STARS_NOT_RETURNED_ALERT,
+            source=self._alert_return,
+            glue=f"{STARS_RETURNED_ALERT}:{payment.charge_id}",
+            stars=payment.total_amount,
+            telegram_id=payment.telegram_id,
+            payload=payment.payload,
+            charge_id=payment.charge_id,
+            reason=self._admin_texts.get(f"stars_reason.{reason.value}"),
+            answer=error or "",
+        )
 
 
 async def _stars_order(session: AsyncSession, telegram_id: int, payload: str) -> Order | None:

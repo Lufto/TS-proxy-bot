@@ -37,7 +37,7 @@
 
 ## Тексты
 
-`bot/content/alerts/`: `format.yaml` — подписи четырёх частей; `remnawave.yaml` — тревоги о панели, нодах и вебхуке; `remnawave_failures.yaml` — виды сбоя `failure.remnawave.*` с причинами; `bot.yaml` — «Ошибка в боте»; `payments.yaml` и `payments_failures.yaml` — оплаты и виды сбоя платёжки; `alerts.yaml` — остальные (старый формат). Отчёт — `bot/content/admin/report.yaml`.
+`bot/content/alerts/`: `format.yaml` — подписи четырёх частей; `remnawave.yaml` — тревоги о панели, нодах и вебхуке; `remnawave_failures.yaml` — виды сбоя `failure.remnawave.*` с причинами; `bot.yaml` — «Ошибка в боте»; `payments.yaml` и `payments_failures.yaml` — оплаты и виды сбоя платёжки; `refunds.yaml` — возвраты и звёзды; `admin_actions.yaml` — перенос, компенсация, плашка сайта; `alerts.yaml` — остальные (старый формат). Отчёт — `bot/content/admin/report.yaml`.
 
 ## Открыто
 

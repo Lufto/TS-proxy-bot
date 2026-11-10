@@ -24,6 +24,8 @@ from tsproxy.services.events import EventKind, EventLog
 logger = logging.getLogger(__name__)
 
 BANNER_DETAIL = "banner"
+# Каждая смена плашки — своя тревога
+SITE_BANNER_ALERT = "site_banner_set"
 
 
 class SiteBannerSwitch:
@@ -77,13 +79,12 @@ class SiteBannerSwitch:
                 await session.commit()
             self._current = banner
         logger.warning("Плашка на сайте: %s (администратор %s)", banner.value, admin_id)
-        await self._alerter.raise_alert(
-            f"site_banner_{event.id}",
-            self._admin_texts.get(
-                "alerts.site_banner_set",
-                banner=self._admin_texts.get(f"admin.site_banner.names.{banner.value}"),
-                admin_id=admin_id,
-            ),
+        await self._alerter.alert(
+            SITE_BANNER_ALERT,
+            source=self.set,
+            glue=f"{SITE_BANNER_ALERT}:{event.id}",
+            banner=self._admin_texts.get(f"admin.site_banner.names.{banner.value}"),
+            admin_id=admin_id,
         )
         return True
 
