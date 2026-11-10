@@ -48,7 +48,7 @@
 
 ## Platega: что уходит в запросе
 
-Email клиента передаётся: `metadata.user_email = <telegram_id>@telegram.org` (решение владельца 2026-10-31, включено в `app.py`, `send_customer_email=True`). Шапка `integrations/platega.py` говорит обратное («не передаём») — она устарела.
+Email клиента передаётся: `metadata.user_email = <telegram_id>@telegram.org` (решение владельца 2026-10-31, включено в `app.py`, `send_customer_email=True`).
 
 ## Открыто
 

@@ -16,7 +16,7 @@ const data: TBuilderPage = {
         uuid: 'privacy',
         data: {
           title: 'Privacy Policy',
-          edition: 'Version of 9 November 2026',
+          edition: 'Version of 10 November 2026',
           note: 'This is a translation. If the English and Russian versions differ, the Russian version applies.',
           sections: [
             {
@@ -64,7 +64,7 @@ const data: TBuilderPage = {
             {
               title: '6. User rights',
               items: [
-                'The User may request information about their data or its deletion by contacting support in the Service’s Telegram bot or at {email}. Deleting data may make further use of the Service impossible.',
+                'The User may request information about their data by contacting support in the Service’s Telegram bot or at {email}.',
               ],
             },
             {

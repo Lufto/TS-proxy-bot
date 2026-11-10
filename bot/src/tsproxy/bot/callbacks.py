@@ -114,7 +114,7 @@ class TicketAction(StrEnum):
     HIDE = "hide"  # «✖️ Скрыть» меню заготовок
     EXTEND = "extend"  # «➕ Продлить на N дней» — задача 18
     DEVICES = "devices"  # «📱 Устройства» — задача 18
-    REFUND = "refund"  # «↩️ Вернуть» — оплаты клиента за 30 дней, задача 21
+    REFUND = "refund"  # «↩️ Вернуть» — оплаты клиента за 14 дней, задача 21
 
 
 class TicketCallback(CallbackData, prefix="ticket"):

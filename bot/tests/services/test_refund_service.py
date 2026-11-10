@@ -1,5 +1,5 @@
 """Возвраты (задача 21, решение владельца 2026-10-30): администратор возвращает оплату
-за последние 30 дней кнопкой в карточке клиента; клиент сам возвращает случайную вторую
+за последние 14 дней кнопкой в карточке клиента; клиент сам возвращает случайную вторую
 оплату в течение 7 дней. Вся сумма — через платёжку, со срока снимается всё, что дала
 эта оплата; повторный возврат той же оплаты невозможен."""
 
@@ -19,7 +19,7 @@ from tsproxy.db.engine import create_session_factory
 from tsproxy.db.enums import OrderStatus, RefundStatus
 from tsproxy.db.models import Client, Event, Order, RefundRequest
 from tsproxy.domain.constants import PAID_DEVICE_LIMIT, UNLIMITED_TRAFFIC_BYTES
-from tsproxy.domain.refund import REFUND_END_MARGIN
+from tsproxy.domain.refund import REFUND_END_MARGIN, REFUND_WINDOW
 from tsproxy.integrations.fake_payments import FakePaymentProvider
 from tsproxy.integrations.fakes import FakeRemnawave
 from tsproxy.integrations.payments_types import (
@@ -241,10 +241,10 @@ async def refund(setup: Setup, order: Order) -> RefundResult:
 # --- Список оплат для «↩️ Вернуть» ---
 
 
-async def test_list_shows_payments_of_last_30_days_only(
+async def test_list_shows_payments_of_refund_window_only(
     setup: Setup, client: Client, clock: FakeClock
 ) -> None:
-    old = clock() - timedelta(days=30, seconds=1)
+    old = clock() - REFUND_WINDOW - timedelta(seconds=1)
     await paid_order(setup, client, paid_at=old, expire_at=old + MONTH)
     recent = await paid_order(
         setup, client, paid_at=clock() - timedelta(days=2), expire_at=old + 2 * MONTH
@@ -367,10 +367,10 @@ async def test_two_simultaneous_presses_refund_once(
     assert await expire_of(setup) == clock() + MONTH
 
 
-async def test_payment_older_than_30_days_is_not_refunded(
+async def test_payment_older_than_refund_window_is_not_refunded(
     setup: Setup, client: Client, clock: FakeClock
 ) -> None:
-    paid_at = clock() - timedelta(days=30, seconds=1)
+    paid_at = clock() - REFUND_WINDOW - timedelta(seconds=1)
     order = await paid_order(setup, client, paid_at=paid_at, expire_at=paid_at + 3 * MONTH)
 
     result = await setup.service.refund_by_admin(ADMIN, TELEGRAM_ID, order.id)
@@ -379,10 +379,10 @@ async def test_payment_older_than_30_days_is_not_refunded(
     assert setup.payments.ledger.find_by_order(order.id)[0].refunded == 0
 
 
-async def test_payment_exactly_30_days_old_is_refunded(
+async def test_payment_exactly_at_refund_window_is_refunded(
     setup: Setup, client: Client, clock: FakeClock
 ) -> None:
-    paid_at = clock() - MONTH
+    paid_at = clock() - REFUND_WINDOW
     order = await paid_order(setup, client, paid_at=paid_at, expire_at=paid_at + 3 * MONTH)
 
     result = await refund(setup, order)

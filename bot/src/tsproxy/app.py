@@ -59,7 +59,6 @@ from tsproxy.bot.admin_compensation import (
 from tsproxy.bot.admin_proof import create_admin_proof_router
 from tsproxy.bot.admin_site_banner import banner_alert_button
 from tsproxy.bot.admin_stats import create_admin_stats_router
-from tsproxy.bot.admin_transfer import create_admin_transfer_router
 from tsproxy.bot.alert_sender import TelegramAlertSender
 from tsproxy.bot.connect import REMNAWAVE_UNAVAILABLE_ALERT, deliver_pending_connects
 from tsproxy.bot.context import BotContext
@@ -130,7 +129,6 @@ from tsproxy.services.stars import StarsPayments
 from tsproxy.services.stats import StatsService
 from tsproxy.services.support import SupportService
 from tsproxy.services.term_guard import TermLockedHandlers
-from tsproxy.services.transfer import TransferService
 from tsproxy.services.trial import TrialService
 from tsproxy.services.trial_switch import TrialSwitch
 from tsproxy.services.watchdog import JobWatchdog
@@ -510,19 +508,9 @@ def build_application(
             create_admin_proof_router(
                 ctx.access, ServiceProofService(session_factory, remnawave, clock)
             ),
-            # задача 21: перенос подписки на другой аккаунт по подтверждённому платежу
-            create_admin_transfer_router(
-                ctx.access,
-                TransferService(
-                    session_factory,
-                    remnawave,
-                    events,
-                    alerter,
-                    content.admin_texts,
-                    clock,
-                    term_locks,
-                ),
-            ),
+            # Перенос подписки (`/transfer`, задача 21) отключён решением владельца 2026-11-11:
+            # с ним спор через банк оставлял дни на новом аккаунте. Код и тесты остаются;
+            # вернуть — подключить `create_admin_transfer_router` с `TransferService` здесь.
             # задача 35: объявление клиентам в приложении (настройки подписки панели)
             create_admin_announce_router(
                 ctx.access, AnnouncementService(session_factory, remnawave, events)

@@ -19,6 +19,10 @@ echo "→ Собираю сайт ($REL)"
 BUILD="$(mktemp -d)"
 trap 'rm -rf "$BUILD"' EXIT
 cp -R web/.next/standalone/. "$BUILD/"
+# Next кладёт в сборку копию web/.env — на сервер её не везём (аудит перед оплатой, 2026-11-11):
+# окажись там ключ, он уехал бы в релиз. Сайту во время работы нужна одна переменная —
+# брать тексты из apiStatic, а не ходить в несуществующий бэкенд
+printf 'HTTP_CLIENT=mock\n' > "$BUILD/.env"
 cp -R web/.next/static "$BUILD/.next/static"
 cp -R web/public "$BUILD/public"
 # Кэш Next — в /var/cache/tsproxy-web (CacheDirectory службы): папка релиза только для чтения

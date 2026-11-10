@@ -7,8 +7,9 @@ from pathlib import Path
 
 import httpx
 import pytest
-from aiogram.methods import DeleteWebhook, SetMyCommands, SetWebhook
-from bot_updates import ADMIN_CHAT_ID, ADMIN_ID, BOT_TOKEN
+from aiogram.methods import DeleteWebhook, SendMessage, SetMyCommands, SetWebhook
+from aiogram.types import Chat
+from bot_updates import ADMIN_CHAT_ID, ADMIN_ID, BOT_TOKEN, message, user
 from pydantic import SecretStr, ValidationError
 
 from tsproxy.app import (
@@ -217,3 +218,28 @@ async def test_payment_notifications_are_accepted_in_fake_mode(
     assert response.status_code == httpx.codes.OK
     names = {job.name for job in app.jobs._jobs}
     assert {"payment_checks_fresh", "payment_checks_stale", "payments_reconcile"} <= names
+
+
+@pytest.mark.parametrize(("command", "answered"), [("/transfer 1 2 p", False), ("/proof 1", True)])
+async def test_transfer_command_is_switched_off(
+    command: str,
+    answered: bool,
+    tmp_path: Path,
+    content: Content,
+    telegram_session: FakeTelegramSession,
+) -> None:
+    """Перенос подписки отключён (владелец 2026-11-11): `/transfer` администратора в группе
+    остаётся без ответа. `/proof` — проверка самого теста: соседняя команда отвечает."""
+    app = build_application(make_settings(tmp_path), content, telegram_session=telegram_session)
+    admin_group = Chat(id=ADMIN_CHAT_ID, type="supergroup")
+    try:
+        async with app.engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        await app.dispatcher.feed_update(
+            app.bot, message(user(ADMIN_ID), command, chat=admin_group)
+        )
+    finally:
+        await close_application(app)
+
+    replies = [m for m in telegram_session.sent(SendMessage) if m.chat_id == ADMIN_CHAT_ID]
+    assert bool(replies) is answered

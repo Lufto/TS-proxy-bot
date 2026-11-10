@@ -12,7 +12,7 @@
 | Пробный период | [trial.md](trial.md) | 7 дней / 7 ГБ / 3 устройства, продления, выключатель пробных |
 | Сроки и выдача доступа | [access.md](access.md) | срок «до X», выдача после оплаты, напоминания, льготный период |
 | Оплата | [payments.md](payments.md) | Platega (СБП) и звёзды, зачёт ровно один раз, сверка |
-| Возвраты и перенос | [refunds.md](refunds.md) | «↩️ Вернуть», спор через банк, `/transfer` |
+| Возвраты и перенос | [refunds.md](refunds.md) | «↩️ Вернуть», спор через банк, `/transfer` (отключён) |
 | Поддержка | [support.md](support.md) | обращение = тема в группе администраторов |
 | Админка | [admin.md](admin.md) | `/client`, ручная выдача, `/stats`, `/proof`, `/trials`, `/banner` |
 | Рассылка и объявление | [broadcast.md](broadcast.md) | `/broadcast`, `/announce` |

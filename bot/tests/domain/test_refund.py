@@ -16,20 +16,20 @@ PAID_AT = datetime(2026, 11, 1, 12, 0, tzinfo=UTC)
 MONTH = timedelta(days=30)
 
 
-# --- Оплаты за последние 30 дней ---
+# --- Оплаты за последние 14 дней ---
 
 
-def test_payment_exactly_30_days_old_can_be_refunded() -> None:
-    assert refund_window_open(PAID_AT, PAID_AT + timedelta(days=30))
+def test_payment_exactly_14_days_old_can_be_refunded() -> None:
+    assert refund_window_open(PAID_AT, PAID_AT + timedelta(days=14))
 
 
-def test_payment_older_than_30_days_cannot_be_refunded() -> None:
-    assert not refund_window_open(PAID_AT, PAID_AT + timedelta(days=30, seconds=1))
+def test_payment_older_than_14_days_cannot_be_refunded() -> None:
+    assert not refund_window_open(PAID_AT, PAID_AT + timedelta(days=14, seconds=1))
 
 
-def test_refund_list_starts_30_days_ago() -> None:
-    now = PAID_AT + timedelta(days=45)
-    assert refund_list_since(now) == now - timedelta(days=30)
+def test_refund_list_starts_14_days_ago() -> None:
+    now = PAID_AT + timedelta(days=20)
+    assert refund_list_since(now) == now - timedelta(days=14)
 
 
 def test_refund_window_rejects_naive_time() -> None:
