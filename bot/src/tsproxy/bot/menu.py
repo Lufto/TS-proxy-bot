@@ -1,4 +1,4 @@
-"""Меню клиента: `/start`, переключение экранов в одном сообщении, инструкции.
+"""Меню клиента: `/start`, `/help`, переключение экранов в одном сообщении, инструкции.
 
 Ссылка `t.me/<бот>?start=support` (кнопки «Написать в поддержку» на сайте) открывает
 сразу экран поддержки вместо меню (задача сайта 07), `?start=devices` (кнопка «Устройства»
@@ -10,7 +10,7 @@
 
 from aiogram import F, Router
 from aiogram.enums import ChatType
-from aiogram.filters import CommandObject, CommandStart
+from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.types import CallbackQuery, Message
 
 from tsproxy.bot.callbacks import InstructionsCallback, MenuCallback, ScreenId
@@ -22,6 +22,8 @@ from tsproxy.db.models import Client
 # Параметры `/start` из ссылок сайта и страницы подписки: открыть поддержку, устройства
 START_SUPPORT = "support"
 START_DEVICES = "devices"
+# `/help`: в личном чате — команды клиента, в группе администраторов — админки
+HELP_COMMAND = "help"
 
 
 def create_menu_router() -> Router:
@@ -30,6 +32,7 @@ def create_menu_router() -> Router:
     router.message.filter(F.chat.type == ChatType.PRIVATE)
     router.callback_query.filter(F.message.chat.type == ChatType.PRIVATE)
     router.message.register(on_start, CommandStart())
+    router.message.register(on_help, Command(HELP_COMMAND))
     router.callback_query.register(on_main_menu, MenuCallback.filter(F.screen == ScreenId.MAIN))
     router.callback_query.register(on_about, MenuCallback.filter(F.screen == ScreenId.ABOUT))
     router.callback_query.register(
@@ -66,6 +69,13 @@ async def on_start(message: Message, command: CommandObject, ctx: BotContext) ->
         await ctx.delivery.send(message.from_user.id, await devices_screen(ctx, client))
         return
     await ctx.delivery.send(message.from_user.id, await _main_menu(ctx, client))
+
+
+async def on_help(message: Message, ctx: BotContext) -> None:
+    """`/help` — список команд клиента новым сообщением."""
+    if message.from_user is None:
+        return
+    await ctx.delivery.send(message.from_user.id, ctx.screens.help())
 
 
 async def on_main_menu(callback: CallbackQuery, ctx: BotContext) -> None:

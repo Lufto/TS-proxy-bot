@@ -213,7 +213,16 @@ async def test_unknown_button_data_is_rejected(
 async def test_unknown_command_gets_a_hint(
     dispatcher: Dispatcher, bot: Bot, telegram: FakeTelegramSession, content: Content
 ) -> None:
-    await dispatcher.feed_update(bot, message(user(CLIENT_ID), "/help"))
+    await dispatcher.feed_update(bot, message(user(CLIENT_ID), "/whatever"))
 
     [sent] = telegram.sent(SendMessage)
     assert sent.text == content.texts.get("fallback.unknown_command")
+
+
+async def test_help_lists_client_commands(
+    dispatcher: Dispatcher, bot: Bot, telegram: FakeTelegramSession, content: Content
+) -> None:
+    await dispatcher.feed_update(bot, message(user(CLIENT_ID), "/help"))
+
+    [sent] = telegram.sent(SendMessage)
+    assert sent.text == content.texts.get("help.text")

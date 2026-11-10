@@ -15,6 +15,7 @@
 | `/transfer …` | перенос подписки ([refunds.md](refunds.md)) |
 | `/outages` | последние сбои нод с кнопками компенсации |
 | `/broadcast`, `/announce` | рассылка и объявление ([broadcast.md](broadcast.md)) |
+| `/help` | список команд админки (тот же текст, что у `/client` без запроса) |
 
 ## Правила
 

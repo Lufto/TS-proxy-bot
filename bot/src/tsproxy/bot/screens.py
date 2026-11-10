@@ -251,6 +251,13 @@ class Screens:
             InlineKeyboardMarkup(inline_keyboard=[self._back()]),
         )
 
+    def help(self) -> Screen:
+        """`/help` — все команды клиента."""
+        return Screen(
+            self._texts.get("help.text"),
+            InlineKeyboardMarkup(inline_keyboard=[self._back()]),
+        )
+
     def unknown_command(self) -> Screen:
         """Неизвестная команда. Обычные сообщения — обращения в поддержку (`bot.support`)."""
         return Screen(

@@ -124,8 +124,18 @@ async def test_stranger_in_admin_group_gets_no_card(
 ) -> None:
     await dispatcher.feed_update(bot, group_command(f"/client {CLIENT_ID}", sender_id=STRANGER_ID))
     await dispatcher.feed_update(bot, group_command(f"/give {CLIENT_ID} 30", sender_id=STRANGER_ID))
+    await dispatcher.feed_update(bot, group_command("/help", sender_id=STRANGER_ID))
 
     assert telegram.sent(SendMessage) == []
+
+
+async def test_help_in_admin_group_lists_admin_commands(
+    dispatcher: Dispatcher, bot: Bot, telegram: FakeTelegramSession, content: Content
+) -> None:
+    await dispatcher.feed_update(bot, group_command("/help"))
+
+    [reply] = sent_to(telegram, ADMIN_CHAT_ID)
+    assert reply.text == content.admin_texts.get("admin.usage", max_days=MAX_MANUAL_GRANT_DAYS)
 
 
 async def test_admin_commands_do_nothing_in_private_chat(

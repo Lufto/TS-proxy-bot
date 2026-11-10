@@ -395,6 +395,9 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         "manual_grant.added",
         # задача 33: оплата звёздами Telegram
         "commands.paysupport",
+        # /help в личном чате
+        "commands.help",
+        "help.text",
         "buttons.pay_sbp",
         "buttons.pay_stars",
         "units.rubles",

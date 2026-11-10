@@ -33,6 +33,7 @@ from tsproxy.bot.admin_screens import AdminScreen, AdminScreens
 from tsproxy.bot.callbacks import MenuCallback, ScreenId
 from tsproxy.bot.connect import PANEL_DOWN_ERRORS
 from tsproxy.bot.context import BotContext
+from tsproxy.bot.menu import HELP_COMMAND
 from tsproxy.bot.screens import Screen
 from tsproxy.domain.admin import GrantDaysOutOfRange, parse_client_query
 from tsproxy.domain.dates import format_moscow
@@ -66,6 +67,7 @@ def create_admin_router(access: AdminAccess) -> Router:
     admin = AdminFilter(access)
     router.message.register(on_client_command, admin, Command(CLIENT_COMMAND))
     router.message.register(on_give_command, admin, Command(GIVE_COMMAND))
+    router.message.register(on_help_command, admin, Command(HELP_COMMAND))
     router.callback_query.register(on_client_action, admin, AdminClientCallback.filter())
     router.callback_query.register(on_extend, admin, AdminExtendCallback.filter())
     router.callback_query.register(on_delete_device, admin, AdminDeviceCallback.filter())
@@ -112,6 +114,11 @@ async def replace_screen(
 
 
 # --- Команды ---
+
+
+async def on_help_command(message: Message, ctx: BotContext) -> None:
+    """`/help` в группе администраторов — все команды админки."""
+    await _send(message, _screens(ctx).usage())
 
 
 async def on_client_command(message: Message, command: CommandObject, ctx: BotContext) -> None:
