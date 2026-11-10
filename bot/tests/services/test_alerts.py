@@ -10,7 +10,7 @@ from tsproxy.content.loader import Texts, load_content
 from tsproxy.integrations.failures import Failure
 from tsproxy.integrations.remnawave_types import RemnawaveFailure, RemnawaveUnavailable
 from tsproxy.services.alerts import Alerter
-from tsproxy.services.fakes import FakeAlertSender, FakeClock, SentMessage
+from tsproxy.services.fakes import FakeAlertSender, FakeClock
 from tsproxy.services.masking import Masker
 
 REPO_CONTENT = Path(__file__).parent.parent.parent / "content"
@@ -54,18 +54,27 @@ def alerter(sender: FakeAlertSender, admin_texts: Texts, clock: FakeClock, mask:
     )
 
 
+async def fire(alerter: Alerter, glue: str = "k", **kwargs: object) -> None:
+    """Тревога без вида сбоя («ошибок при сверке — N»): склейка по `glue`."""
+    values: dict[str, object] = {"count": 1} | kwargs
+    await alerter.alert("reconcile_failed", source=open_connect, glue=glue, **values)
+
+
 async def test_alert_goes_to_alerts_topic_with_prefix(
-    alerter: Alerter, sender: FakeAlertSender
+    alerter: Alerter, sender: FakeAlertSender, admin_texts: Texts
 ) -> None:
-    await alerter.raise_alert("remnawave_down", "Remnawave не отвечает")
-    assert sender.sent == [SentMessage(CHAT_ID, THREAD_ID, "🚨 Remnawave не отвечает")]
+    await fire(alerter)
+
+    [message] = sender.sent
+    assert (message.chat_id, message.thread_id) == (CHAT_ID, THREAD_ID)
+    assert message.text.startswith("🚨 " + admin_texts.get("alert.reconcile_failed.title"))
 
 
 async def test_thousand_identical_alerts_give_one_message_and_counter(
-    alerter: Alerter, sender: FakeAlertSender, clock: FakeClock
+    alerter: Alerter, sender: FakeAlertSender, clock: FakeClock, admin_texts: Texts
 ) -> None:
     for _ in range(1000):
-        await alerter.raise_alert("remnawave_down", "Remnawave не отвечает")
+        await fire(alerter)
         clock.advance(timedelta(milliseconds=100))
     assert len(sender.sent) == 1
 
@@ -77,14 +86,14 @@ async def test_thousand_identical_alerts_give_one_message_and_counter(
     assert summary.startswith("🚨 ")
     assert "999" in summary
     assert "10 мин" in summary
-    assert "Remnawave не отвечает" in summary
+    assert admin_texts.get("alert.reconcile_failed.title") in summary
 
 
 async def test_flush_before_window_end_sends_nothing(
     alerter: Alerter, sender: FakeAlertSender, clock: FakeClock
 ) -> None:
-    await alerter.raise_alert("k", "сбой")
-    await alerter.raise_alert("k", "сбой")
+    await fire(alerter)
+    await fire(alerter)
     clock.advance(WINDOW - timedelta(seconds=1))
     await alerter.flush_repeats()
     assert len(sender.sent) == 1
@@ -93,25 +102,26 @@ async def test_flush_before_window_end_sends_nothing(
 async def test_window_without_repeats_closes_silently(
     alerter: Alerter, sender: FakeAlertSender, clock: FakeClock
 ) -> None:
-    await alerter.raise_alert("k", "сбой")
+    await fire(alerter)
     clock.advance(WINDOW)
     await alerter.flush_repeats()
-    await alerter.raise_alert("k", "сбой")
-    assert [m.text for m in sender.sent] == ["🚨 сбой", "🚨 сбой"]
+    await fire(alerter)
+    [first, second] = [m.text for m in sender.sent]
+    assert first == second
 
 
 async def test_alert_after_window_sends_summary_then_new_alert(
-    alerter: Alerter, sender: FakeAlertSender, clock: FakeClock
+    alerter: Alerter, sender: FakeAlertSender, clock: FakeClock, admin_texts: Texts
 ) -> None:
     for _ in range(3):
-        await alerter.raise_alert("k", "сбой")
+        await fire(alerter)
     clock.advance(WINDOW)
-    await alerter.raise_alert("k", "сбой снова")
+    await fire(alerter, count=7)
 
     texts = [m.text for m in sender.sent]
     assert len(texts) == 3
-    assert "2" in texts[1] and "сбой" in texts[1]
-    assert texts[2] == "🚨 сбой снова"
+    assert "Повторов за 10 мин после первой тревоги: 2" in texts[1]
+    assert admin_texts.get("alert.reconcile_failed.what", count=7) in texts[2]
     # сводка уже ушла — flush её не повторяет
     clock.advance(WINDOW)
     await alerter.flush_repeats()
@@ -119,18 +129,18 @@ async def test_alert_after_window_sends_summary_then_new_alert(
 
 
 async def test_different_keys_are_not_glued(alerter: Alerter, sender: FakeAlertSender) -> None:
-    await alerter.raise_alert("remnawave_down", "Remnawave не отвечает")
-    await alerter.raise_alert("payments_down", "Платёжка не отвечает")
-    await alerter.raise_alert("remnawave_down", "Remnawave не отвечает")
+    await fire(alerter, glue="remnawave_down")
+    await fire(alerter, glue="payments_down")
+    await fire(alerter, glue="remnawave_down")
     assert len(sender.sent) == 2
 
 
 async def test_alert_masks_secrets_and_subscription_urls(
     alerter: Alerter, sender: FakeAlertSender, clock: FakeClock, bot_token: str
 ) -> None:
-    text = f"сбой запроса bot{bot_token}, ссылка {SUBSCRIPTION_URL}"
-    await alerter.raise_alert("k", text)
-    await alerter.raise_alert("k", text)
+    error = RuntimeError(f"сбой запроса bot{bot_token}, ссылка {SUBSCRIPTION_URL}")
+    await fire(alerter, error=error)
+    await fire(alerter, error=error)
     clock.advance(WINDOW)
     await alerter.flush_repeats()
 
@@ -142,8 +152,9 @@ async def test_alert_masks_secrets_and_subscription_urls(
 
 
 async def test_alert_text_is_html_escaped(alerter: Alerter, sender: FakeAlertSender) -> None:
-    await alerter.raise_alert("k", "<b>имя</b>")
-    assert sender.sent[0].text == "🚨 &lt;b&gt;имя&lt;/b&gt;"
+    await fire(alerter, error=RuntimeError("<b>имя</b>"))
+    assert "&lt;b&gt;имя&lt;/b&gt;" in sender.sent[0].text
+    assert "<b>имя" not in sender.sent[0].text
 
 
 async def test_send_failure_is_logged_and_does_not_raise(
@@ -151,7 +162,7 @@ async def test_send_failure_is_logged_and_does_not_raise(
 ) -> None:
     sender.error = ConnectionError("Telegram недоступен")
     with caplog.at_level(logging.ERROR, logger="tsproxy.services.alerts"):
-        await alerter.raise_alert("k", "сбой")
+        await fire(alerter)
 
     errors = [r for r in caplog.records if r.levelno == logging.ERROR]
     assert len(errors) == 1
@@ -163,9 +174,9 @@ async def test_failed_send_still_glues_repeats(
     alerter: Alerter, sender: FakeAlertSender, clock: FakeClock
 ) -> None:
     sender.error = ConnectionError("Telegram недоступен")
-    await alerter.raise_alert("k", "сбой")
+    await fire(alerter)
     sender.error = None
-    await alerter.raise_alert("k", "сбой")
+    await fire(alerter)
     assert sender.sent == []
 
     clock.advance(WINDOW)
@@ -350,17 +361,3 @@ async def test_summary_of_many_causes_fits_telegram_limit(
     assert len(summary.text) <= TELEGRAM_LIMIT
     assert "Повторов за 10 мин после первой тревоги: 300" in summary.text
     assert "×1 — " in summary.text
-
-
-async def test_summary_of_old_alerts_stays_as_before(
-    alerter: Alerter, sender: FakeAlertSender, clock: FakeClock
-) -> None:
-    await alerter.raise_alert("remnawave_down", "Remnawave не отвечает: HTTP 502")
-    await alerter.raise_alert("remnawave_down", "Remnawave не отвечает: таймаут")
-    clock.advance(WINDOW)
-    await alerter.flush_repeats()
-
-    [_, summary] = sender.sent
-    assert summary.text == (
-        "🚨 Повторов за 10 мин после первой тревоги: 1\nRemnawave не отвечает: HTTP 502"
-    )

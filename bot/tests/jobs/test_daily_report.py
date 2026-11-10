@@ -187,10 +187,10 @@ async def test_report_on_test_data(
     jobs.watch("alerts_flush", timedelta(minutes=5))
     # тревоги: две вчера, одна позавчера
     clock.now = BEFORE_DAY
-    await alerter.raise_alert("a", "позавчера")
+    await alerter.alert("payments_off", source=FakeAlertSender.send, glue="a")
     clock.now = IN_DAY
-    await alerter.raise_alert("b", "вчера")
-    await alerter.raise_alert("b", "вчера повтор")
+    await alerter.alert("payments_off", source=FakeAlertSender.send, glue="b")
+    await alerter.alert("payments_off", source=FakeAlertSender.send, glue="b")
     # бэкап панели в 04:00 МСК и бэкап бота в 04:30 МСК сегодня
     panel_copy = touch(
         tmp_path / "panel" / "daily" / "remnawave-2026-10-25.tar.gz.age",

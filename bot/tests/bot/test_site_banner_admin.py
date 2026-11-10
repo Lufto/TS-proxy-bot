@@ -91,7 +91,7 @@ async def test_remnawave_alert_offers_banner_and_button_sets_it(
     ctx: BotContext,
     alert_sender: FakeAlertSender,
 ) -> None:
-    await ctx.alerter.raise_alert(REMNAWAVE_UNAVAILABLE_ALERT, "Remnawave не отвечает")
+    await ctx.alerter.alert(REMNAWAVE_UNAVAILABLE_ALERT, source=FakeAlertSender.send)
 
     [alert] = alert_sender.sent
     button = banner_alert_button(content.admin_texts)
@@ -107,7 +107,7 @@ async def test_remnawave_alert_offers_banner_and_button_sets_it(
 
 
 async def test_other_alerts_have_no_button(ctx: BotContext, alert_sender: FakeAlertSender) -> None:
-    await ctx.alerter.raise_alert("something_else", "Другая тревога")
+    await ctx.alerter.alert("payments_off", source=FakeAlertSender.send, glue="something_else")
 
     [alert] = alert_sender.sent
     assert alert.button is None
