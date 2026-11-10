@@ -22,6 +22,7 @@ from tsproxy.integrations.fakes import FakeRemnawave
 from tsproxy.integrations.remnawave_types import (
     AccountStatus,
     RemnawaveAuthError,
+    RemnawaveRejected,
     RemnawaveUnavailable,
 )
 from tsproxy.services.account_checks import AccountChecks, CheckSource
@@ -121,18 +122,40 @@ async def test_panel_unavailable_raises_alert_and_does_not_crash(
 
     assert handler.checks == []
     [alert] = sender.sent
-    assert "панель не отвечает" in alert.text
+    texts = admin_texts()
+    assert texts.get("alert.reconcile_unavailable.title") in alert.text
+    assert "нет связи" in alert.text
+    assert "Reconciliation._check_accounts" in alert.text
+    assert texts.get("failure.remnawave.unavailable.causes.1.cause") in alert.text
 
 
-async def test_other_panel_error_raises_alert(
+async def test_rejected_token_is_a_panel_failure_with_token_causes(
     reconciliation: Reconciliation, remnawave: FakeRemnawave, sender: FakeAlertSender
 ) -> None:
-    remnawave.fail_next(RemnawaveAuthError("HTTP 401"))
+    remnawave.fail_next(RemnawaveAuthError("Панель не приняла токен: HTTP 401"))
 
     await reconciliation.run()
 
     [alert] = sender.sent
-    assert "RemnawaveAuthError" in alert.text
+    texts = admin_texts()
+    assert texts.get("alert.reconcile_unavailable.title") in alert.text
+    assert "HTTP 401" in alert.text
+    assert texts.get("failure.remnawave.token_rejected.causes.1.cause") in alert.text
+
+
+async def test_other_panel_error_raises_alert_with_own_causes(
+    reconciliation: Reconciliation, remnawave: FakeRemnawave, sender: FakeAlertSender
+) -> None:
+    remnawave.fail_next(RemnawaveRejected("HTTP 400: A039", status_code=400, code="A039"))
+
+    await reconciliation.run()
+
+    [alert] = sender.sent
+    texts = admin_texts()
+    assert texts.get("alert.reconcile_error.title") in alert.text
+    assert "RemnawaveRejected: HTTP 400: A039" in alert.text
+    assert "Reconciliation._check_accounts" in alert.text
+    assert texts.get("alert.reconcile_error.causes.1.cause") in alert.text
 
 
 async def test_handler_failures_raise_one_alert(
@@ -157,7 +180,9 @@ async def test_handler_failures_raise_one_alert(
     await reconciliation.run()
 
     [alert] = sender.sent
-    assert "— 2." in alert.text
+    assert texts.get("alert.reconcile_failed.what", count=2) in alert.text
+    assert "Reconciliation._check_accounts" in alert.text
+    assert texts.get("alert.reconcile_failed.causes.1.cause") in alert.text
 
 
 async def test_quiet_when_everything_is_fine(

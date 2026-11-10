@@ -7,6 +7,7 @@
 """
 
 import logging
+from collections.abc import Callable
 
 from aiogram import F, Router
 from aiogram.enums import ChatType
@@ -20,6 +21,7 @@ from tsproxy.db.models import Client
 from tsproxy.integrations.remnawave_types import (
     AccountNotFound,
     RemnawaveAuthError,
+    RemnawaveError,
     RemnawaveUnavailable,
 )
 from tsproxy.services.connect_waits import DeliveredBy
@@ -28,17 +30,19 @@ logger = logging.getLogger(__name__)
 
 # Ключ склейки тревоги «панель недоступна» — общий для всего бота
 REMNAWAVE_UNAVAILABLE_ALERT = "remnawave_unavailable"
+REMNAWAVE_PROFILE_ALERT = "remnawave_profile"
 # Панель не ответила или не приняла токен: клиенту одно и то же — «пришлём ссылку»
 PANEL_DOWN_ERRORS = (RemnawaveUnavailable, RemnawaveAuthError)
 
 
 async def panel_unavailable_screen(
-    ctx: BotContext, telegram_id: int, error: RemnawaveUnavailable
+    ctx: BotContext, telegram_id: int, error: RemnawaveError, source: Callable[..., object]
 ) -> Screen:
-    """Панель не ответила: тревога администраторам (склеивается), клиенту — «попробуйте позже»."""
+    """Панель не ответила в профиле: тревога администраторам (склеивается со всеми сбоями
+    панели), клиенту — «попробуйте позже». `source` — обработчик, где заметили."""
     logger.warning("Панель недоступна для клиента %s: %s", telegram_id, error)
-    await ctx.alerter.raise_alert(
-        REMNAWAVE_UNAVAILABLE_ALERT, ctx.admin_texts.get("alerts.remnawave_unavailable")
+    await ctx.alerter.alert(
+        REMNAWAVE_PROFILE_ALERT, source=source, error=error, glue=REMNAWAVE_UNAVAILABLE_ALERT
     )
     return ctx.screens.unavailable()
 

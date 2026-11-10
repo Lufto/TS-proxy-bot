@@ -82,7 +82,11 @@ from tsproxy.integrations.payments_types import PaymentProvider
 from tsproxy.integrations.platega import PlategaPaymentProvider, create_platega_http_client
 from tsproxy.integrations.refunds import refund_router
 from tsproxy.integrations.remnawave import RemnawaveApiClient, create_http_client
-from tsproxy.integrations.remnawave_types import RemnawaveUnavailable
+from tsproxy.integrations.remnawave_types import (
+    RemnawaveAuthError,
+    RemnawaveUnavailable,
+    UnexpectedPanelVersion,
+)
 from tsproxy.integrations.telegram_stars import STARS_PROVIDER, TelegramStarsRefunds
 from tsproxy.jobs.backup import DatabaseBackup
 from tsproxy.jobs.daily_report import BotBackupJob, DailyReport, ReportDestination
@@ -167,6 +171,11 @@ BOT_BACKUP_AT = time(4, 30)
 # Ежедневный отчёт (задача 18 в vpn-bot-rework)
 DAILY_REPORT_AT = time(10, 0)
 STOP_SIGNALS = (signal.SIGINT, signal.SIGTERM)
+# Панель не пустила бота при запуске — ждём перед выходом: systemd перезапускает бота через 5 с,
+# а счётчики склейки тревог в памяти, и без паузы тревога уходила бы каждые 5 секунд
+FATAL_START_PAUSE = timedelta(minutes=10)
+REMNAWAVE_AT_START_ALERT = "remnawave_at_start"
+REMNAWAVE_START_REFUSED_ALERT = "remnawave_start_refused"
 
 
 # --- Фоновые задачи ---
@@ -541,7 +550,7 @@ def build_application(
     )
     reconciliation = Reconciliation(account_checks, nodes, alerter, content.admin_texts)
     remnawave_webhook = _remnawave_webhook(
-        settings, RemnawaveSignals(account_checks, nodes), alerter, content, clock
+        settings, RemnawaveSignals(account_checks, nodes), alerter, clock
     )
     # Задача 22: отметки фоновых задач — для сторожа и /health
     job_health = JobHealth(clock)
@@ -778,7 +787,6 @@ def _remnawave_webhook(
     settings: Settings,
     signals: RemnawaveSignals,
     alerter: Alerter,
-    content: Content,
     clock: Clock,
 ) -> RemnawaveWebhook | None:
     """Приёмник вебхуков Remnawave — только если задан секрет подписи."""
@@ -789,7 +797,6 @@ def _remnawave_webhook(
         signals,
         settings.remnawave_webhook_secret.get_secret_value(),
         alerter,
-        content.admin_texts,
         clock,
     )
 
@@ -805,8 +812,11 @@ class _WebServer(uvicorn.Server):
         yield
 
 
-async def _check_panel(app: Application) -> None:
-    """Версия панели Remnawave. Не та основная версия или неверный токен — бот не стартует.
+async def check_panel(
+    app: Application, stop: asyncio.Event, pause: timedelta = FATAL_START_PAUSE
+) -> None:
+    """Версия панели Remnawave. Не та основная версия или неверный токен — тревога и через
+    `pause` (или по сигналу остановки) ошибка: бот не стартует.
 
     Панель недоступна — бот всё равно стартует (меню и инструкции работают), но с тревогой.
     """
@@ -814,10 +824,22 @@ async def _check_panel(app: Application) -> None:
         version = await app.remnawave.check_panel_version()
     except RemnawaveUnavailable as error:
         logger.warning("Remnawave недоступна при старте: %s", error)
-        await app.alerter.raise_alert(
-            REMNAWAVE_UNAVAILABLE_ALERT, app.content.admin_texts.get("alerts.remnawave_at_start")
+        await app.alerter.alert(
+            REMNAWAVE_AT_START_ALERT,
+            source=check_panel,
+            error=error,
+            glue=REMNAWAVE_UNAVAILABLE_ALERT,
         )
         return
+    except (RemnawaveAuthError, UnexpectedPanelVersion) as error:
+        logger.error("Панель не пустила бота: %s — выходим через %s", error, pause)
+        minutes = pause // timedelta(minutes=1)
+        await app.alerter.alert(
+            REMNAWAVE_START_REFUSED_ALERT, source=check_panel, error=error, minutes=minutes
+        )
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(stop.wait(), pause.total_seconds())
+        raise
     logger.info("Remnawave %s", version)
 
 
@@ -887,7 +909,7 @@ async def run_application(app: Application) -> None:
     tasks: list[asyncio.Task[None]] = []
     polling: asyncio.Task[None] | None = None
     try:
-        await _check_panel(app)
+        await check_panel(app, stop)
         await check_payments_mode(app)
         await connect_telegram(app)
         tasks.append(asyncio.create_task(server.serve(), name="web"))

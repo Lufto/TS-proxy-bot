@@ -10,6 +10,7 @@ from bot_updates import ADMIN_CHAT_ID, CLIENT_ID, callback, user
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from tsproxy.bot.admin_site_banner import banner_alert_button
 from tsproxy.bot.callbacks import MenuCallback, ScreenId
 from tsproxy.bot.context import BotContext
 from tsproxy.bot.fakes import FakeTelegramSession
@@ -130,7 +131,14 @@ async def test_panel_down_keeps_trial_and_alerts(
 
     [edited] = telegram.sent(EditMessageText)
     assert edited.text == content.texts.get("trial.pending")
-    assert [m.chat_id for m in alert_sender.sent] == [ADMIN_CHAT_ID]
+    [alert] = alert_sender.sent
+    assert alert.chat_id == ADMIN_CHAT_ID
+    assert content.admin_texts.get("alert.remnawave_trial.title") in alert.text
+    assert "timeout" in alert.text
+    assert "tsproxy.bot.trial.on_trial" in alert.text
+    unavailable_cause = content.admin_texts.get("failure.remnawave.unavailable.causes.1.cause")
+    assert unavailable_cause in alert.text
+    assert alert.button == banner_alert_button(content.admin_texts)
 
 
 async def test_trial_link_arrives_by_itself_when_panel_is_back(

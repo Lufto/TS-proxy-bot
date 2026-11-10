@@ -138,7 +138,7 @@ async def env(engine: AsyncEngine) -> AsyncIterator[Env]:
         AccountChecks(remnawave, RunMode.PROD, clock, [handler]),
         NodeMonitor(remnawave, session_factory, alerter, texts, clock),
     )
-    app = create_web_app(None, RemnawaveWebhook(signals, SECRET, alerter, texts, clock))
+    app = create_web_app(None, RemnawaveWebhook(signals, SECRET, alerter, clock))
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://bot.test") as http:
         yield Env(http, remnawave, handler, sender, clock, session_factory)
@@ -171,7 +171,10 @@ async def test_forged_webhook_is_rejected(env: Env, make_signature: Any) -> None
     assert response.status_code == httpx.codes.FORBIDDEN
     assert env.handler.checks == []
     [alert] = env.sender.sent
-    assert "неверной подписью" in alert.text
+    texts = load_content(REPO_CONTENT, REPO_CONFIG).admin_texts
+    assert texts.get("alert.remnawave_webhook_forged.title") in alert.text
+    assert "RemnawaveWebhook.receive" in alert.text
+    assert texts.get("alert.remnawave_webhook_forged.causes.2.cause") in alert.text
 
 
 async def test_signature_is_over_raw_bytes_not_reparsed_json(env: Env) -> None:

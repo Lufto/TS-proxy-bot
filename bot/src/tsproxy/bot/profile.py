@@ -11,12 +11,11 @@ from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
 from tsproxy.bot.callbacks import DeviceCallback, MenuCallback, RevokeLinkCallback, ScreenId
-from tsproxy.bot.connect import panel_unavailable_screen
+from tsproxy.bot.connect import PANEL_DOWN_ERRORS, panel_unavailable_screen
 from tsproxy.bot.context import BotContext, profile_of
 from tsproxy.bot.profile_screens import ProfileScreens
 from tsproxy.bot.screens import Screen
 from tsproxy.db.models import Client
-from tsproxy.integrations.remnawave_types import RemnawaveUnavailable
 from tsproxy.services.link_revoke import LinkRevoked, LinkRevokeNoAccount, LinkRevokeTooSoon
 
 PROFILE_COMMAND = "profile"
@@ -42,8 +41,8 @@ async def profile_screen(ctx: BotContext, client: Client) -> Screen:
     screens = ProfileScreens(ctx.texts)
     try:
         profile = await ctx.profiles.profile(client)
-    except RemnawaveUnavailable as error:
-        return await panel_unavailable_screen(ctx, client.telegram_id, error)
+    except PANEL_DOWN_ERRORS as error:
+        return await panel_unavailable_screen(ctx, client.telegram_id, error, profile_screen)
     if profile is None:
         return await _no_account(ctx, screens)
     return screens.profile(profile)
@@ -74,8 +73,8 @@ async def devices_screen(ctx: BotContext, client: Client) -> Screen:
     screens = ProfileScreens(ctx.texts)
     try:
         devices = await ctx.profiles.devices(client.telegram_id)
-    except RemnawaveUnavailable as error:
-        return await panel_unavailable_screen(ctx, client.telegram_id, error)
+    except PANEL_DOWN_ERRORS as error:
+        return await panel_unavailable_screen(ctx, client.telegram_id, error, devices_screen)
     if devices is None:
         return await _no_account(ctx, screens)
     return screens.devices(devices)
@@ -96,8 +95,8 @@ async def on_delete_device(
     screens = ProfileScreens(ctx.texts)
     try:
         result = await ctx.profiles.delete_device(client.telegram_id, callback_data.ref)
-    except RemnawaveUnavailable as error:
-        screen = await panel_unavailable_screen(ctx, client.telegram_id, error)
+    except PANEL_DOWN_ERRORS as error:
+        screen = await panel_unavailable_screen(ctx, client.telegram_id, error, on_delete_device)
     else:
         if result is None:
             screen = await _no_account(ctx, screens)
@@ -124,8 +123,8 @@ async def on_revoke(callback: CallbackQuery, ctx: BotContext) -> None:
     screens = ProfileScreens(ctx.texts)
     try:
         result = await ctx.link_revokes.revoke(client)
-    except RemnawaveUnavailable as error:
-        screen = await panel_unavailable_screen(ctx, client.telegram_id, error)
+    except PANEL_DOWN_ERRORS as error:
+        screen = await panel_unavailable_screen(ctx, client.telegram_id, error, on_revoke)
     else:
         match result:
             case LinkRevoked(account):

@@ -32,6 +32,9 @@ from tsproxy.services.clock import Clock, utc_now
 logger = logging.getLogger(__name__)
 
 ONE_MINUTE = timedelta(minutes=1)
+# Описания тревог; склейка — по ноде, чтобы сбои разных нод не прятались друг за другом
+NODE_DOWN_ALERT = "node_down"
+NODE_RESTORED_ALERT = "node_restored"
 
 
 def outage_started_at(node: Node, now: datetime) -> datetime:
@@ -116,9 +119,13 @@ class NodeMonitor:
                 logger.info("Сбой ноды %s с %s уже записан", node.uuid, started_at.isoformat())
                 return
         logger.warning("Нода %s потеряла связь с панелью", node.uuid)
-        await self._alerter.raise_alert(
-            f"node_down:{node.uuid}",
-            self._texts.get("alerts.node_down", name=node.name, since=format_moscow(started_at)),
+        await self._alerter.alert(
+            NODE_DOWN_ALERT,
+            source=self._open_outage,
+            glue=f"{NODE_DOWN_ALERT}:{node.uuid}",
+            name=node.name,
+            since=format_moscow(started_at),
+            status=node.last_status_message or self._texts.get("alert.node_down.no_status"),
         )
 
     async def _close_outage(self, node: Node) -> None:
@@ -139,15 +146,14 @@ class NodeMonitor:
         if affected_rows(result) != 1:
             return  # закрыл параллельный процесс
         logger.info("Нода %s: связь восстановлена", node.uuid)
-        await self._alerter.raise_alert(
-            f"node_restored:{node.uuid}",
-            self._texts.get(
-                "alerts.node_restored",
-                name=node.name,
-                minutes=outage_minutes(started_at, ended_at),
-                since=format_moscow(started_at),
-                until=format_moscow(ended_at),
-            ),
+        await self._alerter.alert(
+            NODE_RESTORED_ALERT,
+            source=self._close_outage,
+            glue=f"{NODE_RESTORED_ALERT}:{node.uuid}",
+            name=node.name,
+            minutes=outage_minutes(started_at, ended_at),
+            since=format_moscow(started_at),
+            until=format_moscow(ended_at),
         )
         if self._on_closed is not None:
             await self._on_closed.outage_closed(outage_id)

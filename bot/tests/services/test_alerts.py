@@ -248,6 +248,52 @@ async def test_new_alerts_are_glued_by_key(
     assert "&lt;code" not in summary.text
 
 
+async def test_alerts_from_different_places_glue_into_one(
+    alerter: Alerter, sender: FakeAlertSender, clock: FakeClock, admin_texts: Texts
+) -> None:
+    """Сверка и «Подключиться» видят один сбой панели — одна тревога (описание первой)
+    и сводка повторов, а не по тревоге на каждое место."""
+    await alerter.alert(
+        "reconcile_unavailable",
+        source=open_connect,
+        error=PANEL_502,
+        glue="remnawave_unavailable",
+        part="ноды",
+    )
+    await alerter.alert("remnawave_unavailable", source=open_connect, error=PANEL_502)
+
+    clock.advance(WINDOW)
+    await alerter.flush_repeats()
+
+    [first, summary] = sender.sent
+    assert admin_texts.get("alert.reconcile_unavailable.where", part="ноды") in first.text
+    assert "Повторов" in summary.text
+
+
+async def test_alert_without_error_tells_own_what_and_causes(
+    alerter: Alerter, sender: FakeAlertSender, admin_texts: Texts
+) -> None:
+    await alerter.alert("reconcile_failed", source=open_connect, count=3)
+
+    [alert] = sender.sent
+    assert admin_texts.get("alert.reconcile_failed.what", count=3) in alert.text
+    assert admin_texts.get("alert_format.causes") in alert.text
+    assert admin_texts.get("alert.reconcile_failed.causes.2.cause") in alert.text
+
+
+async def test_alert_without_error_and_causes_has_no_causes_part(
+    alerter: Alerter, sender: FakeAlertSender, admin_texts: Texts
+) -> None:
+    await alerter.alert(
+        "node_restored", source=open_connect, name="Нода", minutes=5, since="12:00", until="12:05"
+    )
+
+    [alert] = sender.sent
+    assert admin_texts.get("alert.node_restored.title", name="Нода") in alert.text
+    assert "простой — 5 мин" in alert.text
+    assert admin_texts.get("alert_format.causes") not in alert.text
+
+
 # --- Сводка повторов по причинам: сколько раз каждое «что случилось» за окно ---
 
 PANEL_TIMEOUT = RemnawaveUnavailable(

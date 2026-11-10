@@ -35,7 +35,6 @@ from typing import Any
 from fastapi import APIRouter, Request, Response, status
 from pydantic import AwareDatetime, BaseModel
 
-from tsproxy.content.loader import Texts
 from tsproxy.integrations.remnawave_types import RemnawaveError
 from tsproxy.services.alerts import Alerter
 from tsproxy.services.clock import Clock, utc_now
@@ -105,7 +104,6 @@ class RemnawaveWebhook:
     signals: RemnawaveSignals
     secret: str
     alerter: Alerter
-    admin_texts: Texts
     clock: Clock
 
     def router(self) -> APIRouter:
@@ -126,9 +124,7 @@ class RemnawaveWebhook:
             return Response(status_code=status.HTTP_413_CONTENT_TOO_LARGE)
         if not signature_valid(body, request.headers.get(SIGNATURE_HEADER), self.secret):
             logger.warning("Вебхук Remnawave: неверная подпись — отклонён")
-            await self.alerter.raise_alert(
-                FORGED_WEBHOOK_ALERT, self.admin_texts.get("alerts.remnawave_webhook_forged")
-            )
+            await self.alerter.alert(FORGED_WEBHOOK_ALERT, source=self.receive)
             return Response(status_code=status.HTTP_403_FORBIDDEN)
         await self._process(body)
         return Response(status_code=status.HTTP_200_OK)

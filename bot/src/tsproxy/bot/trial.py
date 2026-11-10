@@ -20,6 +20,8 @@ from tsproxy.services.trial import TrialOutcome, TrialResult
 
 logger = logging.getLogger(__name__)
 
+REMNAWAVE_TRIAL_ALERT = "remnawave_trial"
+
 
 def create_trial_router() -> Router:
     router = Router(name="trial")
@@ -52,8 +54,11 @@ async def on_trial(callback: CallbackQuery, ctx: BotContext) -> None:
     client = await ctx.clients.resolve(profile_of(callback.from_user))
     result = await ctx.trials.start(client.id, callback.from_user.id)
     if result.outcome is TrialOutcome.PENDING:
-        await ctx.alerter.raise_alert(
-            REMNAWAVE_UNAVAILABLE_ALERT, ctx.admin_texts.get("alerts.remnawave_unavailable")
+        await ctx.alerter.alert(
+            REMNAWAVE_TRIAL_ALERT,
+            source=on_trial,
+            error=result.error,
+            glue=REMNAWAVE_UNAVAILABLE_ALERT,
         )
     screen = trial_screen(ctx.screens, result)
     if screen is not None:

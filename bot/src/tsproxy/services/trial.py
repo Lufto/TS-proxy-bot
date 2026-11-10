@@ -71,10 +71,12 @@ class TrialOutcome(StrEnum):
 
 @dataclass(frozen=True)
 class TrialResult:
-    """`account` заполнен для GRANTED и, если известен, для HAS_SUBSCRIPTION."""
+    """`account` заполнен для GRANTED и, если известен, для HAS_SUBSCRIPTION; `error` — для
+    PENDING: почему панель не выдала пробный (для тревоги)."""
 
     outcome: TrialOutcome
     account: ProxyAccount | None = None
+    error: RemnawaveUnavailable | None = None
 
 
 @dataclass(frozen=True)
@@ -126,7 +128,7 @@ class TrialService:
             account = await self._find_account(telegram_id)
         except RemnawaveUnavailable as error:
             logger.warning("Пробный клиента %s: панель не ответила: %s", client_id, error)
-            return await self._claim_for_later(client_id, claimed_at)
+            return await self._claim_for_later(client_id, claimed_at, error)
         # Пока ждали панель, параллельное нажатие могло отметить пробный и создать аккаунт:
         # без перечитывания оно выглядело бы как повторный пробный после сброса
         async with self._session_factory() as session:
@@ -162,16 +164,18 @@ class TrialService:
         except AccountNotFound:
             return None  # нормальная ситуация: новый клиент
 
-    async def _claim_for_later(self, client_id: int, claimed_at: datetime | None) -> TrialResult:
+    async def _claim_for_later(
+        self, client_id: int, claimed_at: datetime | None, error: RemnawaveUnavailable
+    ) -> TrialResult:
         """Панель не ответила ещё до выдачи: отметить пробный — выдаст фоновая задача."""
         if claimed_at is not None:
-            return TrialResult(TrialOutcome.PENDING)
+            return TrialResult(TrialOutcome.PENDING, error=error)
         async with self._session_factory() as session:
             if not await claim_trial(session, client_id, utc_now(self._clock)):
                 return TrialResult(TrialOutcome.IN_PROGRESS)
             await session.commit()
         await self._gate.note_new_trial()
-        return TrialResult(TrialOutcome.PENDING)
+        return TrialResult(TrialOutcome.PENDING, error=error)
 
     async def _deliver(
         self,
@@ -197,7 +201,7 @@ class TrialService:
             account = await self._grant(client_id, telegram_id, account)
         except RemnawaveUnavailable as error:
             logger.warning("Пробный клиента %s: панель не ответила: %s", client_id, error)
-            return TrialResult(TrialOutcome.PENDING)
+            return TrialResult(TrialOutcome.PENDING, error=error)
         return TrialResult(TrialOutcome.GRANTED, account)
 
     async def _claim(

@@ -250,6 +250,14 @@ def test_alert_without_part_stops_startup(tmp_path: Path, part: str) -> None:
         check_alert_texts(load_texts(write_folder(tmp_path, broken + "\n")), [])
 
 
+def test_alert_with_own_causes_needs_cause_and_check(tmp_path: Path) -> None:
+    complete = ALERT + "    causes:\n      - cause: нода перезагружается\n        check: uptime\n"
+    check_alert_texts(load_texts(write_folder(tmp_path, complete)), [])
+    broken = complete.replace("\n        check: uptime", "")
+    with pytest.raises(ContentError, match=r"alert\.panel_down\.causes\.1\.check"):
+        check_alert_texts(load_texts(write_folder(tmp_path, broken)), [])
+
+
 @pytest.mark.parametrize(
     ("text", "error"),
     [

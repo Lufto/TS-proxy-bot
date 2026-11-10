@@ -28,8 +28,11 @@
 
 Новый вызов `alert` (bot-alerts, задача 02) собирает тревогу из четырёх частей: что случилось
 (по виду сбоя из ошибки, `failure.<вид>.what`), где заметили (`alert.<ключ>.where` и модуль.функция
-переданного источника), чем грозит, куда смотреть (`failure.<вид>.causes`). Старый `raise_alert`
-с готовым текстом пока остаётся (уберёт задача 09). Склейка у обоих — по ключу.
+переданного источника), чем грозит, куда смотреть (`failure.<вид>.causes`). Тревога без ошибки
+или с ошибкой без вида сбоя («нода потеряла связь», «ошибок при сверке — 2») берёт «что случилось»
+и причины из своего описания: `alert.<ключ>.what` и `alert.<ключ>.causes`. Старый `raise_alert`
+с готовым текстом пока остаётся (уберёт задача 09). Склейка у обоих — по ключу; у `alert` можно
+склеивать с другой тревогой (`glue`): все сбои панели — одна тревога с кнопкой «Поставить плашку».
 
 Для ежедневного отчёта (задача 22) тревоги считаются по дням (по Москве), вместе
 со склеенными повторами. Счёт тоже в памяти — с запуска бота (`counting_since`).
@@ -142,13 +145,15 @@ class Alerter:
         *,
         source: Callable[..., object],
         error: Exception | None = None,
+        glue: str | None = None,
         **values: object,
     ) -> None:
         """Поднять тревогу из описания `alert.<key>` в `alerts/`. `source` — функция, где заметили
         сбой (в тексте — её модуль и имя), `error` — что случилось, `values` — подстановки
-        в описание. Склейка — по `key`. Никогда не бросает исключение из-за отправки."""
+        в описание. Склейка — по `glue`, если он задан, иначе по `key`. Никогда не бросает
+        исключение из-за отправки."""
         body = self._compose(key, source, error, values)
-        await self._raise(key, body, self._cause(error))
+        await self._raise(glue or key, body, self._cause(error))
 
     async def _raise(self, key: str, body: Html, cause: Html | None = None) -> None:
         now = utc_now(self._clock)
@@ -212,12 +217,17 @@ class Alerter:
         if error is not None:
             what = self._what(error, details)
             lines.append(texts.get("alert_format.what", text=Html(what)))
+        elif texts.has(f"alert.{key}.what"):
+            what = texts.get(f"alert.{key}.what", **values)
+            lines.append(texts.get("alert_format.what", text=Html(what)))
         action = Html(texts.get(f"alert.{key}.where", **values))
         lines.append(texts.get("alert_format.where", action=action, source=_source_name(source)))
         threat = Html(texts.get(f"alert.{key}.threat", **values))
         lines.append(texts.get("alert_format.threat", text=threat))
         if isinstance(error, ServiceError) and error.failure is not None:
-            lines.extend(self._causes(error.failure.kind))
+            lines.extend(self._causes(f"failure.{error.failure.kind}"))
+        elif texts.ids_under(f"alert.{key}.causes"):
+            lines.extend(self._causes(f"alert.{key}"))
         return Html("\n".join(lines))
 
     def _cause(self, error: Exception | None) -> Html | None:
@@ -237,8 +247,9 @@ class Alerter:
             return self._texts.get(f"failure.{error.failure.kind}.what", **details)
         return self._texts.get("alert_format.error", name=type(error).__name__, **details)
 
-    def _causes(self, kind: str) -> list[str]:
-        prefix = f"failure.{kind}.causes"
+    def _causes(self, owner: str) -> list[str]:
+        """«Куда смотреть» из `<owner>.causes`: вида сбоя или самой тревоги."""
+        prefix = f"{owner}.causes"
         lines = [self._texts.get("alert_format.causes")]
         for number in self._texts.ids_under(prefix):
             lines.append(

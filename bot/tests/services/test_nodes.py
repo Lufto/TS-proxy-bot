@@ -82,9 +82,39 @@ async def test_lost_connection_opens_outage_and_alerts_once(
     assert outage.started_at == DOWN_AT  # время из панели, а не время проверки
     assert outage.ended_at is None
     [alert] = sender.sent
-    assert "Нидерланды-1" in alert.text
-    assert "потеряла связь" in alert.text
+    texts = admin_texts()
+    assert texts.get("alert.node_down.title", name="Нидерланды-1") in alert.text
     assert "24.10.2026, 14:57 МСК" in alert.text
+    assert "connect ECONNREFUSED" in alert.text  # что сообщает панель
+    assert "NodeMonitor._open_outage" in alert.text
+    assert texts.get("alert.node_down.causes.1.check") in alert.text
+
+
+async def test_node_without_status_message_says_so(
+    monitor: NodeMonitor, remnawave: FakeRemnawave, sender: FakeAlertSender
+) -> None:
+    node = make_node(connected=False, changed_at=DOWN_AT)
+    remnawave.nodes = [node.model_copy(update={"last_status_message": None})]
+
+    await monitor.refresh()
+
+    [alert] = sender.sent
+    no_status = admin_texts().get("alert.node_down.no_status")
+    assert f"сообщение панели: {no_status}" in alert.text
+
+
+async def test_outages_of_two_nodes_are_not_glued(
+    monitor: NodeMonitor, remnawave: FakeRemnawave, sender: FakeAlertSender
+) -> None:
+    remnawave.nodes = [
+        make_node(connected=False, changed_at=DOWN_AT),
+        make_node(connected=False, changed_at=DOWN_AT, uuid="node-2", name="Германия-2"),
+    ]
+
+    await monitor.refresh()
+
+    assert ["Нидерланды-1" in m.text for m in sender.sent] == [True, False]
+    assert "Германия-2" in sender.sent[1].text
 
 
 async def test_restored_connection_closes_outage_with_duration(
@@ -108,8 +138,9 @@ async def test_restored_connection_closes_outage_with_duration(
     assert outage.compensated_at is None  # компенсация — решение администратора (задача 20)
     assert len(sender.sent) == 2
     restored = sender.sent[1].text
-    assert "восстановлена" in restored
+    assert admin_texts().get("alert.node_restored.title", name="Нидерланды-1") in restored
     assert "41 мин" in restored  # с 11:57 до 12:38 UTC
+    assert "NodeMonitor._close_outage" in restored
 
 
 async def test_connected_node_without_outage_is_quiet(

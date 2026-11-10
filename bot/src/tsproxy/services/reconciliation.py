@@ -10,9 +10,14 @@
 """
 
 import logging
+from collections.abc import Callable
 
 from tsproxy.content.loader import Texts
-from tsproxy.integrations.remnawave_types import RemnawaveError, RemnawaveUnavailable
+from tsproxy.integrations.remnawave_types import (
+    RemnawaveAuthError,
+    RemnawaveError,
+    RemnawaveUnavailable,
+)
 from tsproxy.services.account_checks import AccountChecks
 from tsproxy.services.alerts import Alerter
 from tsproxy.services.nodes import NodeMonitor
@@ -22,8 +27,11 @@ logger = logging.getLogger(__name__)
 # Тот же ключ, что у тревоги «Remnawave не отвечает» в боте (`bot/connect.py`):
 # все тревоги о недоступной панели склеиваются в одну.
 REMNAWAVE_UNAVAILABLE_ALERT = "remnawave_unavailable"
+RECONCILE_UNAVAILABLE_ALERT = "reconcile_unavailable"
 RECONCILE_ERROR_ALERT = "reconcile_error"
 RECONCILE_FAILED_ALERT = "reconcile_failed"
+# Панель не ответила или не приняла токен — это сбой панели, а не сверки
+PANEL_DOWN_ERRORS = (RemnawaveUnavailable, RemnawaveAuthError)
 
 
 class Reconciliation:
@@ -49,30 +57,34 @@ class Reconciliation:
         try:
             report = await self._accounts.check_all()
         except RemnawaveError as error:
-            await self._panel_failed("аккаунты", error)
+            await self._panel_failed(self._check_accounts, "accounts", error)
             return
         logger.info("Сверка: проверено аккаунтов %d, ошибок %d", report.accounts, report.failures)
         if report.failures:
-            await self._alerter.raise_alert(
-                RECONCILE_FAILED_ALERT,
-                self._texts.get("alerts.reconcile_failed", count=report.failures),
+            await self._alerter.alert(
+                RECONCILE_FAILED_ALERT, source=self._check_accounts, count=report.failures
             )
 
     async def _check_nodes(self) -> None:
         try:
             await self._nodes.refresh()
         except RemnawaveError as error:
-            await self._panel_failed("ноды", error)
+            await self._panel_failed(self._check_nodes, "nodes", error)
 
-    async def _panel_failed(self, part: str, error: RemnawaveError) -> None:
-        """Панель не дала данные: тревога, сверка повторится в следующий раз."""
+    async def _panel_failed(
+        self, source: Callable[..., object], part: str, error: RemnawaveError
+    ) -> None:
+        """Панель не дала данные: тревога, сверка повторится в следующий раз. `part` —
+        что читали: `accounts` или `nodes` (текст — `reconcile_parts.<part>`)."""
         logger.warning("Сверка (%s) не прошла: %s", part, error)
-        if isinstance(error, RemnawaveUnavailable):
-            await self._alerter.raise_alert(
-                REMNAWAVE_UNAVAILABLE_ALERT, self._texts.get("alerts.reconcile_unavailable")
+        what = self._texts.get(f"reconcile_parts.{part}")
+        if isinstance(error, PANEL_DOWN_ERRORS):
+            await self._alerter.alert(
+                RECONCILE_UNAVAILABLE_ALERT,
+                source=source,
+                error=error,
+                glue=REMNAWAVE_UNAVAILABLE_ALERT,
+                part=what,
             )
             return
-        await self._alerter.raise_alert(
-            RECONCILE_ERROR_ALERT,
-            self._texts.get("alerts.reconcile_error", error=type(error).__name__),
-        )
+        await self._alerter.alert(RECONCILE_ERROR_ALERT, source=source, error=error, part=what)

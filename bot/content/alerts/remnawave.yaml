@@ -1,90 +1,95 @@
-# Тревога: alert.<ключ>: title, threat, where (действие); вид сбоя: failure.remnawave.<вид>: what ({error} и подробности ошибки), causes — список cause/check, сначала самое вероятное
+# Тревоги о панели Remnawave: alert.<ключ>: title, threat, where (действие); по желанию what и causes — если у тревоги нет вида сбоя. Виды сбоя — в remnawave_failures.yaml
 alert:
   # клиент нажал «🚀 Подключиться», а панель не ответила или не приняла токен
   remnawave_unavailable:
     title: Remnawave не отвечает
     threat: клиенты не получают ссылку подписки, оплаты и пробные не выдают доступ.
     where: клиент нажал «🚀 Подключиться», бот запрашивал его прокси-аккаунт в панели
+  # то же в профиле: открыть профиль, устройства, удалить устройство, перевыпустить ссылку
+  remnawave_profile:
+    title: Remnawave не отвечает
+    threat: клиенты не видят профиль и устройства, не могут удалить устройство или перевыпустить ссылку.
+    where: клиент открыл профиль или нажал кнопку в нём, бот обращался к панели
+  # клиент нажал «🎁 Попробовать бесплатно», а панель не ответила: пробный за ним, выдаст фоновая задача
+  remnawave_trial:
+    title: Remnawave не отвечает
+    threat: новые клиенты не получают пробный сразу — бот выдаст его сам и пришлёт ссылку, когда панель ответит.
+    where: клиент нажал «🎁 Попробовать бесплатно», бот искал или создавал его прокси-аккаунт в панели
+  # бот запустился, а панель не ответила на проверку версии: бот работает без панели
+  remnawave_at_start:
+    title: Remnawave не ответила при запуске бота
+    threat: меню и инструкции работают, а ссылки подписки, пробные и выдача доступа после оплаты — нет, пока панель не ответит.
+    where: бот запускался и проверял версию панели
+  # панель не приняла токен или у неё другая основная версия: бот не запускается;
+  # {minutes} — через сколько минут бот выйдет, systemd его перезапустит и тревога повторится
+  remnawave_start_refused:
+    title: Бот не запустился — панель Remnawave его не пустила
+    threat: бот не работает совсем — клиенты не могут ни подключиться, ни заплатить. Через {minutes} мин бот выйдет, systemd перезапустит его, и при той же ошибке тревога придёт снова.
+    where: бот запускался и проверял версию панели
+  # фоновая сверка не получила данные из панели (не ответила или не приняла токен); {part} — аккаунты или ноды
+  reconcile_unavailable:
+    title: Remnawave не отвечает
+    threat: бот не видит окончания сроков и сбои нод, пока панель не ответит; следующая сверка догонит пропущенное.
+    where: фоновая сверка с Remnawave (раз в 5 минут) читала {part}
+  # панель ответила, но сверка не прошла; что случилось — из ошибки; {part} — аккаунты или ноды
+  reconcile_error:
+    title: Сверка с Remnawave не прошла
+    threat: бот не видит окончания сроков и сбои нод; следующая сверка через 5 минут попробует снова.
+    where: фоновая сверка с Remnawave (раз в 5 минут) читала {part}
+    causes:
+      - cause: Панель обновили, и она отвечает на запрос списка не так, как ждёт бот
+        check: версия панели (<code>docker inspect remnawave</code>, поле Image), журнал бота — <code>journalctl -u tsproxy --since "15 min ago" | grep Сверка</code>
+      - cause: Ошибка в самом боте
+        check: трассировка в журнале бота за это время — <code>journalctl -u tsproxy --since "15 min ago"</code>
+  # при сверке упали обработчики аккаунтов; {count} — сколько раз
+  reconcile_failed:
+    title: Сверка с Remnawave — ошибки при обработке клиентов
+    what: обработчики упали {count} раз(а)
+    threat: у части клиентов не обработаны окончание срока, льготный период или напоминания; следующая сверка повторит.
+    where: фоновая сверка с Remnawave передавала аккаунты клиентов обработчикам
+    causes:
+      - cause: Ошибка в коде обработчика бота
+        check: <code>journalctl -u tsproxy --since "15 min ago" | grep "упал на клиенте"</code> — какой обработчик, какой клиент, трассировка ниже
+      - cause: База бота занята или кончилось место
+        check: в той же трассировке ошибки SQLite (database is locked, disk full), <code>df -h</code>
+  # нода потеряла связь с панелью; {name} — имя ноды, {since} — с какого момента, {status} — что сообщает панель
+  node_down:
+    title: Нода «{name}» потеряла связь с панелью
+    what: "панель не видит ноду с {since}; сообщение панели: {status}"
+    # когда панель не сообщила причину — вместо {status}
+    no_status: нет
+    threat: клиенты на этой ноде могут быть без доступа.
+    where: панель сообщила о ноде (вебхук или сверка раз в 5 минут)
+    causes:
+      - cause: Нода или её сервер перезапускается (обновление, перезагрузка, нехватка памяти); обычно ненадолго, дальше придёт «связь восстановлена»
+        check: на сервере ноды <code>docker ps</code> (сколько работает контейнер ноды), <code>docker logs --tail 100</code> контейнера ноды, <code>uptime</code>
+      - cause: Файрвол на сервере ноды не пускает панель (сменился адрес основного сервера или сбросили правила)
+        check: на сервере ноды <code>ufw status</code> — открыт ли порт ноды для нынешнего адреса основного сервера
+      - cause: Xray на ноде не стартует из-за конфига (правили профили, сертификаты, Reality)
+        check: сообщение панели выше, <code>docker logs</code> ноды; что меняли в профилях перед сбоем
+      - cause: Сеть между серверами у хостера
+        check: с основного сервера <code>nc -zv</code> на адрес и порт ноды (из панели)
+  # связь с нодой восстановилась; {minutes} — длительность простоя, {since}–{until} — когда
+  node_restored:
+    title: Нода «{name}» — связь восстановлена
+    what: простой — {minutes} мин (с {since} по {until})
+    threat: клиенты на ноде снова с доступом; долгий простой — повод для компенсации.
+    where: панель сообщила о ноде (вебхук или сверка раз в 5 минут)
+  # вебхук Remnawave с неверной подписью
+  remnawave_webhook_forged:
+    title: Отклонён вебхук Remnawave с неверной подписью
+    what: подпись в заголовке X-Remnawave-Signature не совпала или её нет — бот ответил 403
+    threat: если это настоящие вебхуки панели, бот узнаёт о событиях только из сверки раз в 5 минут — с опозданием.
+    where: на адрес вебхуков Remnawave пришёл запрос
+    causes:
+      - cause: Адрес вебхука вызвал посторонний, например сканер (если тревога единичная, а настоящие вебхуки проходят)
+        check: в журнале бота рядом есть успешные «Вебхук Remnawave …»; Cloudflare → Security → Events по пути /remnawave/webhook
+      - cause: Секреты у панели и у бота разные — правили .env панели, переезжали или восстанавливали (если тревога на каждое событие)
+        check: сравнить WEBHOOK_SECRET_HEADER в .env панели и REMNAWAVE_WEBHOOK_SECRET бота по хэшу (<code>sha256sum</code>), значения в чат не выводить; после правки перезапустить панель
+      - cause: Панель после обновления подписывает тело иначе
+        check: заметки к выпуску панели, если тревоги начались сразу после обновления
 
-failure:
-  remnawave:
-    # вид не уточнён; {error} — текст ошибки
-    unavailable:
-      what: "панель не ответила: {error}"
-      causes:
-        - cause: Панель перегружена или перезапускается
-          check: <code>docker ps</code> (сколько работает remnawave), <code>docker logs --since 30m remnawave</code>, <code>free -m</code>
-        - cause: Плохо работает туннель Cloudflare
-          check: <code>docker logs --since 30m cloudflare-tunnel</code> (строки ERR, Retrying connection)
-        - cause: Плохая сеть самого сервера
-          check: не падали ли в то же время запросы к Telegram и Platega (журнал бота)
-    # {seconds} — сколько ждали ответа, {attempts} — сколько раз спросили
-    timeout:
-      what: не дождались ответа панели за {seconds} сек, попыток — {attempts}
-      causes:
-        - cause: Панель перегружена или перезапускается (обновление, перезагрузка, кончилась память)
-          check: <code>docker ps</code> (если remnawave «Up 2 minutes» — был перезапуск), <code>docker logs --since 30m remnawave</code>, <code>free -m</code>
-        - cause: Плохо работает туннель Cloudflare — запрос висит на стороне Cloudflare
-          check: <code>docker logs --since 30m cloudflare-tunnel</code> (строки ERR, Retrying connection), туннель в Cloudflare Zero Trust → Networks → Tunnels
-        - cause: Плохая сеть самого сервера у хостера
-          check: не падали ли в то же время запросы к Telegram и Platega (журнал бота), страница состояния хостера
-    # {error} — вид сетевой ошибки (ConnectError и т. п.), {attempts} — сколько раз спросили
-    no_connection:
-      what: не удалось соединиться с панелью ({error}), попыток — {attempts}
-      causes:
-        - cause: Сервер не находит адрес панели в DNS или нет исходящей сети
-          check: с сервера бота — <code>getent hosts</code> и <code>curl -sI</code> на адрес из REMNAWAVE_URL
-        - cause: REMNAWAVE_URL ведёт прямо на контейнер, а он остановлен
-          check: строка REMNAWAVE_URL в .env бота, <code>docker ps</code>
-        - cause: Cloudflare недоступен из сети хостера
-          check: cloudflarestatus.com
-    # {status} — HTTP-код ответа, {attempts} — сколько раз спросили
-    server_error:
-      what: панель ответила HTTP {status}, попыток — {attempts}
-      causes:
-        - cause: Контейнер панели упал или перезапускается (502 — Cloudflare не достучался до панели)
-          check: <code>docker ps</code>, <code>docker logs --tail 100 remnawave</code>, health.log бэкапа
-        - cause: Туннель Cloudflare не подключён или в нём старый адрес панели (530, 502)
-          check: <code>docker logs --tail 50 cloudflare-tunnel</code> (connection refused), состояние туннеля в кабинете Cloudflare
-        - cause: Не работает база или Redis панели (500)
-          check: <code>docker ps</code> (remnawave-db, remnawave-redis), <code>docker logs --tail 50 remnawave-db</code>, <code>df -h</code>
-        - cause: Панель только запускается и ещё не готова (503)
-          check: <code>docker logs remnawave</code> — идут ли миграции
-    # {attempts} — сколько раз спросили
-    rate_limited:
-      what: панель ответила HTTP 429 «слишком много запросов», попыток — {attempts}
-      causes:
-        - cause: Сработало ограничение Cloudflare перед панелью
-          check: Cloudflare → Security → Events, фильтр по адресу панели
-        - cause: Бот сам шлёт слишком много запросов (сверка и клиенты одновременно)
-          check: журнал бота — сколько запросов к панели в эту минуту
-    # {error} — «Панель не приняла токен: HTTP 401»
-    token_rejected:
-      what: "{error}"
-      causes:
-        - cause: Токен удалили или перевыпустили в панели, а в .env бота остался старый (чаще при 401)
-          check: список API-токенов в панели, дата создания токена бота; значение токена в чат не выводить
-        - cause: У токена нет нужных прав (чаще при 403, после обновления панели)
-          check: в панели «API-токены» → права токена бота (пользователи, ноды, сквады, HWID, настройки подписки, метаданные)
-        - cause: Ответ 403 прислал Cloudflare, а не панель (ошибка 1010, правило WAF)
-          check: Cloudflare → Security → Events; в журнале бота HTML-страница Cloudflare вместо JSON
-        - cause: Панель восстановили или перенесли с другим APP_SECRET — старые токены недействительны
-          check: не было ли восстановления или переезда панели; выпустить новый токен
-    # {error} — сколько полей не прошло и первое из них
-    bad_response:
-      what: "{error}"
-      causes:
-        - cause: Панель обновили, а бот закреплён на SDK своей версии
-          check: версия панели (<code>docker inspect remnawave</code>, поле Image) против версии remnawave-api в боте
-        - cause: В панели запись, которой SDK не ждёт (если ошибка у одного клиента или ноды)
-          check: журнал бота — на каком запросе ошибка, эту запись в панели
-        - cause: Вместо ответа панели пришла страница Cloudflare
-          check: Cloudflare → Security → Events
-    # {error} — версия панели и под какую написан бот
-    unexpected_version:
-      what: "{error}"
-      causes:
-        - cause: Панель обновили на новую основную версию (образ latest или ручное обновление)
-          check: строка image в docker-compose.yml панели, <code>docker inspect remnawave</code>
-        - cause: Панель вернула пустую или странную строку версии
-          check: журнал бота
+# что читала сверка — для {part} в reconcile_unavailable и reconcile_error
+reconcile_parts:
+  accounts: аккаунты клиентов
+  nodes: ноды

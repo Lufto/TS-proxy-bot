@@ -82,6 +82,9 @@ class Texts:
         except KeyError as error:
             raise ContentError(f"{self._source}: {key} ждёт подстановку {error}") from None
 
+    def has(self, key: str) -> bool:
+        return key in self._items
+
     def placeholders(self, key: str) -> set[str]:
         return {field for _, field, _, _ in Formatter().parse(self._items[key]) if field}
 
@@ -412,9 +415,20 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
         "alerts.repeated",
         "alerts.repeated_cause",
         "alerts.repeated_other",
-        "alerts.remnawave_unavailable",
         "alert.remnawave_unavailable.title",
-        "alerts.remnawave_at_start",
+        "alert.remnawave_profile.title",
+        "alert.remnawave_trial.title",
+        "alert.remnawave_at_start.title",
+        "alert.remnawave_start_refused.title",
+        "alert.reconcile_unavailable.title",
+        "alert.reconcile_error.title",
+        "alert.reconcile_failed.title",
+        "alert.node_down.title",
+        "alert.node_restored.title",
+        "alert.remnawave_webhook_forged.title",
+        "alert.node_down.no_status",
+        "reconcile_parts.accounts",
+        "reconcile_parts.nodes",
         "alerts.bot_error",
         # задача 29: оплата выключена
         "alerts.payments_off",
@@ -464,13 +478,6 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
         "support.reminder_assignee",
         "support.quick_replies_title",
         "support.quick_reply_sent",
-        # задача 09: вебхуки Remnawave, сверка, связь с нодами
-        "alerts.remnawave_webhook_forged",
-        "alerts.reconcile_unavailable",
-        "alerts.reconcile_error",
-        "alerts.reconcile_failed",
-        "alerts.node_down",
-        "alerts.node_restored",
         "alerts.payments_unavailable",  # задача 12
         # задача 22: сторож фоновых задач и бэкапы панели
         "alerts.job_stale",
@@ -890,6 +897,7 @@ def check_alert_texts(admin_texts: Texts, failure_kinds: Iterable[str]) -> None:
     с текстами. Иначе бот не стартует: неполная тревога не должна дойти до группы."""
     for alert in admin_texts.ids_under(ALERT_GROUP):
         admin_texts.require(f"{ALERT_GROUP}.{alert}.{part}" for part in ALERT_PARTS)
+        _check_causes(admin_texts, f"{ALERT_GROUP}.{alert}")  # свои причины — по желанию
     written = [
         f"{service}.{kind}"
         for service in admin_texts.ids_under(FAILURE_GROUP)
@@ -901,11 +909,17 @@ def check_alert_texts(admin_texts: Texts, failure_kinds: Iterable[str]) -> None:
 
 def _check_failure_texts(admin_texts: Texts, prefix: str) -> None:
     admin_texts.require([f"{prefix}.what"])
-    causes = admin_texts.ids_under(f"{prefix}.causes")
-    if not causes:
+    if not admin_texts.ids_under(f"{prefix}.causes"):
         raise ContentError(f"{ADMIN_FOLDERS[1]}/: у {prefix} нет ни одной причины (causes)")
+    _check_causes(admin_texts, prefix)
+
+
+def _check_causes(admin_texts: Texts, prefix: str) -> None:
+    """У каждой причины в `<prefix>.causes` есть и причина, и проверка."""
     admin_texts.require(
-        f"{prefix}.causes.{number}.{part}" for number in causes for part in FAILURE_CAUSE_PARTS
+        f"{prefix}.causes.{number}.{part}"
+        for number in admin_texts.ids_under(f"{prefix}.causes")
+        for part in FAILURE_CAUSE_PARTS
     )
 
 

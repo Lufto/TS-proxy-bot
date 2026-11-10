@@ -196,7 +196,8 @@ async def test_panel_down_on_lookup_keeps_trial_and_job_delivers_it(
 
     result = await trials.start(client.id, TELEGRAM_ID)
 
-    assert result == TrialResult(TrialOutcome.PENDING)
+    assert result.outcome is TrialOutcome.PENDING
+    assert str(result.error) == "timeout"  # причина — для тревоги
     assert remnawave.accounts == {}
     clock.advance(timedelta(minutes=5))
     [delivered] = await trials.deliver_pending()
@@ -217,7 +218,7 @@ async def test_job_delivers_trial_once_panel_answers_again(
     remnawave = FlakyCreateRemnawave(clock, create_failures=2)
     trials = make_service(session_factory, remnawave, clock, mask)
 
-    assert await trials.start(client.id, TELEGRAM_ID) == TrialResult(TrialOutcome.PENDING)
+    assert (await trials.start(client.id, TELEGRAM_ID)).outcome is TrialOutcome.PENDING
     assert await trials.deliver_pending() == []  # отметка свежая: выдачу, может, ещё ведут
     clock.advance(timedelta(minutes=3))
     assert await trials.deliver_pending() == []  # панель всё ещё не отвечает

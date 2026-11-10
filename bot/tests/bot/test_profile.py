@@ -18,6 +18,7 @@ from bot_updates import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from tsproxy.bot.admin_site_banner import banner_alert_button
 from tsproxy.bot.callbacks import DeviceCallback, MenuCallback, ScreenId
 from tsproxy.bot.fakes import FakeTelegramSession
 from tsproxy.bot.profile_screens import ProfileScreens
@@ -27,7 +28,12 @@ from tsproxy.domain.constants import BYTES_PER_GB
 from tsproxy.domain.dates import format_moscow
 from tsproxy.domain.profile import ProfileStatus, TimeLeft
 from tsproxy.integrations.fakes import FakeRemnawave
-from tsproxy.integrations.remnawave_types import Device, ProxyAccount, RemnawaveUnavailable
+from tsproxy.integrations.remnawave_types import (
+    Device,
+    ProxyAccount,
+    RemnawaveAuthError,
+    RemnawaveUnavailable,
+)
 from tsproxy.services.fakes import FakeAlertSender
 from tsproxy.services.profile import DeviceList, DeviceSlots, Profile, TrafficUsage, device_ref
 
@@ -178,6 +184,32 @@ async def test_panel_unavailable_apologizes_and_alerts(
     assert edited.text == content.texts.get("connect.unavailable")
     [alert] = alert_sender.sent
     assert (alert.chat_id, alert.thread_id) == (ADMIN_CHAT_ID, ALERTS_THREAD_ID)
+    assert content.admin_texts.get("alert.remnawave_profile.title") in alert.text
+    assert "timeout" in alert.text
+    assert "tsproxy.bot.profile.profile_screen" in alert.text
+    assert alert.button == banner_alert_button(content.admin_texts)
+
+
+async def test_rejected_token_in_devices_apologizes_and_alerts_with_token_causes(
+    dispatcher: Dispatcher,
+    bot: Bot,
+    telegram: FakeTelegramSession,
+    remnawave: FakeRemnawave,
+    alert_sender: FakeAlertSender,
+    content: Content,
+) -> None:
+    await create_account(remnawave)
+    remnawave.fail_next(RemnawaveAuthError("Панель не приняла токен: HTTP 403"))
+
+    await dispatcher.feed_update(bot, callback(user(CLIENT_ID), DEVICES))
+
+    [edited] = telegram.sent(EditMessageText)
+    assert edited.text == content.texts.get("connect.unavailable")
+    [alert] = alert_sender.sent
+    assert "HTTP 403" in alert.text
+    assert "tsproxy.bot.profile.devices_screen" in alert.text
+    token_cause = content.admin_texts.get("failure.remnawave.token_rejected.causes.1.cause")
+    assert token_cause in alert.text
 
 
 # --- Устройства ---
