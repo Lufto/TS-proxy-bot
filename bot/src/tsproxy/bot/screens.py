@@ -55,6 +55,18 @@ class Screens:
     def _back(self) -> list[InlineKeyboardButton]:
         return [self._button("buttons.back", ScreenId.MAIN)]
 
+    def _documents(self) -> list[InlineKeyboardButton]:
+        """Соглашение и политика на сайте — всегда под рукой (требование Platega)."""
+        return [
+            InlineKeyboardButton(
+                text=self._texts.get("buttons.terms"), url=self._texts.get("documents.terms_url")
+            ),
+            InlineKeyboardButton(
+                text=self._texts.get("buttons.privacy"),
+                url=self._texts.get("documents.privacy_url"),
+            ),
+        ]
+
     def main_menu(self, *, trial_available: bool) -> Screen:
         """Главное меню. «Попробовать бесплатно» — только если пробный ещё не брал."""
         rows = [[self._button("buttons.connect", ScreenId.CONNECT)]]
@@ -70,12 +82,14 @@ class Screens:
                 self._button("buttons.support", ScreenId.SUPPORT),
             ],
             [self._button("buttons.about", ScreenId.ABOUT)],
+            self._documents(),
         ]
         return Screen(self._texts.get("menu.title"), InlineKeyboardMarkup(inline_keyboard=rows))
 
     def about(self) -> Screen:
         return Screen(
-            self._texts.get("about.text"), InlineKeyboardMarkup(inline_keyboard=[self._back()])
+            self._texts.get("about.text"),
+            InlineKeyboardMarkup(inline_keyboard=[self._documents(), self._back()]),
         )
 
     def support(self) -> Screen:

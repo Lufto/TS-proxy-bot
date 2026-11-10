@@ -1,8 +1,15 @@
 # Главное меню — одно сообщение, экраны меняются в нём же
 menu:
+  # «Platega test» — кодовое слово Platega на время согласования кассы; после регистрации убрать
   title: |-
     <b>TS Proxy</b> — прокси-сервис с шифрованием трафика.
+    Platega test
     Выберите, что нужно:
+
+# Документы — отдельными кнопками в меню и «О сервисе» (требование Platega для банка)
+documents:
+  terms_url: https://ts-proxy.com/terms
+  privacy_url: https://ts-proxy.com/privacy
 
 # «ℹ️ О сервисе»
 about:
