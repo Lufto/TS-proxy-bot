@@ -103,8 +103,15 @@ for (const page of PAGES) {
   }
 }
 const robots = await fetchPage('/robots.txt');
-if (robots.status !== 200 || !robots.body.includes('Disallow: /kit/')) {
-  failures.push('/robots.txt: ждали ответ 200 и закрытый /kit/');
+if (robots.status !== 200 || !robots.body.includes('Sitemap:')) {
+  failures.push('/robots.txt: ждали ответ 200 и ссылку на карту сайта');
+}
+// Страницу UI-кита убрали (владелец 2026-11-11): показывать её нельзя
+for (const path of ['/kit/', '/en/kit/']) {
+  const kit = await fetchPage(path);
+  if (kit.status !== 404) {
+    failures.push(`${path}: ждали 404, а ответ ${kit.status}`);
+  }
 }
 
 // Старые адреса сайта на чистом HTML
