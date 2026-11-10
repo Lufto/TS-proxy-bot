@@ -29,7 +29,7 @@ ssh tsp "bash -s -- $REL" <<'REMOTE'
 set -euo pipefail
 REL="$1"
 DIR="/opt/tsproxy/releases/$REL"
-UV=/opt/tsproxy-tools/uv
+UV=/opt/tsproxy-tools/bin/uv
 test -x "$UV" || { echo "Нет $UV (задача 26)"; exit 1; }
 test -f /var/lib/tsproxy/.env || { echo "Нет /var/lib/tsproxy/.env"; exit 1; }
 
