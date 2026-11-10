@@ -5,8 +5,8 @@
 set -uo pipefail
 
 STATE=/var/lib/remnawave-backup
-mkdir -p "$STATE"
-chmod 700 "$STATE"
+# Права на $STATE (750, группа бота) ставит remnawave-backup.sh — здесь не трогаем
+mkdir -p -m 700 "$STATE"
 
 running() { [ "$(docker inspect -f '{{.State.Running}}' "$1" 2>/dev/null)" = true ]; }
 

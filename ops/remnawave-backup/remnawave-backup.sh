@@ -15,11 +15,11 @@ STATE=/var/lib/remnawave-backup
 DEST=/var/backups/remnawave
 KEEP_DAYS=7
 HEALTHY_DAYS=7
+# Бот (группа tsproxy) читает журнал и список копий; сами копии — только root (600)
+READER_GROUP=tsproxy
 
-mkdir -p "$DEST/daily" "$DEST/monthly" "$STATE"
-chmod 700 "$DEST" "$DEST/daily" "$DEST/monthly" "$STATE"
-
-log() { echo "$(date -Is) $*" >> "$STATE/backup.log"; }
+# Журнала может ещё не быть (сбой на первых строках) — тогда пишем только в stderr cron
+log() { echo "$(date -Is) $*" >> "$STATE/backup.log" 2>/dev/null || echo "$*" >&2; }
 
 # Telegram необязателен: без telegram.env функции отправки ничего не делают.
 telegram_ready() {
@@ -48,6 +48,14 @@ on_error() {
     send_message "🚨 Бэкап панели Remnawave не получился ($(hostname), строка $1). Журнал: $STATE/backup.log"
 }
 trap 'on_error $LINENO' ERR
+
+mkdir -p "$DEST/daily" "$DEST/monthly" "$STATE"
+if getent group "$READER_GROUP" >/dev/null; then
+    chgrp "$READER_GROUP" "$DEST" "$DEST/daily" "$DEST/monthly" "$STATE"
+    chmod 750 "$DEST" "$DEST/daily" "$DEST/monthly" "$STATE"
+else
+    chmod 700 "$DEST" "$DEST/daily" "$DEST/monthly" "$STATE"
+fi
 
 day=$(TZ=Europe/Moscow date +%F)
 month=${day:0:7}

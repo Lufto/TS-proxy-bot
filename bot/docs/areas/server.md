@@ -21,7 +21,7 @@
 | Настройки из `.env` (секреты — `SecretStr`) | `config.py` |
 | Тексты и тарифы | `content/loader.py`; файлы — `bot/content/{client,admin,alerts}/`, тарифы и ссылки сайта — `config/tariffs.yaml`, `config/site.yaml` |
 | База (SQLite): `engine.py`, `models.py`, `repository.py`, миграции `db/migrations/` | `db/` (схема утверждена владельцем; менять — с его согласия) |
-| Чистка старых данных | `db/retention.py` (уведомления 90 дней, переписка 3 года) |
+| Чистка старых данных | `db/retention.py` (уведомления 90 дней, переписка 3 года), раз в сутки в 05:00 МСК — `jobs/cleanup.py` |
 | Логи с маскировкой | `logging_setup.py` |
 | Вход: запуск, сборка зависимостей | `__main__.py`, `app.py` |
 | Подключение обработчиков бота, общие зависимости, данные кнопок, «не подошло ни одному» | `bot/dispatcher.py`, `bot/context.py`, `bot/callbacks.py`, `bot/fallback.py` |

@@ -4,10 +4,12 @@
 
 - **Платёж** — `POST /transaction/process`: СБП (`paymentMethod: 2`), `orderId` и `payload` —
   номер нашего заказа, `return` и `failedUrl` — прямо в бота `https://t.me/<бот>` (сайт
-  не должен перебрасывать в бота — менеджер Platega). `metadata` не передаём, email клиента
-  тоже (решение владельца 2026-10-31). Если Platega его потребует — включить
-  `send_customer_email`: бот передаст `{telegram_id}@telegram.org`, как советует документация
-  для магазинов в Telegram. Срок ссылки — из `expiresIn` ответа (обычно 30 минут).
+  не должен перебрасывать в бота — менеджер Platega). В `metadata` — только email клиента
+  `{telegram_id}@telegram.org`, как советует документация для магазинов в Telegram: без него
+  форма оплаты спросит email у клиента. Сборка включает это (`send_customer_email=True`,
+  решение владельца 2026-10-31). `metadata.userId` не передаём: нужен ли он нашему
+  магазину — вопрос менеджеру (`bot/docs/todo.md`). Срок ссылки — из `expiresIn` ответа
+  (обычно 30 минут).
   Ключа идемпотентности у Platega нет: повтор после таймаута может создать второй платёж,
   но его ссылку клиент не увидит — оплатить его нельзя.
 - **Статус** — `GET /transaction/{id}`. Номер заказа в ответе — только в `payload`
@@ -178,7 +180,7 @@ class PlategaPaymentProvider:
         clock: Callable[[], datetime],
         *,
         test: bool,  # тестовый кабинет Platega (`PLATEGA_TEST_ACCOUNT`)
-        send_customer_email: bool = False,  # решение владельца 2026-10-31: пока не передаём
+        send_customer_email: bool = False,  # сборка включает: решение владельца 2026-10-31
     ) -> None:
         self._http = http
         self._merchant_id = merchant_id

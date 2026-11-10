@@ -25,6 +25,7 @@ from aiogram import F, Router
 from aiogram.enums import ChatType
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from sqlalchemy.exc import SQLAlchemyError
 
 from tsproxy.bot.callbacks import (
     MenuCallback,
@@ -347,6 +348,11 @@ async def on_payment_check(
             order_id=order_id,
         )
         screen = screens.notice("payment.check_unavailable", check_order_id=order_id)
+    except SQLAlchemyError:
+        # оплата есть, а база её не записала: тревогу с номером платежа уже поднял зачёт,
+        # повторы идут фоновой проверкой; не вышло — доступ выдаёт администратор
+        logger.exception("Заказ %s: оплата не записалась при проверке клиентом", order_id)
+        screen = screens.notice("payment.not_recorded")
     else:
         logger.info("Клиент %s проверил заказ %s: %s", client.telegram_id, order_id, outcome)
         screen = screens.check_result(outcome, order_id)

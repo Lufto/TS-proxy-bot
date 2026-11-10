@@ -9,7 +9,8 @@
 Держать транзакцию базы открытой на время запроса к панели нельзя — SQLite заблокирует
 запись для всех остальных клиентов.
 
-Панель не ответила (или бот упал между шагами) — отметка остаётся без события. Пробный
+Панель не ответила или не приняла токен (или бот упал между шагами) — отметка остаётся
+без события. Пробный
 за клиентом: фоновая задача `deliver_pending` раз в минуту доделывает выдачу и бот сам
 присылает ссылку (решение владельца 2026-10-25). Доделывать можно не раньше чем через
 `STALE_CLAIM_AFTER`: до этого выдачу, возможно, ещё ведёт первое нажатие. Перехват
@@ -43,6 +44,7 @@ from tsproxy.domain.trial import TRIAL_PERIOD, start_trial
 from tsproxy.integrations.remnawave_types import (
     AccountNotFound,
     ProxyAccount,
+    RemnawaveAuthError,
     RemnawaveClient,
     RemnawaveUnavailable,
 )
@@ -56,6 +58,10 @@ STALE_CLAIM_AFTER = timedelta(minutes=2)
 # Зависшие выдачи старше этого фоновая задача не трогает: клиент может нажать кнопку сам
 PENDING_TRIAL_WINDOW = TRIAL_PERIOD
 PENDING_BATCH_SIZE = 50
+# Панель не ответила или не приняла токен: пробный за клиентом, выдаст фоновая задача, когда
+# панель ожила или токен заменили
+PANEL_DOWN_ERRORS = (RemnawaveUnavailable, RemnawaveAuthError)
+type PanelDownError = RemnawaveUnavailable | RemnawaveAuthError
 
 
 class TrialOutcome(StrEnum):
@@ -65,7 +71,7 @@ class TrialOutcome(StrEnum):
     ALREADY_USED = "already_used"  # пробный уже был доставлен
     HAS_SUBSCRIPTION = "has_subscription"  # клиент платил или у него уже есть подписка
     IN_PROGRESS = "in_progress"  # пробный выдаёт параллельное нажатие
-    PENDING = "pending"  # панель не ответила: пробный за клиентом, выдаст фоновая задача
+    PENDING = "pending"  # панель не ответила или не приняла токен: выдаст фоновая задача
     DISABLED = "disabled"  # пробные выключены (задача 28): новый пробный не выдаётся
 
 
@@ -76,7 +82,7 @@ class TrialResult:
 
     outcome: TrialOutcome
     account: ProxyAccount | None = None
-    error: RemnawaveUnavailable | None = None
+    error: PanelDownError | None = None
 
 
 @dataclass(frozen=True)
@@ -126,7 +132,7 @@ class TrialService:
             return TrialResult(TrialOutcome.DISABLED)
         try:
             account = await self._find_account(telegram_id)
-        except RemnawaveUnavailable as error:
+        except PANEL_DOWN_ERRORS as error:
             logger.warning("Пробный клиента %s: панель не ответила: %s", client_id, error)
             return await self._claim_for_later(client_id, claimed_at, error)
         # Пока ждали панель, параллельное нажатие могло отметить пробный и создать аккаунт:
@@ -142,13 +148,14 @@ class TrialService:
     async def deliver_pending(self) -> list[DeliveredTrial]:
         """Фоновая задача: доделать выдачи, которые не прошли из-за панели.
 
-        Панель всё ещё не отвечает — проход заканчивается, следующий будет через минуту.
+        Панель всё ещё не отвечает (или токен не заменили) — проход заканчивается, следующий
+        будет через минуту.
         """
         delivered: list[DeliveredTrial] = []
         for client_id, telegram_id, claimed_at in await self._pending_claims():
             try:
                 account = await self._find_account(telegram_id)
-            except RemnawaveUnavailable as error:
+            except PANEL_DOWN_ERRORS as error:
                 logger.warning("Зависшие пробные: панель не ответила: %s", error)
                 break
             result = await self._deliver(client_id, telegram_id, claimed_at, account)
@@ -165,7 +172,7 @@ class TrialService:
             return None  # нормальная ситуация: новый клиент
 
     async def _claim_for_later(
-        self, client_id: int, claimed_at: datetime | None, error: RemnawaveUnavailable
+        self, client_id: int, claimed_at: datetime | None, error: PanelDownError
     ) -> TrialResult:
         """Панель не ответила ещё до выдачи: отметить пробный — выдаст фоновая задача."""
         if claimed_at is not None:
@@ -199,7 +206,7 @@ class TrialService:
             await self._gate.note_new_trial()  # новая отметка, а не перехват зависшей
         try:
             account = await self._grant(client_id, telegram_id, account)
-        except RemnawaveUnavailable as error:
+        except PANEL_DOWN_ERRORS as error:
             logger.warning("Пробный клиента %s: панель не ответила: %s", client_id, error)
             return TrialResult(TrialOutcome.PENDING, error=error)
         return TrialResult(TrialOutcome.GRANTED, account)

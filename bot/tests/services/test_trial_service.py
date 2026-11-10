@@ -14,7 +14,11 @@ from tsproxy.db.engine import create_session_factory
 from tsproxy.db.models import Client, Event, Order
 from tsproxy.domain.constants import BYTES_PER_GB, TRIAL_DEVICE_LIMIT, TRIAL_TRAFFIC_GB
 from tsproxy.integrations.fakes import FakeRemnawave
-from tsproxy.integrations.remnawave_types import ProxyAccount, RemnawaveUnavailable
+from tsproxy.integrations.remnawave_types import (
+    ProxyAccount,
+    RemnawaveAuthError,
+    RemnawaveUnavailable,
+)
 from tsproxy.services.events import EventKind, EventLog
 from tsproxy.services.fakes import FakeClock, FakeTrialGate
 from tsproxy.services.masking import Masker
@@ -203,6 +207,27 @@ async def test_panel_down_on_lookup_keeps_trial_and_job_delivers_it(
     [delivered] = await trials.deliver_pending()
     assert delivered == DeliveredTrial(TELEGRAM_ID, await remnawave.get_account(TELEGRAM_ID))
     assert delivered.account.expire_at == clock.now + TRIAL_PERIOD
+    assert len(await trial_events(session)) == 1
+
+
+async def test_token_rejected_keeps_trial_and_job_delivers_it_after_new_token(
+    trials: TrialService,
+    remnawave: FakeRemnawave,
+    session: AsyncSession,
+    client: Client,
+    clock: FakeClock,
+) -> None:
+    error = RemnawaveAuthError("401")
+    remnawave.fail_next(error)
+
+    result = await trials.start(client.id, TELEGRAM_ID)
+
+    assert result.outcome is TrialOutcome.PENDING
+    assert result.error is error  # вид сбоя «токен не принят» — для тревоги
+    assert remnawave.accounts == {}
+    clock.advance(timedelta(minutes=5))
+    [delivered] = await trials.deliver_pending()
+    assert delivered.telegram_id == TELEGRAM_ID
     assert len(await trial_events(session)) == 1
 
 

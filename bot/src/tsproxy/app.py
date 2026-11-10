@@ -15,7 +15,8 @@ Telegram, журнал событий, тревоги, тексты. Остал�
   проверка оплат раз в 2 и раз в 30 минут и сверка с платёжкой в 09:00 МСК (задача 14);
   доделывание возвратов после сбоев раз в минуту (задача 21);
   сторож фоновых задач раз в минуту, присмотр за бэкапами панели раз в час, бэкап базы бота
-  в 04:30 МСК (только `RUN_MODE=prod`), ежедневный отчёт в 10:00 МСК (задача 22).
+  в 04:30 МСК (только `RUN_MODE=prod`), ежедневный отчёт в 10:00 МСК (задача 22);
+  чистка старых данных в 05:00 МСК (`db/retention.py`).
 
 Каждый запуск фоновой задачи отмечается в `JobHealth`: по отметкам сторож поднимает тревогу
 о зависшей задаче, а `/health` отвечает «проблема».
@@ -90,6 +91,7 @@ from tsproxy.integrations.remnawave_types import (
 )
 from tsproxy.integrations.telegram_stars import STARS_PROVIDER, TelegramStarsRefunds
 from tsproxy.jobs.backup import DatabaseBackup
+from tsproxy.jobs.cleanup import DataCleanup
 from tsproxy.jobs.daily_report import BotBackupJob, DailyReport, ReportDestination
 from tsproxy.logging_setup import MaskingFilter
 from tsproxy.services.account_checks import AccountCheckHandler, AccountChecks
@@ -170,6 +172,8 @@ WATCHDOG_INTERVAL = timedelta(minutes=1)
 PANEL_BACKUP_CHECK_INTERVAL = timedelta(hours=1)
 # Бэкап базы бота — через полчаса после бэкапа панели в 04:00 МСК (задача 23)
 BOT_BACKUP_AT = time(4, 30)
+# Чистка старых данных — после бэкапа базы бота
+DATA_CLEANUP_AT = time(5, 0)
 # Ежедневный отчёт (задача 18 в vpn-bot-rework)
 DAILY_REPORT_AT = time(10, 0)
 STOP_SIGNALS = (signal.SIGINT, signal.SIGTERM)
@@ -671,7 +675,8 @@ def _monitoring_jobs(
     stats: StatsService,
     clock: Clock,
 ) -> list[Job]:
-    """Задача 22: сторож, присмотр за бэкапами панели, бэкап базы бота, ежедневный отчёт."""
+    """Задача 22: сторож, присмотр за бэкапами панели, бэкап базы бота, ежедневный отчёт;
+    чистка старых данных."""
     jobs: list[Job] = [
         PeriodicJob(
             "watchdog",
@@ -706,6 +711,7 @@ def _monitoring_jobs(
         clock,
     )
     jobs.append(DailyJob("daily_report", DAILY_REPORT_AT, report.send))
+    jobs.append(DailyJob("data_cleanup", DATA_CLEANUP_AT, DataCleanup(session_factory, clock).run))
     return jobs
 
 

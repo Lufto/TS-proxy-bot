@@ -2,14 +2,17 @@
 
 from datetime import timedelta
 
+import pytest
 from aiogram import Bot, Dispatcher
 from aiogram.methods import EditMessageText, SendMessage
 from aiogram.types import InlineKeyboardMarkup
 from bot_updates import CLIENT_ID, OTHER_CLIENT_ID, callback, user
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from tsproxy.bot.callbacks import PaymentCheckCallback, TariffCallback
+from tsproxy.bot.context import BotContext
 from tsproxy.bot.fakes import FakeTelegramSession
 from tsproxy.content.loader import Content
 from tsproxy.db.enums import OrderStatus
@@ -17,6 +20,7 @@ from tsproxy.db.models import Order
 from tsproxy.integrations.fake_payments import FakePaymentProvider
 from tsproxy.integrations.payments_types import PaymentUnavailable
 from tsproxy.services.fakes import FakeAlertSender, FakeClock
+from tsproxy.services.payment_checks import CheckOutcome
 
 
 def check(order_id: int) -> str:
@@ -180,3 +184,26 @@ async def test_buy_with_provider_silent_on_check_gives_no_link(
 
     assert telegram.sent(EditMessageText)[-1].text == content.texts.get("payment.unavailable")
     assert len(payments.ledger.all()) == 1
+
+
+async def test_check_when_payment_not_recorded_says_admin_will_grant(
+    dispatcher: Dispatcher,
+    bot: Bot,
+    telegram: FakeTelegramSession,
+    content: Content,
+    ctx: BotContext,
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # оплата есть, а база её не записала (тревогу поднимает зачёт): клиент не гадает,
+    # что случилось, — доступ выдаст администратор
+    async def database_down(client_id: int, order_id: int) -> CheckOutcome:
+        raise OperationalError("UPDATE orders", {}, Exception("database is locked"))
+
+    await buy_month(dispatcher, bot)
+    order = await only_order(session_factory)
+    monkeypatch.setattr(ctx.payment_checks, "check_order", database_down)
+
+    await dispatcher.feed_update(bot, callback(user(CLIENT_ID), check(order.id)))
+
+    assert telegram.sent(EditMessageText)[-1].text == content.texts.get("payment.not_recorded")

@@ -11,9 +11,9 @@ from enum import StrEnum
 from tsproxy.domain.constants import PAYMENT_LINK_LIFETIME
 from tsproxy.domain.dates import require_aware
 
-# Ссылку, которой осталось жить меньше, клиенту не отдаём — создаём новую
-# (решение владельца 2026-10-25: на оплату нужно время, 5 минут мало).
-PAYMENT_REUSE_MIN_REMAINING = timedelta(minutes=15)
+# Ссылку, которой осталось жить меньше, клиенту не отдаём — создаём новую (решение
+# владельца 2026-11-10: ссылка Platega живёт около 10 минут, при 15 повтора не было бы вовсе).
+PAYMENT_REUSE_MIN_REMAINING = timedelta(minutes=5)
 
 
 def payment_link_expires_at(created_at: datetime, provider_expires_at: datetime | None) -> datetime:
@@ -28,7 +28,7 @@ def payment_link_expires_at(created_at: datetime, provider_expires_at: datetime 
 
 
 def can_reuse_payment(expires_at: datetime | None, now: datetime) -> bool:
-    """Можно ли отдать клиенту ту же ссылку: ей осталось жить не меньше 15 минут."""
+    """Можно ли отдать клиенту ту же ссылку: ей осталось жить не меньше 5 минут."""
     require_aware(now)
     if expires_at is None:
         return False
