@@ -35,7 +35,7 @@ from typing import Protocol
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from tsproxy.content.loader import Texts
+from tsproxy.content.loader import Html, Texts
 from tsproxy.db.enums import OrderStatus, RefundStatus
 from tsproxy.db.models import Client, Event, Order, RefundRequest
 from tsproxy.db.repository import CREDITED_ORDER_STATUSES
@@ -65,6 +65,10 @@ REFUND_SEEN_EVENTS = (EventKind.PAYMENT_CHARGEBACK, EventKind.PAYMENT_REFUNDED_O
 # Подробности события изменения статуса
 STATUS_DETAIL = "status"  # наш статус (`PaymentStatus`) — по нему узнаём повтор
 PROVIDER_STATUS_DETAIL = "provider_status"  # как назвала платёжка
+# Тревоги — по одной на заказ (и на новый статус)
+CHARGEBACK_ALERT = "payment_chargeback"
+REFUNDED_OUTSIDE_BOT_ALERT = "payment_refunded_outside_bot"
+STATUS_CHANGED_ALERT = "payment_status_changed"
 
 
 class StatusChange(StrEnum):
@@ -186,11 +190,11 @@ class PaymentStatusChanges:
                 details={"payment_id": state.payment_id, "refund_id": refund_id},
             )
             await session.commit()
-        await self._alerter.raise_alert(
-            f"payment_refunded_outside_bot:{order.id}",
-            self._admin_texts.get(
-                "alerts.payment_refunded_outside_bot", **self._values(order, state, client)
-            ),
+        await self._alerter.alert(
+            REFUNDED_OUTSIDE_BOT_ALERT,
+            source=self._refunded_outside_bot,
+            glue=f"{REFUNDED_OUTSIDE_BOT_ALERT}:{order.id}",
+            **self._values(order, state, client),
         )
 
     async def _chargeback(self, order: Order, state: PaymentState) -> None:
@@ -223,13 +227,12 @@ class PaymentStatusChanges:
             expire_at="" if term.expire_at is None else format_moscow(term.expire_at),
             error=term.error,
         )
-        await self._alerter.raise_alert(
-            f"payment_chargeback:{order.id}",
-            self._admin_texts.get(
-                "alerts.payment_chargeback",
-                access=access_text,
-                **self._values(order, state, client),
-            ),
+        await self._alerter.alert(
+            CHARGEBACK_ALERT,
+            source=self._chargeback,
+            glue=f"{CHARGEBACK_ALERT}:{order.id}",
+            access=Html(access_text),
+            **self._values(order, state, client),
         )
 
     async def _shorten(self, client: Client, order: Order) -> TermAfterDispute:
@@ -290,14 +293,13 @@ class PaymentStatusChanges:
         logger.warning(
             "Заказ %s: статус оплаты %s → %s", order.id, previous.value, state.status_name
         )
-        await self._alerter.raise_alert(
-            f"payment_status_changed:{order.id}:{state.status.value}",
-            self._admin_texts.get(
-                "alerts.payment_status_changed",
-                was=self._status_text(previous, previous_name),
-                now=self._status_text(state.status, state.status_name),
-                **self._values(order, state, client),
-            ),
+        await self._alerter.alert(
+            STATUS_CHANGED_ALERT,
+            source=self._unexpected,
+            glue=f"{STATUS_CHANGED_ALERT}:{order.id}:{state.status.value}",
+            was=self._status_text(previous, previous_name),
+            now=self._status_text(state.status, state.status_name),
+            **self._values(order, state, client),
         )
         return StatusChange.CHANGED
 

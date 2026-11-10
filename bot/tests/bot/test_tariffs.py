@@ -5,7 +5,7 @@ from decimal import Decimal
 from aiogram import Bot, Dispatcher
 from aiogram.methods import AnswerCallbackQuery, EditMessageText, SendMessage
 from aiogram.types import InlineKeyboardMarkup
-from bot_updates import ADMIN_ID, CLIENT_ID, NOW, callback, message, user
+from bot_updates import ADMIN_ID, BOT_TOKEN, CLIENT_ID, NOW, callback, message, user
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -14,8 +14,13 @@ from tsproxy.bot.fakes import FakeTelegramSession
 from tsproxy.bot.tariffs import TariffScreens
 from tsproxy.content.loader import REQUIRED_TEXTS, Content, Texts
 from tsproxy.db.models import Client, Order
+from tsproxy.integrations.failures import Failure
 from tsproxy.integrations.fake_payments import FakePaymentProvider
-from tsproxy.integrations.payments_types import PaymentRejected, PaymentUnavailable
+from tsproxy.integrations.payments_types import (
+    PaymentFailure,
+    PaymentRejected,
+    PaymentUnavailable,
+)
 from tsproxy.services.fakes import FakeAlertSender
 from tsproxy.services.orders import NEW_PAYMENTS_LIMIT, Checkout, TariffOffer
 from tsproxy.services.payment_checks import CheckOutcome
@@ -152,6 +157,33 @@ async def test_old_test_tariff_button_is_refused(
     assert await orders_in_db(session_factory) == []
 
 
+async def test_rejected_keys_alert_shows_platega_answer_masked(
+    dispatcher: Dispatcher,
+    bot: Bot,
+    telegram: FakeTelegramSession,
+    content: Content,
+    payments: FakePaymentProvider,
+    alert_sender: FakeAlertSender,
+) -> None:
+    answer = f"HTTP 401, Auth:GEN_1001, Access denied {BOT_TOKEN}"
+    payments.fail_next(
+        PaymentRejected(
+            f"Platega: {answer}",
+            failure=Failure(PaymentFailure.KEYS_REJECTED, {"error": answer}),
+        )
+    )
+
+    await dispatcher.feed_update(bot, callback(user(CLIENT_ID), buy("m1")))
+
+    assert last_edit(telegram).text == content.texts.get("payment.unavailable")
+    [alert] = alert_sender.sent
+    texts = content.admin_texts
+    assert texts.get("alert.payment_create_rejected.title") in alert.text
+    assert "Auth:GEN_1001, Access denied" in alert.text
+    assert BOT_TOKEN not in alert.text
+    assert texts.get("failure.platega.keys_rejected.causes.1.cause") in alert.text
+
+
 async def test_payments_down_apologizes_and_alerts(
     dispatcher: Dispatcher,
     bot: Bot,
@@ -166,7 +198,11 @@ async def test_payments_down_apologizes_and_alerts(
 
     assert last_edit(telegram).text == content.texts.get("payment.unavailable")
     [alert] = alert_sender.sent
-    assert content.admin_texts.get("alerts.payments_unavailable") in alert.text
+    texts = content.admin_texts
+    assert texts.get("alert.payments_unavailable.title") in alert.text
+    assert "таймаут" in alert.text
+    assert "tsproxy.bot.tariffs.refusal_screen" in alert.text
+    assert texts.get("failure.payments.unavailable.causes.1.cause") in alert.text
 
 
 async def test_payment_refused_alerts_with_provider_text(

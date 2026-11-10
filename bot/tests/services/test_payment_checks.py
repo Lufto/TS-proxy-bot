@@ -98,7 +98,9 @@ async def test_forged_notifications_glue_into_one_record_and_one_alert(
         "source": SOURCE,
     }
     [alert] = s.alerts.sent
-    assert s.admin_texts.get("alerts.payment_notification_forged") in alert.text
+    assert s.admin_texts.get("alert.payment_notification_forged.title") in alert.text
+    assert s.admin_texts.get("forged_reason.unknown_payment") in alert.text
+    assert s.admin_texts.get("alert.payment_notification_forged.causes.1.cause") in alert.text
 
 
 async def test_forged_paid_notification_for_real_unpaid_order_changes_nothing(
@@ -263,7 +265,8 @@ async def test_provider_down_in_background_raises_one_alert(
 
     assert len(s.payments.asked) == 1  # первый же запрос упал — второй заказ в следующий раз
     [alert] = s.alerts.sent
-    assert s.admin_texts.get("alerts.payment_checks_unavailable") in alert.text
+    assert s.admin_texts.get("alert.payment_checks_unavailable.title") in alert.text
+    assert "PaymentChecks._check_all" in alert.text
 
 
 async def test_background_checks_skip_when_payments_off(

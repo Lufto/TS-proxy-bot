@@ -58,6 +58,7 @@ BUY_COMMAND = "buy"
 PAYMENTS_UNAVAILABLE_ALERT = "payments_unavailable"
 # Платёжка отказала создать платёж — одна склеенная тревога с текстом отказа (задача 15)
 PAYMENT_CREATE_REJECTED_ALERT = "payment_create_rejected"
+PAYMENT_CHECK_BUTTON_ALERT = "payment_check_button_unavailable"
 PARAGRAPH = "\n\n"
 # Ответ на «🔄 Проверить оплату» — текст экрана и нужна ли кнопка «проверить ещё раз»
 CHECK_RESULTS: dict[CheckOutcome, tuple[str, bool]] = {
@@ -274,15 +275,12 @@ async def refusal_screen(ctx: BotContext, client: Client, error: Exception) -> S
             return screens.notice("payment.too_many")
         case PaymentUnavailable():
             logger.warning("Платёжка не ответила для клиента %s: %s", telegram_id, error)
-            await ctx.alerter.raise_alert(
-                PAYMENTS_UNAVAILABLE_ALERT, ctx.admin_texts.get("alerts.payments_unavailable")
-            )
+            await ctx.alerter.alert(PAYMENTS_UNAVAILABLE_ALERT, source=refusal_screen, error=error)
             return screens.notice("payment.unavailable")
         case PaymentRejected():
             logger.error("Платёжка отказала создать платёж клиенту %s: %s", telegram_id, error)
-            await ctx.alerter.raise_alert(
-                PAYMENT_CREATE_REJECTED_ALERT,
-                ctx.admin_texts.get("alerts.payment_create_rejected", error=str(error)),
+            await ctx.alerter.alert(
+                PAYMENT_CREATE_REJECTED_ALERT, source=refusal_screen, error=error
             )
             return screens.notice("payment.unavailable")
     raise TypeError(f"неожиданная ошибка заказа: {error!r}")
@@ -341,8 +339,12 @@ async def on_payment_check(
         screen = await _tariffs_screen(ctx, client)
     except PaymentUnavailable as error:
         logger.warning("Платёжка не ответила на проверку заказа %s: %s", order_id, error)
-        await ctx.alerter.raise_alert(
-            PAYMENTS_UNAVAILABLE_ALERT, ctx.admin_texts.get("alerts.payments_unavailable")
+        await ctx.alerter.alert(
+            PAYMENT_CHECK_BUTTON_ALERT,
+            source=on_payment_check,
+            error=error,
+            glue=PAYMENTS_UNAVAILABLE_ALERT,
+            order_id=order_id,
         )
         screen = screens.notice("payment.check_unavailable", check_order_id=order_id)
     else:

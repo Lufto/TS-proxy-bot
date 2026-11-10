@@ -63,7 +63,8 @@ async def test_payments_off_is_announced_at_start(
 
     [alert] = telegram.sent(SendMessage)
     assert alert.chat_id == ADMIN_CHAT_ID
-    assert content.admin_texts.get("alerts.payments_off") in alert.text
+    assert content.admin_texts.get("alert.payments_off.title") in alert.text
+    assert content.admin_texts.get("alert.payments_off.causes.1.check") in alert.text
     assert "PAYMENTS_MODE=off" in caplog.text
 
 

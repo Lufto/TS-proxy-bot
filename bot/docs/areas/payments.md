@@ -43,7 +43,7 @@
 ## Тексты
 
 - Для клиента — `bot/content/client/`: `tariffs.yaml` (тарифы и звёзды), `payment.yaml`, `units.yaml`.
-- Для администраторов — `bot/content/admin/payments.yaml` (сообщения в «💰 Оплаты») и в `bot/content/alerts/alerts.yaml` ключи `payment*`, `payments*`, `stars*`, `grant_*`.
+- Для администраторов — `bot/content/admin/payments.yaml` (сообщения в «💰 Оплаты»); тревоги — `bot/content/alerts/payments.yaml` (оплаты, выдача после оплаты), виды сбоя платёжки — `alerts/payments_failures.yaml`; звёзды пока в `alerts/alerts.yaml` (`stars*`).
 
 ## Platega: что уходит в запросе
 

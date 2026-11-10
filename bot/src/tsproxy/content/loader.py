@@ -16,6 +16,7 @@ from typing import Any
 import yaml
 
 from tsproxy.domain.site_banner import SiteBanner
+from tsproxy.integrations.payments_types import PaymentFailure
 from tsproxy.integrations.remnawave_types import RemnawaveFailure
 
 # Тексты клиента — из client/, администратора — из admin/ и alerts/; все .yaml папки — один набор
@@ -36,7 +37,7 @@ ALERT_PARTS = ("title", "threat", "where")
 FAILURE_GROUP = "failure"
 FAILURE_CAUSE_PARTS = ("cause", "check")
 # Виды сбоя из кода: у каждого должны быть тексты в alerts/
-FAILURE_KINDS: tuple[str, ...] = (*RemnawaveFailure,)
+FAILURE_KINDS: tuple[str, ...] = (*RemnawaveFailure, *PaymentFailure)
 
 
 class ContentError(Exception):
@@ -430,6 +431,25 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
         "reconcile_parts.accounts",
         "reconcile_parts.nodes",
         "alert.bot_error.title",
+        "alert.payments_unavailable.title",
+        "alert.payments_off.title",
+        "alert.payment_amount_mismatch.title",
+        "alert.payment_not_recorded.title",
+        "alert.payment_notification_forged.title",
+        "alert.payment_rejected.title",
+        "alert.payment_checks_unavailable.title",
+        "alert.payments_reconcile.title",
+        "alert.payments_reconcile_failed.title",
+        "alert.payment_create_rejected.title",
+        "alert.payment_check_refused.title",
+        "alert.payment_chargeback.title",
+        "alert.payment_refunded_outside_bot.title",
+        "alert.payment_status_changed.title",
+        "alert.grant_delayed.title",
+        "alert.grant_failed.title",
+        "alert.grant_manual.title",
+        "forged_reason.unparsed",
+        "forged_reason.unknown_payment",
         "alert.bot_error.no_place",
         "bot_error_action.button",
         "bot_error_action.command",
@@ -438,8 +458,6 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
         "bot_error_action.job",
         "bot_error_action.chat.private",
         "bot_error_action.chat.group",
-        # задача 29: оплата выключена
-        "alerts.payments_off",
         # задача 16: обращения в поддержку
         "alerts.support_topic_failed",
         "support.topic_name",
@@ -486,7 +504,6 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
         "support.reminder_assignee",
         "support.quick_replies_title",
         "support.quick_reply_sent",
-        "alerts.payments_unavailable",  # задача 12
         # задача 22: сторож фоновых задач и бэкапы панели
         "alerts.job_stale",
         "alerts.job_stale_never",
@@ -610,32 +627,16 @@ REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
         "admin.devices.deleted",
         "admin.devices.not_found",
         # задача 13: зачёт оплаты и выдача доступа
-        "alerts.payment_amount_mismatch",
-        "alerts.payment_not_recorded",
-        "alerts.grant_delayed",
-        "alerts.grant_failed",
-        "alerts.grant_manual",
         "payments.received",
         "payments.received_prorated",
         "payments.no_username",
         # задача 14: уведомления платёжки, проверки оплат, сверка, двойная оплата
         "payments.possible_double",
-        "alerts.payment_notification_forged",
-        "alerts.payment_rejected",
-        "alerts.payment_checks_unavailable",
-        "alerts.payments_reconcile",
-        "alerts.payments_reconcile_unavailable",
         # задача 15: Platega — отказы, спор через банк, изменения статуса оплаты
-        "alerts.payments_reconcile_failed",
-        "alerts.payment_create_rejected",
-        "alerts.payment_check_refused",
-        "alerts.payment_chargeback",
         *(
             f"alerts.chargeback_access.{key}"
             for key in ("shortened", "ended", "no_account", "failed")
         ),
-        "alerts.payment_refunded_outside_bot",
-        "alerts.payment_status_changed",
         "alerts.refund_review_overdue",
         *(
             f"payments.status.{key}"

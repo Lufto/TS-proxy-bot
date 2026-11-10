@@ -20,6 +20,8 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import Protocol
 
+from tsproxy.integrations.failures import ServiceError
+
 RUB = "RUB"
 
 
@@ -58,12 +60,30 @@ class RefundOutcome(StrEnum):
     CANCELED = "canceled"  # платёжка отказала
 
 
-class PaymentError(Exception):
+class PaymentFailure(StrEnum):
+    """Виды сбоя платёжки; значение — ключ текстов `failure.<вид>` в `alerts/`.
+
+    `payments.*` — общие (поддельная платёжка, возврат звёзд), `platega.*` — точные от Platega.
+    """
+
+    UNAVAILABLE = "payments.unavailable"
+    REJECTED = "payments.rejected"
+    NO_CONNECTION = "platega.no_connection"  # сеть или таймаут
+    SERVER_ERROR = "platega.server_error"  # 5xx
+    RATE_LIMITED = "platega.rate_limited"  # 429
+    BAD_RESPONSE = "platega.bad_response"  # не JSON или не той формы
+    KEYS_REJECTED = "platega.keys_rejected"  # 401/403: ключи магазина не приняты
+    PLATEGA_REJECTED = "platega.rejected"  # другой 4xx
+
+
+class PaymentError(ServiceError):
     """Ошибка платёжки."""
 
 
 class PaymentUnavailable(PaymentError):
     """Платёжка не ответила (сеть, таймаут, 5xx). Повтор с тем же ключом безопасен."""
+
+    default_kind = PaymentFailure.UNAVAILABLE
 
 
 class PaymentNotFound(PaymentError):
@@ -72,6 +92,8 @@ class PaymentNotFound(PaymentError):
 
 class PaymentRejected(PaymentError):
     """Платёжка отказала: неверный запрос, платёж нельзя оплатить или вернуть."""
+
+    default_kind = PaymentFailure.REJECTED
 
 
 class InvalidNotification(PaymentError):

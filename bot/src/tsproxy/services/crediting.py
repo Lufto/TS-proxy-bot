@@ -81,6 +81,8 @@ logger = logging.getLogger(__name__)
 # Запись оплаты в базу: столько попыток, пока не тревога (значения выбраны агентом)
 CREDIT_WRITE_ATTEMPTS = 3
 CREDIT_WRITE_RETRY_DELAY = timedelta(seconds=1)
+PAYMENT_NOT_RECORDED_ALERT = "payment_not_recorded"
+AMOUNT_MISMATCH_ALERT = "payment_amount_mismatch"
 # Поле события «оплата получена»: отметка льготного периода на момент оплаты
 GRACE_DETAIL = "grace_started_at"
 # Поле события «оплата получена»: номер заказа, с которым эта оплата похожа на двойную
@@ -247,14 +249,13 @@ class CreditingService:
             except SQLAlchemyError as error:
                 if attempt >= CREDIT_WRITE_ATTEMPTS:
                     logger.exception("Заказ %s: оплата не записалась в базу", order_id)
-                    await self._alerter.raise_alert(
-                        f"payment_not_recorded:{order_id}",
-                        self._admin_texts.get(
-                            "alerts.payment_not_recorded",
-                            order_id=order_id,
-                            payment_id=payment.payment_id,
-                            error=type(error).__name__,
-                        ),
+                    await self._alerter.alert(
+                        PAYMENT_NOT_RECORDED_ALERT,
+                        source=self._record_payment,
+                        error=error,
+                        glue=f"{PAYMENT_NOT_RECORDED_ALERT}:{order_id}",
+                        order_id=order_id,
+                        payment_id=payment.payment_id,
                     )
                     raise
                 logger.warning(
@@ -353,14 +354,13 @@ class CreditingService:
                 credited.paid_amount,
                 credited.price,
             )
-            await self._alerter.raise_alert(
-                f"payment_amount_mismatch:{credited.order_id}",
-                self._admin_texts.get(
-                    "alerts.payment_amount_mismatch",
-                    order_id=credited.order_id,
-                    amount=format_rubles(credited.paid_amount),
-                    price=format_rubles(credited.price),
-                ),
+            await self._alerter.alert(
+                AMOUNT_MISMATCH_ALERT,
+                source=self._announce,
+                glue=f"{AMOUNT_MISMATCH_ALERT}:{credited.order_id}",
+                order_id=credited.order_id,
+                amount=format_rubles(credited.paid_amount),
+                price=format_rubles(credited.price),
             )
 
     async def _outcome(self, order_id: int) -> PaymentOutcome:
@@ -593,14 +593,13 @@ class CreditingService:
     async def _alert_order(
         self, kind: str, telegram_id: int, order: Order, error: RemnawaveError
     ) -> None:
-        await self._alerter.raise_alert(
-            f"{kind}:{order.id}",
-            self._admin_texts.get(
-                f"alerts.{kind}",
-                order_id=order.id,
-                telegram_id=telegram_id,
-                error=f"{type(error).__name__}: {error}",
-            ),
+        await self._alerter.alert(
+            kind,
+            source=self._alert_order,
+            error=error,
+            glue=f"{kind}:{order.id}",
+            order_id=order.id,
+            telegram_id=telegram_id,
         )
 
 

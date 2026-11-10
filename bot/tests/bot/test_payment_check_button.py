@@ -131,7 +131,14 @@ async def test_check_with_provider_down_apologizes_and_alerts(
 
     assert telegram.sent(EditMessageText)[-1].text == content.texts.get("payment.check_unavailable")
     [alert] = alert_sender.sent
-    assert content.admin_texts.get("alerts.payments_unavailable") in alert.text
+    texts = content.admin_texts
+    assert texts.get("alert.payment_check_button_unavailable.title") in alert.text
+    assert "таймаут" in alert.text
+    assert (
+        texts.get("alert.payment_check_button_unavailable.where", order_id=order.id) in alert.text
+    )
+    assert "tsproxy.bot.tariffs.on_payment_check" in alert.text
+    assert texts.get("failure.payments.unavailable.causes.1.cause") in alert.text
 
 
 async def test_buy_after_lost_notification_finds_payment_instead_of_new_link(

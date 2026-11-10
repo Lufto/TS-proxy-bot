@@ -15,6 +15,7 @@ from mock_panel import MockPanel
 
 from tsproxy.integrations.payments_types import (
     InvalidNotification,
+    PaymentFailure,
     PaymentNotFound,
     PaymentNotice,
     PaymentRejected,
@@ -191,29 +192,40 @@ async def test_platega_refusal_text_goes_to_alert(platega: MockPanel) -> None:
     text = str(raised.value)
     assert "VALIDATION" in text and "metadata.user_email required" in text
     assert "af95e45f8c350d4211ac5c7b6d2e1f04" in text  # traceId — для поддержки Platega
+    assert raised.value.failure is not None
+    assert raised.value.failure.kind is PaymentFailure.PLATEGA_REJECTED
 
 
 async def test_wrong_keys_are_refusal(platega: MockPanel) -> None:
     platega.on("POST", "/transaction/process", error("Auth:GEN_1001", 401, "Access denied."))
 
-    with pytest.raises(PaymentRejected, match="Access denied"):
+    with pytest.raises(PaymentRejected, match="Access denied") as raised:
         await make(platega).create_payment(request())
+
+    assert raised.value.failure is not None
+    assert raised.value.failure.kind is PaymentFailure.KEYS_REJECTED
 
 
 @pytest.mark.parametrize(
-    "reply",
+    ("reply", "kind"),
     [
-        httpx.Response(500),
-        httpx.Response(429, json={"code": "Common:TMR_0001"}),
-        httpx.Response(200, text="<html>bad gateway</html>"),
-        httpx.Response(200, json={"status": "PENDING"}),  # не тот формат
+        (httpx.Response(500), PaymentFailure.SERVER_ERROR),
+        (httpx.Response(429, json={"code": "Common:TMR_0001"}), PaymentFailure.RATE_LIMITED),
+        (httpx.Response(200, text="<html>bad gateway</html>"), PaymentFailure.BAD_RESPONSE),
+        # не тот формат
+        (httpx.Response(200, json={"status": "PENDING"}), PaymentFailure.BAD_RESPONSE),
     ],
 )
-async def test_unavailable_platega(platega: MockPanel, reply: httpx.Response) -> None:
+async def test_unavailable_platega(
+    platega: MockPanel, reply: httpx.Response, kind: PaymentFailure
+) -> None:
     platega.on("POST", "/transaction/process", reply)
 
-    with pytest.raises(PaymentUnavailable):
+    with pytest.raises(PaymentUnavailable) as raised:
         await make(platega).create_payment(request())
+
+    assert raised.value.failure is not None
+    assert raised.value.failure.kind is kind
 
 
 async def test_network_failure_is_unavailable(platega: MockPanel) -> None:
@@ -222,8 +234,12 @@ async def test_network_failure_is_unavailable(platega: MockPanel) -> None:
 
     platega.on("POST", "/transaction/process", timeout)
 
-    with pytest.raises(PaymentUnavailable):
+    with pytest.raises(PaymentUnavailable) as raised:
         await make(platega).create_payment(request())
+
+    assert raised.value.failure is not None
+    assert raised.value.failure.kind is PaymentFailure.NO_CONNECTION
+    assert raised.value.failure.details["error"] == "ReadTimeout"
 
 
 @pytest.mark.parametrize(

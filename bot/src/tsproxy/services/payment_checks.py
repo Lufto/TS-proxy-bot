@@ -93,6 +93,8 @@ PAYMENT_CHECKS_UNAVAILABLE_ALERT = "payment_checks_unavailable"
 FORGED_ID_DETAIL_LENGTH = 64
 # Платёжка отказала ответить на проверку (неверные ключи) — одна склеенная тревога (задача 15)
 PAYMENT_CHECK_REFUSED_ALERT = "payment_check_refused"
+# Платёж не сошёлся с заказом — тревога на каждый заказ
+PAYMENT_REJECTED_ALERT = "payment_rejected"
 # Статусы, которые обычная проверка разбирает сама; остальные — `PaymentStatusChanges`
 ORDINARY_STATUSES = (PaymentStatus.SUCCEEDED, PaymentStatus.CANCELED, PaymentStatus.PENDING)
 # Уведомление с таким статусом по засчитанному заказу — повтор, к платёжке не идём
@@ -194,9 +196,10 @@ class PaymentChecks:
                 glue_key=FORGED_NOTIFICATION_GLUE_KEY,
             )
             await session.commit()
-        await self._alerter.raise_alert(
+        await self._alerter.alert(
             FORGED_NOTIFICATION_ALERT,
-            self._admin_texts.get("alerts.payment_notification_forged"),
+            source=self.record_forged,
+            reason=self._admin_texts.get(f"forged_reason.{reason.value}"),
         )
 
     # --- «🔄 Проверить оплату» ---
@@ -293,9 +296,8 @@ class PaymentChecks:
             except PaymentUnavailable as error:
                 # платёжка лежит — остальные заказы спросим в следующий проход
                 logger.warning("Проверка оплат: платёжка не ответила: %s", error)
-                await self._alerter.raise_alert(
-                    PAYMENT_CHECKS_UNAVAILABLE_ALERT,
-                    self._admin_texts.get("alerts.payment_checks_unavailable"),
+                await self._alerter.alert(
+                    PAYMENT_CHECKS_UNAVAILABLE_ALERT, source=self._check_all, error=error
                 )
                 return
 
@@ -335,9 +337,11 @@ class PaymentChecks:
             await self._alert_rejected(order, order.payment_id, "платёжка не знает такого платежа")
         except PaymentRejected as error:
             logger.error("Платёжка отказала в проверке заказа %s: %s", order.id, error)
-            await self._alerter.raise_alert(
+            await self._alerter.alert(
                 PAYMENT_CHECK_REFUSED_ALERT,
-                self._admin_texts.get("alerts.payment_check_refused", error=str(error)),
+                source=self._ask,
+                error=error,
+                order_id=order.id,
             )
         return None
 
@@ -425,11 +429,13 @@ class PaymentChecks:
 
     async def _alert_rejected(self, order: Order, payment_id: str, reason: str) -> None:
         logger.error("Заказ %s: платёж %s не засчитан: %s", order.id, payment_id, reason)
-        await self._alerter.raise_alert(
-            f"payment_rejected:{order.id}",
-            self._admin_texts.get(
-                "alerts.payment_rejected", order_id=order.id, payment_id=payment_id, reason=reason
-            ),
+        await self._alerter.alert(
+            PAYMENT_REJECTED_ALERT,
+            source=self._alert_rejected,
+            glue=f"{PAYMENT_REJECTED_ALERT}:{order.id}",
+            order_id=order.id,
+            payment_id=payment_id,
+            reason=reason,
         )
 
     async def _mark_canceled(self, order_id: int) -> None:

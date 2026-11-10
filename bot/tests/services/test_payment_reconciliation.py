@@ -133,7 +133,9 @@ async def test_provider_down_raises_alert(s: PaymentSetup, mask: Masker) -> None
     await reconciliation(s, mask).run()
 
     [alert] = s.alerts.sent
-    assert s.admin_texts.get("alerts.payments_reconcile_unavailable") in alert.text
+    assert s.admin_texts.get("alert.payments_reconcile_failed.title") in alert.text
+    assert "таймаут" in alert.text
+    assert s.admin_texts.get("failure.payments.unavailable.causes.1.cause") in alert.text
 
 
 async def test_provider_refusal_raises_alert_with_its_text(s: PaymentSetup, mask: Masker) -> None:

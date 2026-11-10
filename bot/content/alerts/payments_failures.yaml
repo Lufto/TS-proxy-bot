@@ -1,0 +1,66 @@
+# Виды сбоя платёжки: failure.<вид>: what ({error} и подробности ошибки), causes — сначала самое вероятное.
+# payments.* — общие (поддельная платёжка, возврат звёзд), platega.* — точные ответы Platega
+failure:
+  payments:
+    # платёжка не ответила, вид не уточнён; {error} — текст ошибки
+    unavailable:
+      what: "платёжка не ответила: {error}"
+      causes:
+        - cause: "Сбой или перегрузка у платёжки"
+          check: "открывается ли кабинет Platega; для звёзд — нет ли сбоя у Telegram"
+        - cause: "Плохая сеть самого сервера"
+          check: "не падали ли в то же время запросы к Remnawave и Telegram (журнал бота)"
+    # платёжка отказала; {error} — её ответ
+    rejected:
+      what: "платёжка отказала: {error}"
+      causes:
+        - cause: "Платёж в состоянии, в котором это действие нельзя (уже возвращён, не оплачен)"
+          check: "платёж в кабинете платёжки"
+        - cause: "Неверные ключи или настройки магазина"
+          check: "PLATEGA_MERCHANT_ID и PLATEGA_SECRET в .env против «Настроек» кабинета, значения в чат не выводить"
+  platega:
+    # {error} — вид сетевой ошибки (ConnectTimeout и т. п.), {seconds} — сколько ждём ответа
+    no_connection:
+      what: "Platega не ответила за {seconds} сек или не удалось соединиться ({error})"
+      causes:
+        - cause: "Сбой или перегрузка у Platega"
+          check: "открывается ли кабинет Platega; спросить поддержку Platega"
+        - cause: "Сеть или DNS сервера бота"
+          check: "с сервера — <code>curl -sS -o /dev/null -w '%{{http_code}}' https://app.platega.io/</code>; не падали ли в то же время запросы к Remnawave и Telegram"
+    # {status} — HTTP-код
+    server_error:
+      what: "Platega ответила HTTP {status}"
+      causes:
+        - cause: "Сбой у Platega"
+          check: "открывается ли кабинет Platega; спросить поддержку Platega"
+    rate_limited:
+      what: "Platega ответила HTTP 429 «слишком много запросов»"
+      causes:
+        - cause: "Бот слишком часто спрашивает платёжку (фоновая проверка и кнопки «Проверить оплату» разом)"
+          check: "журнал бота — сколько запросов к Platega в эту минуту"
+    # {error} — что не так с ответом
+    bad_response:
+      what: "Platega: {error}"
+      causes:
+        - cause: "Platega изменила формат ответа"
+          check: "журнал бота — «Platega: ответ не разобран» (там подробности); документация Platega на изменения"
+        - cause: "Вместо Platega ответила защита или страница-заглушка"
+          check: "журнал бота — что пришло вместо JSON"
+    # {error} — код ответа, код и пояснение Platega, traceId
+    keys_rejected:
+      what: "Platega не приняла ключи магазина: {error}"
+      causes:
+        - cause: "В .env ключи тестового кабинета или ключи перевыпустили в кабинете"
+          check: "«Настройки» в кабинете Platega против PLATEGA_MERCHANT_ID и PLATEGA_SECRET в .env (значения в чат не выводить), после правки — <code>systemctl restart tsproxy</code>"
+        - cause: "Магазин отключён или ещё не одобрен"
+          check: "статус магазина в кабинете, менеджер Platega"
+    # {error} — код ответа, код и пояснение Platega, traceId
+    rejected:
+      what: "Platega отказала: {error}"
+      causes:
+        - cause: "Platega требует в запросе поле, которого бот не шлёт (например, metadata.userId для некоторых магазинов)"
+          check: "текст ответа выше; спросить менеджера Platega с traceId"
+        - cause: "Метод СБП не подключён магазину или сумма вне лимитов"
+          check: "доступные методы и лимиты в кабинете или у менеджера"
+        - cause: "Платёж из другого кабинета (тестовый против боевого)"
+          check: "номер платежа в нужном кабинете, PLATEGA_TEST_ACCOUNT"

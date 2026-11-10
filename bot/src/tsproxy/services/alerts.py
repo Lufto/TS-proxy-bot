@@ -232,7 +232,7 @@ class Alerter:
         if isinstance(error, ServiceError) and error.failure is not None:
             lines.extend(self._causes(f"failure.{error.failure.kind}"))
         elif texts.ids_under(f"alert.{key}.causes"):
-            lines.extend(self._causes(f"alert.{key}"))
+            lines.extend(self._causes(f"alert.{key}", values))
         return Html("\n".join(lines))
 
     def _cause(self, error: Exception | None) -> Html | None:
@@ -252,8 +252,10 @@ class Alerter:
             return self._texts.get(f"failure.{error.failure.kind}.what", **details)
         return self._texts.get("alert_format.error", name=type(error).__name__, **details)
 
-    def _causes(self, owner: str) -> list[str]:
-        """«Куда смотреть» из `<owner>.causes`: вида сбоя или самой тревоги."""
+    def _causes(self, owner: str, values: Mapping[str, object] | None = None) -> list[str]:
+        """«Куда смотреть» из `<owner>.causes`: вида сбоя или самой тревоги (её подстановки
+        `values` есть и в причинах: номер заказа, клиент)."""
+        values = values or {}
         prefix = f"{owner}.causes"
         lines = [self._texts.get("alert_format.causes")]
         for number in self._texts.ids_under(prefix):
@@ -261,8 +263,8 @@ class Alerter:
                 self._texts.get(
                     "alert_format.cause",
                     number=number,
-                    cause=Html(self._texts.get(f"{prefix}.{number}.cause")),
-                    check=Html(self._texts.get(f"{prefix}.{number}.check")),
+                    cause=Html(self._texts.get(f"{prefix}.{number}.cause", **values)),
+                    check=Html(self._texts.get(f"{prefix}.{number}.check", **values)),
                 )
             )
         return lines

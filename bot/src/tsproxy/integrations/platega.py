@@ -42,10 +42,12 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from tsproxy.domain.dates import require_aware
+from tsproxy.integrations.failures import Failure
 from tsproxy.integrations.payments_types import (
     RUB,
     CreatedPayment,
     InvalidNotification,
+    PaymentFailure,
     PaymentNotFound,
     PaymentNotice,
     PaymentRejected,
@@ -85,6 +87,7 @@ HTTP_CONFLICT = 409
 HTTP_TOO_MANY_REQUESTS = 429
 HTTP_SERVER_ERROR = 500
 HTTP_CLIENT_ERROR = 400
+HTTP_AUTH_ERRORS = (401, 403)  # ключи магазина не приняты
 
 # Статусы Platega → наши. Незнакомый — `UNKNOWN` (бот поднимет тревогу, если заказ оплачен)
 STATUSES: Mapping[str, PaymentStatus] = {
@@ -318,7 +321,10 @@ class PlategaPaymentProvider:
         response = await self._send("POST", "/transaction/export/json", body=body)
         data = _json(_checked(response))
         if not isinstance(data, list):
-            raise PaymentRejected("выгрузка Platega вернула не список платежей")
+            message = "выгрузка Platega вернула не список платежей"
+            raise PaymentRejected(
+                message, failure=Failure(PaymentFailure.BAD_RESPONSE, {"error": message})
+            )
         records = [_parse(_ExportRecord, item) for item in data]
         return [
             self._state(r.recordId, r.status, r.amount, r.currencyCode, r.payload) for r in records
@@ -334,12 +340,22 @@ class PlategaPaymentProvider:
         try:
             response = await self._http.request(method, path, json=body, headers=headers)
         except httpx.HTTPError as error:
-            raise PaymentUnavailable(f"Platega не ответила: {type(error).__name__}") from error
-        if (
-            response.status_code >= HTTP_SERVER_ERROR
-            or response.status_code == HTTP_TOO_MANY_REQUESTS
-        ):
-            raise PaymentUnavailable(f"Platega: HTTP {response.status_code}")
+            raise PaymentUnavailable(
+                f"Platega не ответила: {type(error).__name__}",
+                failure=Failure(
+                    PaymentFailure.NO_CONNECTION,
+                    {"error": type(error).__name__, "seconds": int(REQUEST_TIMEOUT_SECONDS)},
+                ),
+            ) from error
+        if response.status_code == HTTP_TOO_MANY_REQUESTS:
+            raise PaymentUnavailable(
+                "Platega: HTTP 429", failure=Failure(PaymentFailure.RATE_LIMITED)
+            )
+        if response.status_code >= HTTP_SERVER_ERROR:
+            raise PaymentUnavailable(
+                f"Platega: HTTP {response.status_code}",
+                failure=Failure(PaymentFailure.SERVER_ERROR, {"status": response.status_code}),
+            )
         return response
 
 
@@ -363,7 +379,13 @@ def _checked(response: httpx.Response) -> httpx.Response:
     if response.status_code == HTTP_NOT_FOUND:
         raise PaymentNotFound(f"Platega: {_error_text(response)}")
     if response.status_code >= HTTP_CLIENT_ERROR:
-        raise PaymentRejected(f"Platega: {_error_text(response)}")
+        text = _error_text(response)
+        kind = (
+            PaymentFailure.KEYS_REJECTED
+            if response.status_code in HTTP_AUTH_ERRORS
+            else PaymentFailure.PLATEGA_REJECTED
+        )
+        raise PaymentRejected(f"Platega: {text}", failure=Failure(kind, {"error": text}))
     return response
 
 
@@ -388,7 +410,10 @@ def _json(response: httpx.Response) -> Any:
     try:
         return json.loads(response.content, parse_float=Decimal)
     except ValueError:
-        raise PaymentUnavailable(f"Platega: ответ не JSON (HTTP {response.status_code})") from None
+        message = f"ответ не JSON (HTTP {response.status_code})"
+        raise PaymentUnavailable(
+            f"Platega: {message}", failure=Failure(PaymentFailure.BAD_RESPONSE, {"error": message})
+        ) from None
 
 
 def _parse[M: BaseModel](model: type[M], data: Any) -> M:
@@ -397,7 +422,10 @@ def _parse[M: BaseModel](model: type[M], data: Any) -> M:
     except ValidationError as error:
         # формат ответа не тот, что в документации — повторим позже, в логе подробности
         logger.error("Platega: ответ не разобран (%s): %s", model.__name__, error)
-        raise PaymentUnavailable(f"Platega: ответ не разобран ({model.__name__})") from None
+        message = f"ответ не разобран ({model.__name__})"
+        raise PaymentUnavailable(
+            f"Platega: {message}", failure=Failure(PaymentFailure.BAD_RESPONSE, {"error": message})
+        ) from None
 
 
 def _json_amount(amount: Decimal) -> int | float:

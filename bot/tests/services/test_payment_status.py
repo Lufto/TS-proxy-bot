@@ -102,6 +102,8 @@ async def test_bank_chargeback_of_only_payment_ends_access_tells_client_and_aler
     [alert] = alert_texts(s)
     assert "Спор через банк" in alert and f"/client {client.telegram_id}" in alert
     assert f"#{order_id}" in alert and "доступ отключён" in alert
+    assert f"/proof {order_id}" in alert  # причины знают номер заказа
+    assert "<code>" in alert and "&lt;code" not in alert  # разметка не экранирована дважды
     [event] = await s.events(EventKind.PAYMENT_CHARGEBACK)
     assert event.order_id == order_id
     assert event.details is not None and event.details["access"] == "ended"

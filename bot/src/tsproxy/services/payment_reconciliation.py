@@ -29,7 +29,7 @@ from datetime import datetime
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from tsproxy.content.loader import Texts
+from tsproxy.content.loader import Html, Texts
 from tsproxy.db.enums import OrderStatus
 from tsproxy.db.models import Order
 from tsproxy.db.repository import CREDITED_ORDER_STATUSES
@@ -57,7 +57,7 @@ from tsproxy.services.payment_checks import CheckOutcome, PaymentChecks
 logger = logging.getLogger(__name__)
 
 RECONCILE_ALERT = "payments_reconcile"
-RECONCILE_UNAVAILABLE_ALERT = "payments_reconcile_unavailable"
+# не ответила или отказала — одна тревога, причины по виду сбоя
 RECONCILE_FAILED_ALERT = "payments_reconcile_failed"
 # Возврат у платёжки: целиком (`REFUNDED`) или частично; сумму частичного Platega не сообщает
 REFUNDED_STATUSES = (PaymentStatus.REFUNDED, PaymentStatus.PARTIALLY_REFUNDED)
@@ -95,19 +95,9 @@ class PaymentReconciliation:
         since = until - PAYMENTS_RECONCILE_WINDOW
         try:
             listed = await payments.list_payments(since, until)
-        except PaymentUnavailable as error:
-            logger.warning("Сверка оплат: платёжка не ответила: %s", error)
-            await self._alerter.raise_alert(
-                RECONCILE_UNAVAILABLE_ALERT,
-                self._admin_texts.get("alerts.payments_reconcile_unavailable"),
-            )
-            return
         except PaymentError as error:
-            logger.error("Сверка оплат: платёжка отказала: %s", error)
-            await self._alerter.raise_alert(
-                RECONCILE_FAILED_ALERT,
-                self._admin_texts.get("alerts.payments_reconcile_failed", error=str(error)),
-            )
+            logger.error("Сверка оплат: платёжка не ответила или отказала: %s", error)
+            await self._alerter.alert(RECONCILE_FAILED_ALERT, source=self.run, error=error)
             return
         orders = await self._orders(payments.name, [p.payment_id for p in listed], since, until)
         issues = reconcile_payments([_provider_record(p) for p in listed], list(orders.values()))
@@ -116,14 +106,11 @@ class PaymentReconciliation:
             logger.info("Сверка оплат: %d платежей, расхождений нет", len(listed))
             return
         logger.warning("Сверка оплат: расхождений %d: %s", len(lines), "; ".join(lines))
-        await self._alerter.raise_alert(
+        await self._alerter.alert(
             RECONCILE_ALERT,
-            "\n".join(
-                [
-                    self._admin_texts.get("alerts.payments_reconcile", count=len(lines)),
-                    *lines[:MAX_LISTED_ISSUES],
-                ]
-            ),
+            source=self.run,
+            count=len(lines),
+            issues=Html("\n".join(lines[:MAX_LISTED_ISSUES])),
         )
 
     async def _orders(

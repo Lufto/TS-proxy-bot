@@ -862,9 +862,7 @@ async def check_payments_mode(app: Application) -> None:
     if app.settings.payments_mode is not PaymentsMode.OFF:
         return
     logger.warning("Оплата выключена (PAYMENTS_MODE=off): купить подписку нельзя, только пробный")
-    await app.alerter.raise_alert(
-        PAYMENTS_OFF_ALERT, app.content.admin_texts.get("alerts.payments_off")
-    )
+    await app.alerter.alert(PAYMENTS_OFF_ALERT, source=check_payments_mode)
 
 
 async def connect_telegram(app: Application) -> None:
