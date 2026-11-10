@@ -34,6 +34,8 @@ REL="$1"
 DIR="/opt/tsproxy-web/releases/$REL"
 test -d "$DIR" || { echo "Нет папки $DIR"; exit 1; }
 chown -R root:root "$DIR"
+# Папка сборки на Mac — из mktemp (права 700): служба tsproxy-web в неё бы не вошла
+chmod 755 "$DIR"
 ln -sfn "$DIR" /opt/tsproxy-web/current.new
 mv -T /opt/tsproxy-web/current.new /opt/tsproxy-web/current
 systemctl restart tsproxy-web.service
