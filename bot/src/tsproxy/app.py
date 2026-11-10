@@ -443,7 +443,7 @@ def build_application(
         content.stars_rub_rate,
     )
     # Выключатель пробных (задача 28): состояние — последнее событие в журнале
-    trial_switch = TrialSwitch(session_factory, events, alerter, content.admin_texts, clock)
+    trial_switch = TrialSwitch(session_factory, events, alerter, clock)
     # Плашка на сайте (задачи сайта 13–15): тоже последнее событие в журнале
     site_banner = SiteBannerSwitch(session_factory, events, alerter, content.admin_texts)
     ctx = BotContext(

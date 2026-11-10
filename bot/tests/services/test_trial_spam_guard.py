@@ -70,7 +70,7 @@ def switch(
     mask: Masker,
 ) -> TrialSwitch:
     alerter = Alerter(sender, admin_texts, -100123, 2, clock, mask)
-    return TrialSwitch(session_factory, EventLog(clock, mask), alerter, admin_texts, clock)
+    return TrialSwitch(session_factory, EventLog(clock, mask), alerter, clock)
 
 
 @pytest.fixture

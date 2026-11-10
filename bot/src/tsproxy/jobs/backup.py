@@ -10,7 +10,8 @@
 5. Файл уходит в тему «💾 Бэкапы».
 6. Ежедневные копии старше двух недель удаляются, месячные — старше трёх лет.
 
-Дата в имени — по Москве, как у панели. Любой сбой — запись в лог и тревога в «🚨 Тревоги».
+Дата в имени — по Москве, как у панели. Любой сбой — запись в лог и тревога в «🚨 Тревоги»
+(тексты — `alert.bot_backup_*` в `alerts/ops.yaml`).
 Если не получилась сама копия, `run` бросает исключение дальше (сторож фоновых задач
 увидит сбой), а старые копии не удаляются. Если не ушло только сообщение в Telegram,
 локальная копия остаётся, чистка идёт как обычно, а наружу — только тревога.
@@ -47,7 +48,9 @@ from tsproxy.services.clock import Clock, system_clock, utc_now
 logger = logging.getLogger(__name__)
 
 ALERT_BACKUP_FAILED = "bot_backup_failed"
+ALERT_BACKUP_CLEANUP_FAILED = "bot_backup_cleanup_failed"
 ALERT_BACKUP_NOT_SENT = "bot_backup_not_sent"
+ALERT_BACKUP_TOO_BIG = "bot_backup_too_big"
 # Боты Telegram не могут отправить файл больше 50 МБ
 TELEGRAM_DOCUMENT_LIMIT_BYTES = 50 * 1024 * 1024
 BYTES_PER_KIB = 1024
@@ -132,7 +135,8 @@ class DatabaseBackup:
         # Ловим всё: причин много (диск, SQLite, age), и о любой должен узнать администратор.
         # Ошибку не прячем: тревога, лог и исключение дальше.
         except Exception as error:
-            await self._fail(f"Бэкап базы бота за {day} не получился: {error}")
+            logger.exception("Бэкап базы бота за %s не получился", day)
+            await self._alerter.alert(ALERT_BACKUP_FAILED, source=self.run, error=error, day=day)
             raise
         logger.info("Бэкап базы бота готов: %s (%s байт)", stored.daily, stored.size_bytes)
 
@@ -141,7 +145,14 @@ class DatabaseBackup:
         try:
             removed = await asyncio.to_thread(remove_expired, self._backup_dir, day)
         except OSError as error:
-            await self._fail(f"Не удалось удалить старые бэкапы базы бота: {error}")
+            logger.exception("Не удалось удалить старые бэкапы базы бота")
+            await self._alerter.alert(
+                ALERT_BACKUP_CLEANUP_FAILED,
+                source=self.run,
+                error=error,
+                glue=ALERT_BACKUP_FAILED,
+                day=day,
+            )
             raise
         for path in removed:
             logger.info("Удалён старый бэкап базы бота: %s", path)
@@ -174,10 +185,14 @@ class DatabaseBackup:
     async def _send(self, stored: StoredBackup, day: date) -> bool:
         """Отправить копию в «💾 Бэкапы». Сбой — тревога, но локальная копия остаётся."""
         if stored.size_bytes > TELEGRAM_DOCUMENT_LIMIT_BYTES:
-            await self._not_sent(
-                f"Бэкап базы бота за {day} не отправлен в Telegram: файл "
-                f"{format_size(stored.size_bytes)} больше лимита Telegram. "
-                f"Копия на сервере: {stored.daily}"
+            logger.error("Бэкап базы бота за %s больше лимита Telegram — не отправлен", day)
+            await self._alerter.alert(
+                ALERT_BACKUP_TOO_BIG,
+                source=self._send,
+                glue=ALERT_BACKUP_NOT_SENT,
+                day=day,
+                size=format_size(stored.size_bytes),
+                copy=stored.daily,
             )
             return False
         caption = f"💾 Бэкап базы бота {day} ({format_size(stored.size_bytes)})"
@@ -189,20 +204,11 @@ class DatabaseBackup:
         # Ошибку не прячем: лог с подробностями и тревога.
         except Exception as error:
             logger.exception("Бэкап базы бота не отправлен в Telegram")
-            await self._not_sent(
-                f"Бэкап базы бота за {day} не отправлен в Telegram: {error}. "
-                f"Копия на сервере: {stored.daily}"
+            await self._alerter.alert(
+                ALERT_BACKUP_NOT_SENT, source=self._send, error=error, day=day, copy=stored.daily
             )
             return False
         return True
-
-    async def _fail(self, text: str) -> None:
-        logger.exception("%s", text)
-        await self._alerter.raise_alert(ALERT_BACKUP_FAILED, text)
-
-    async def _not_sent(self, text: str) -> None:
-        logger.error("%s", text)
-        await self._alerter.raise_alert(ALERT_BACKUP_NOT_SENT, text)
 
 
 async def run_daily_backup(backup: DatabaseBackup) -> BackupResult:

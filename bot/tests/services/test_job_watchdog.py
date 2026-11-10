@@ -69,8 +69,12 @@ async def test_failing_job_is_noticed(
     await watchdog.run()
 
     [alert] = sender.sent
+    texts = admin_texts()
+    assert texts.get("alert.job_stale_never.title", name="remnawave_reconcile") in alert.text
     assert "ни разу не отработала" in alert.text
-    assert "лог" in alert.text
+    assert texts.get("alert.job_stale.hint_failing") in alert.text
+    assert "JobWatchdog.run" in alert.text
+    assert texts.get("alert.job_stale_never.causes.1.cause") in alert.text
 
 
 async def test_stale_job_alerts_once_per_episode(

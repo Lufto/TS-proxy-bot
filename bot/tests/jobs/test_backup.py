@@ -159,8 +159,11 @@ async def test_telegram_failure_keeps_local_copy_and_alerts(
     assert len(alert_sender.sent) == 1
     alert = alert_sender.sent[0]
     assert (alert.chat_id, alert.thread_id) == (CHAT_ID, ALERTS_THREAD_ID)
-    assert "не отправлен в Telegram" in alert.text
-    assert "Telegram не отвечает" in alert.text
+    assert "Бэкап базы бота за" in alert.text and "не ушёл в Telegram" in alert.text
+    assert "RuntimeError: Telegram не отвечает" in alert.text
+    assert "tsproxy.jobs.backup.DatabaseBackup._send" in alert.text
+    assert str(result.stored.daily) in alert.text  # где лежит копия
+    assert "Тему «💾 Бэкапы» удалили" in alert.text
 
 
 async def test_encryption_failure_alerts_raises_and_keeps_old_copies(
@@ -181,6 +184,8 @@ async def test_encryption_failure_alerts_raises_and_keeps_old_copies(
     assert len(alert_sender.sent) == 1
     assert "не получился" in alert_sender.sent[0].text
     assert "нет файла ключа" in alert_sender.sent[0].text
+    assert "tsproxy.jobs.backup.DatabaseBackup.run" in alert_sender.sent[0].text
+    assert "Нет программы age" in alert_sender.sent[0].text
     assert documents.sent == []
     assert old.exists()  # без свежей копии старые не удаляем
     assert names_in(backup_dir) == ["daily"]  # временной папки нет

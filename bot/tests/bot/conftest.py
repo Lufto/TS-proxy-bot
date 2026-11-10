@@ -145,7 +145,7 @@ def ctx(
         mask,
         buttons={REMNAWAVE_UNAVAILABLE_ALERT: banner_alert_button(content.admin_texts)},
     )
-    trial_switch = TrialSwitch(session_factory, events, alerter, content.admin_texts, clock)
+    trial_switch = TrialSwitch(session_factory, events, alerter, clock)
     screens = Screens(content.texts)
     delivery = ClientDelivery(bot, clients)
     payment_messages = TelegramPaymentMessages(delivery, PaymentScreens(content.texts, screens))
