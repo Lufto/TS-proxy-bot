@@ -139,6 +139,8 @@ df -h / ; free -m
 
 ### 2.2 «Отказ создать платёж» (`payment_create_rejected`, HTTP 400/401/403…)
 
+> **Поправка 2026-11-10:** бот передаёт `metadata.user_email = <telegram_id>@telegram.org` (`app.py`, `send_customer_email=True`); шапка `platega.py` устарела. Отказ из-за отсутствия `metadata` маловероятен; открыт только вопрос про `metadata.userId` — `bot/docs/todo.md`, п. 6–7.
+
 1. **Platega требует `metadata`, а бот его не передаёт.** В документации на 2026-11-10 сказано прямо: «Поле `metadata` обязательно», для некоторых категорий магазинов — ещё `metadata.userId` [док: создание платёжной ссылки с методом]. Бот по решению владельца от 2026-10-31 `metadata` не шлёт, если не включён `send_customer_email` [репо: `platega.py`]. *(Самое вероятное для **400** «ошибка валидации запроса». На тестовом кабинете создание работало [репо: память], но в документации требование есть — ждать отказа на боевом кабинете разумно [вывод].)* Проверить: текст ответа в тревоге (он передаётся как есть). Подтвердить у менеджера Platega. Документация пишет, что без `userId` там, где он нужен, «отключается антифрод-защита и может привести к отключению магазина» [док] — это стоит обсудить отдельно.
 2. **401 — неверные ключи.** В `.env` ключи тестового кабинета (они «постоянно меняются» [репо: память]) или опечатка; ключи перевыпустили в кабинете. Проверить: «Настройки» кабинета Platega — Merchant ID и ключ, сравнить с `PLATEGA_MERCHANT_ID` (сам секрет не выводить).
 3. **Метод СБП (`paymentMethod: 2`) не подключён магазину, или сумма вне лимитов.** Что Platega отвечает в этом случае, документация не говорит [док]. *(Возможно при запуске боевого магазина [вывод]; минимум 50 ₽ бот проверяет сам [репо: `MIN_AMOUNT`].)* Проверить: доступные методы и лимиты в кабинете или у менеджера.
@@ -247,8 +249,8 @@ df -h / ; free -m
 - `bot/src/tsproxy/web/remnawave.py`, `web/payments.py`, `services/payment_checks.py`, `services/nodes.py`, `services/panel_backups.py`, `domain/panel_backup.py`, `jobs/backup.py`, `bot/support.py`, `bot/delivery.py`, `services/broadcast.py`, `bot/admin_broadcast.py`
 - `bot/content/admin_texts.yaml` (тексты тревог)
 - `ops/remnawave-backup/*`, `ops/tsproxy-bot/install.sh`, `ops/tsproxy-bot/tsproxy.service`, `ops/server-hardening/*`
-- `.scratch/vpn-bot-rework/issues/22-bekap-i-obnovlenie-remnawave.md`, `03-proverka-svyazi-s-remnawave.md`
-- `.scratch/tsproxy-bot/issues/26-server-i-vykatka.md`, `36-pereezd-s-zomro.md`
+- `.scratch/archive/vpn-bot-rework/issues/22-bekap-i-obnovlenie-remnawave.md`, `03-proverka-svyazi-s-remnawave.md`
+- `.scratch/archive/tsproxy-bot/issues/26-server-i-vykatka.md`, `36-pereezd-s-zomro.md`
 
 Внешние (прочитаны 2026-11-10):
 - Remnawave, вебхуки: https://docs.rw/docs/features/webhooks

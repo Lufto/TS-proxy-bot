@@ -1,6 +1,6 @@
 # Бэкапы панели Remnawave
 
-Ежедневная зашифрованная копия базы панели, её настроек и настроек ноды. Задача — `.scratch/vpn-bot-rework/issues/22-bekap-i-obnovlenie-remnawave.md`.
+Ежедневная зашифрованная копия базы панели, её настроек и настроек ноды. Задача — `.scratch/archive/vpn-bot-rework/issues/22-bekap-i-obnovlenie-remnawave.md`.
 
 ## Где что лежит на сервере
 

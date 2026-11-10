@@ -15,7 +15,7 @@ Status: resolved
 
 Для каждого вида — 2–4 причины по убыванию вероятности и что проверить: где смотреть (кабинет, панель, сервер) и какую команду запустить, если она нужна. Только чтение. Подключаться к серверам нельзя.
 
-Источники: `ops/` (как развёрнуты панель, туннель, бот), `.scratch/vpn-bot-rework` (задача 22 — бэкап и обновление панели), код `bot/src/tsproxy/integrations/`, документация Remnawave, Platega, Telegram Bot API.
+Источники: `ops/` (как развёрнуты панель, туннель, бот), `.scratch/archive/vpn-bot-rework` (задача 22 — бэкап и обновление панели), код `bot/src/tsproxy/integrations/`, документация Remnawave, Platega, Telegram Bot API.
 
 Результат — `.scratch/bot-alerts/research/prichiny-sboev.md`.
 

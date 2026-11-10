@@ -1,6 +1,6 @@
 """Числа из решений владельца — в одном месте.
 
-Источники: задачи 04, 05, 12, 21 в `.scratch/vpn-bot-rework/issues/`
+Источники: задачи 04, 05, 12, 21 в `.scratch/archive/vpn-bot-rework/issues/`
 и `research/security-audit.md` §7.5–7.7.
 """
 

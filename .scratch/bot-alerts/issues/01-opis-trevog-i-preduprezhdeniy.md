@@ -1,7 +1,7 @@
 # Опись всех тревог и предупреждений
 
 Type: task
-Status: open
+Status: claimed
 
 ## Question
 
