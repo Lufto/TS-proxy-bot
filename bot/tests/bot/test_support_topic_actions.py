@@ -101,10 +101,14 @@ async def test_support_screen_shows_frequent_questions(
     [edited] = telegram.sent(EditMessageText)
     shown = buttons(edited.reply_markup)  # type: ignore[arg-type]
     faq = [(text, data) for text, data in shown if data and data.startswith("faq")]
-    assert 3 <= len(faq) <= 5
+    assert 3 <= len(faq) - 1 <= 5  # частые вопросы и «✍️ Другой вопрос»
     assert faq[0] == (
         content.texts.get("faq.connect.button"),
         FaqCallback(question=FaqQuestion.CONNECT).pack(),
+    )
+    assert faq[-1] == (
+        content.texts.get("faq.other.button"),
+        FaqCallback(question=FaqQuestion.OTHER).pack(),
     )
 
 
@@ -124,6 +128,23 @@ async def test_frequent_question_shows_its_answer(
     back = MenuCallback(screen=ScreenId.SUPPORT).pack()
     assert (content.texts.get("buttons.faq_back"), back) in buttons(edited.reply_markup)  # type: ignore[arg-type]
     assert telegram.sent(CreateForumTopic) == []  # частый вопрос — не обращение
+
+
+async def test_other_question_opens_ticket_only_after_client_writes(
+    dispatcher: Dispatcher,
+    bot: Bot,
+    telegram: FakeTelegramSession,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    data = FaqCallback(question=FaqQuestion.OTHER).pack()
+    await dispatcher.feed_update(bot, callback(user(CLIENT_ID), data))
+    assert telegram.sent(CreateForumTopic) == []
+    assert await tickets(session_factory) == []
+
+    await dispatcher.feed_update(bot, client_text("Как сменить устройство?"))
+
+    assert len(telegram.sent(CreateForumTopic)) == 1
+    assert len(await tickets(session_factory)) == 1
 
 
 # --- Карточка клиента ---

@@ -31,7 +31,7 @@ buttons:
   tariffs_back: ⬅️ К тарифам
   # экран оплаты: спросить платёжку, пришла ли оплата
   check_payment: 🔄 Проверить оплату
-  faq_back: ⬅️ К вопросам
+  faq_back: ⬅️ К частым вопросам
   # способ оплаты на экране тарифа; {price} — рубли, {stars} — звёзды
   pay_sbp: "💳 СБП — {price} ₽"
   pay_stars: "⭐ Stars — {stars} ⭐"

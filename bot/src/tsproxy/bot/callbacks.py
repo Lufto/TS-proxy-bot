@@ -92,13 +92,19 @@ class PaymentCheckCallback(CallbackData, prefix="paycheck"):
 
 
 class FaqQuestion(StrEnum):
-    """Частые вопросы на экране «💬 Поддержка». Тексты — `faq.<значение>` в `content/client/`."""
+    """Частые вопросы на экране «💬 Поддержка». Тексты — `faq.<значение>` в `content/client/`.
+
+    Порядок — порядок кнопок. `OTHER` всегда последний: только подсказка «напишите сюда»;
+    обращение откроется, когда клиент что-то напишет, — иначе нажавшие и передумавшие
+    оставляли бы пустые темы в группе администраторов.
+    """
 
     CONNECT = "connect"
     NOT_WORKING = "not_working"
     DEVICES = "devices"
     RENEW = "renew"
     PAYMENT = "payment"
+    OTHER = "other"  # «✍️ Другой вопрос»
 
 
 class FaqCallback(CallbackData, prefix="faq"):

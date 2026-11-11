@@ -335,7 +335,7 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         "buttons.faq_back",
         *(
             f"faq.{question}.{part}"
-            for question in ("connect", "not_working", "devices", "renew", "payment")
+            for question in ("connect", "not_working", "devices", "renew", "payment", "other")
             for part in ("button", "answer")
         ),
         # задача 12: тарифы и оплата
