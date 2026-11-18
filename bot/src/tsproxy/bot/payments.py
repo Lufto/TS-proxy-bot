@@ -4,11 +4,11 @@
 (случайную вторую — через поддержку, владелец 2026-11-10).
 
 Задача 15: «доступ отключён — платёж оспорен через банк» (реализует
-`services.payment_status.DisputeMessages`), с кнопкой «💬 Поддержка».
+`services.payment_status.DisputeMessages`), с кнопкой «Поддержка».
 
 Реализует `services.crediting.PaymentMessages`. Оплата к этому моменту уже засчитана,
 поэтому сбой Telegram не бросается дальше, а пишется в лог: подписку клиент всё равно
-увидит в «🚀 Подключиться».
+увидит в «Подключиться».
 """
 
 import logging
@@ -126,7 +126,7 @@ class TelegramPaymentMessages:
     async def _send(self, telegram_id: int, screen: Screen) -> None:
         try:
             await self._delivery.send(telegram_id, screen)
-        # Оплата засчитана и доступ выдан (или выдаётся): ссылка есть в «🚀 Подключиться».
+        # Оплата засчитана и доступ выдан (или выдаётся): ссылка есть в «Подключиться».
         # Сбой Telegram не должен ронять зачёт или фоновую задачу повторов.
         except TelegramAPIError:
             logger.exception("Не удалось прислать сообщение об оплате клиенту %s", telegram_id)

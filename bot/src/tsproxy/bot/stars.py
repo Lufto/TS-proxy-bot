@@ -174,7 +174,7 @@ async def on_successful_payment(message: Message, ctx: BotContext) -> None:
 
 
 def _notice(texts: Texts, key: str, stars: int) -> Screen:
-    """Сообщение о вернувшихся звёздах — с кнопкой «💬 Поддержка»."""
+    """Сообщение о вернувшихся звёздах — с кнопкой «Поддержка»."""
     support = InlineKeyboardButton(
         text=texts.get("buttons.support"),
         callback_data=MenuCallback(screen=ScreenId.SUPPORT).pack(),

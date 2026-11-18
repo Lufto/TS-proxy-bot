@@ -9,7 +9,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from tsproxy.bot.callbacks import MenuCallback, ScreenId
 from tsproxy.bot.delivery import ClientDelivery
-from tsproxy.bot.screens import Screen
+from tsproxy.bot.screens import BUTTON_STYLES, Screen
 from tsproxy.content.loader import Texts
 from tsproxy.domain.constants import TRIAL_EXTENSION_DAYS
 from tsproxy.domain.dates import format_moscow
@@ -30,7 +30,7 @@ REMINDER_TEXTS: dict[tuple[AccessPeriod, ReminderKind], str] = {
     (AccessPeriod.PAID, ReminderKind.DAY_BEFORE): "notices.paid_day_before",
     (AccessPeriod.PAID, ReminderKind.HOUR_BEFORE): "notices.paid_hour_before",
 }
-# Пробному — «💳 Тарифы» (продлевать нечего), оплаченному — «💳 Продлить подписку»
+# Пробному — «Тарифы» (продлевать нечего), оплаченному — «Продлить подписку»
 REMINDER_BUTTONS: dict[AccessPeriod, str] = {
     AccessPeriod.TRIAL: "buttons.tariffs",
     AccessPeriod.PAID: "buttons.renew",
@@ -50,7 +50,9 @@ class NoticeScreens:
     def _button(self, key: str, screen: ScreenId) -> list[InlineKeyboardButton]:
         return [
             InlineKeyboardButton(
-                text=self._texts.get(key), callback_data=MenuCallback(screen=screen).pack()
+                text=self._texts.get(key),
+                callback_data=MenuCallback(screen=screen).pack(),
+                style=BUTTON_STYLES.get(key),
             )
         ]
 

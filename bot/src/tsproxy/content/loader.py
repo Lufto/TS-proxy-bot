@@ -331,7 +331,7 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         "support.not_delivered",
         "support.reply_prefix",
         "fallback.unknown_command",
-        # задача 17: частые вопросы на экране «💬 Поддержка» (набор — FaqQuestion)
+        # задача 17: частые вопросы на экране «Поддержка» (набор — FaqQuestion)
         "buttons.faq_back",
         *(
             f"faq.{question}.{part}"
