@@ -262,6 +262,13 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         "buttons.platform_macos",
         "buttons.platform_linux",
         "menu.title",
+        # задача 19: строка статуса подписки в главном меню
+        "menu.status_trial",
+        "menu.status_trial_traffic_used_up",
+        "menu.status_active",
+        "menu.status_grace",
+        "menu.status_expired",
+        "menu.status_suspended",
         "connect.active",
         "connect.inactive",
         "connect.no_account",

@@ -54,6 +54,14 @@ class TrafficUsage:
 
 
 @dataclass(frozen=True)
+class SubscriptionStatus:
+    """Статус подписки и срок в панели — для строки статуса в главном меню (задача 19)."""
+
+    status: ProfileStatus
+    expire_at: datetime
+
+
+@dataclass(frozen=True)
 class Profile:
     """Всё, что показывает «Мой профиль». `traffic` — только в пробном периоде."""
 
@@ -106,6 +114,30 @@ class ProfileService:
         except AccountNotFound:
             return None  # нормальная ситуация: пробный не брал и не покупал
 
+    def _status(self, client: Client, account: ProxyAccount, now: datetime) -> ProfileStatus:
+        """Статус словами — один расчёт для профиля и строки статуса в меню."""
+        snapshot = ClientSnapshot(
+            expire_at=account.expire_at,
+            on_trial=on_trial(client, account),
+            grace_started_at=client.grace_started_at,
+            access_disabled=account.status is AccountStatus.DISABLED,
+            # компенсация за сбой продлевает льготный (задача 20) — видно по сроку в панели
+            grace_extension=observed_grace_extension(client.grace_started_at, account.expire_at),
+        )
+        traffic_used_up = account.status is AccountStatus.LIMITED
+        return profile_status(snapshot, now, traffic_used_up=traffic_used_up)
+
+    async def status(self, client: Client) -> SubscriptionStatus | None:
+        """Статус для главного меню — без списка устройств, один запрос к панели.
+
+        `None` — прокси-аккаунта нет. Сбой панели не скрываем: решает вызывающий.
+        """
+        account = await self._account(client.telegram_id)
+        if account is None:
+            return None
+        now = utc_now(self._clock)
+        return SubscriptionStatus(self._status(client, account, now), account.expire_at)
+
     async def profile(self, client: Client) -> Profile | None:
         """Профиль клиента. `None` — прокси-аккаунта нет. Сбой панели не скрываем."""
         account = await self._account(client.telegram_id)
@@ -114,20 +146,11 @@ class ProfileService:
         devices = await self._remnawave.list_devices(client.telegram_id)
         now = utc_now(self._clock)
         trial = on_trial(client, account)
-        snapshot = ClientSnapshot(
-            expire_at=account.expire_at,
-            on_trial=trial,
-            grace_started_at=client.grace_started_at,
-            access_disabled=account.status is AccountStatus.DISABLED,
-            # компенсация за сбой продлевает льготный (задача 20) — видно по сроку в панели
-            grace_extension=observed_grace_extension(client.grace_started_at, account.expire_at),
-        )
-        traffic_used_up = account.status is AccountStatus.LIMITED
         traffic = (
             TrafficUsage(account.traffic_used_bytes, account.traffic_limit_bytes) if trial else None
         )
         return Profile(
-            status=profile_status(snapshot, now, traffic_used_up=traffic_used_up),
+            status=self._status(client, account, now),
             expire_at=account.expire_at,
             time_left=time_left(now, account.expire_at),
             devices=DeviceSlots(used=len(devices), limit=_device_limit(account)),

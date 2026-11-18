@@ -13,7 +13,7 @@ from tsproxy.content.dates import client_time
 from tsproxy.content.loader import Texts
 from tsproxy.domain.profile import ProfileStatus, TimeLeft, format_gigabytes, plural_form
 from tsproxy.integrations.remnawave_types import Device
-from tsproxy.services.profile import DeviceList, Profile, device_ref
+from tsproxy.services.profile import DeviceList, Profile, SubscriptionStatus, device_ref
 
 # Части экрана разделяем пустой строкой
 PARAGRAPH = "\n\n"
@@ -27,6 +27,16 @@ STATUS_TEXTS: dict[ProfileStatus, str] = {
     ProfileStatus.GRACE: "profile.status_grace",
     ProfileStatus.EXPIRED: "profile.status_expired",
     ProfileStatus.SUSPENDED: "profile.status_suspended",
+}
+
+# Строка статуса в главном меню (задача 19); у NO_SUBSCRIPTION строки нет
+MENU_STATUS_TEXTS: dict[ProfileStatus, str] = {
+    ProfileStatus.TRIAL: "menu.status_trial",
+    ProfileStatus.TRIAL_TRAFFIC_USED_UP: "menu.status_trial_traffic_used_up",
+    ProfileStatus.ACTIVE: "menu.status_active",
+    ProfileStatus.GRACE: "menu.status_grace",
+    ProfileStatus.EXPIRED: "menu.status_expired",
+    ProfileStatus.SUSPENDED: "menu.status_suspended",
 }
 
 # Куда ведёт кнопка под статусом: продлить, выбрать тариф или написать в поддержку
@@ -98,6 +108,13 @@ class ProfileScreens:
             self._back(),
         ]
         return Screen(text, InlineKeyboardMarkup(inline_keyboard=rows))
+
+    def menu_status(self, status: SubscriptionStatus) -> str | None:
+        """Строка статуса над главным меню: «✅ Активна до …», «⛔ Закончилась»."""
+        key = MENU_STATUS_TEXTS.get(status.status)
+        if key is None:
+            return None
+        return self._texts.get(key, expire_at=client_time(status.expire_at))
 
     def no_account(self, *, trial_available: bool) -> Screen:
         """Профиль, когда подписки ещё нет: предложить пробный и тарифы.
