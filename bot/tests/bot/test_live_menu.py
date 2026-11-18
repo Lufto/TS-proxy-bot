@@ -157,11 +157,11 @@ async def test_failed_take_down_of_pressed_menu_keeps_new_screen(
     telegram.fail_next(DeleteMessage, error_type, text, **extra)
 
     await dispatcher.feed_update(
-        bot, callback(user(CLIENT_ID), MenuCallback(screen=ScreenId.ABOUT).pack())
+        bot, callback(user(CLIENT_ID), MenuCallback(screen=ScreenId.INSTRUCTIONS).pack())
     )
 
     [screen] = telegram.sent(SendMessage)
-    assert screen.text == content.texts.get("about.text")
+    assert screen.text == content.texts.get("instructions.choose")
     assert [d.message_id for d in telegram.sent(DeleteMessage)] == [MENU_MESSAGE_ID]
     assert alert_sender.sent == []
 
@@ -202,7 +202,7 @@ async def test_pressing_inaccessible_message_strips_its_buttons(
             id="cq-990",
             from_user=user(CLIENT_ID),
             chat_instance="ci",
-            data=MenuCallback(screen=ScreenId.ABOUT).pack(),
+            data=MenuCallback(screen=ScreenId.INSTRUCTIONS).pack(),
             message=InaccessibleMessage(chat=private_chat(CLIENT_ID), message_id=MENU_MESSAGE_ID),
         ),
     )
@@ -210,7 +210,7 @@ async def test_pressing_inaccessible_message_strips_its_buttons(
     await dispatcher.feed_update(bot, press)
 
     [screen] = telegram.sent(SendMessage)
-    assert screen.text == content.texts.get("about.text")
+    assert screen.text == content.texts.get("instructions.choose")
     assert telegram.sent(DeleteMessage) == []
     [stripped] = telegram.sent(EditMessageReplyMarkup)
     assert (stripped.chat_id, stripped.message_id) == (CLIENT_ID, MENU_MESSAGE_ID)

@@ -25,7 +25,7 @@ from tsproxy.services.profile import device_ref
 
 CONNECT = MenuCallback(screen=ScreenId.CONNECT).pack()
 MAIN_MENU = MenuCallback(screen=ScreenId.MAIN).pack()
-ABOUT = MenuCallback(screen=ScreenId.ABOUT).pack()
+INSTRUCTIONS = MenuCallback(screen=ScreenId.INSTRUCTIONS).pack()
 
 
 def typing_before_answer(telegram: FakeTelegramSession) -> bool:
@@ -82,7 +82,7 @@ async def test_start_shows_typing(
 async def test_screen_without_panel_has_no_typing(
     dispatcher: Dispatcher, bot: Bot, telegram: FakeTelegramSession
 ) -> None:
-    await dispatcher.feed_update(bot, callback(user(CLIENT_ID), ABOUT))
+    await dispatcher.feed_update(bot, callback(user(CLIENT_ID), INSTRUCTIONS))
 
     assert telegram.sent(SendChatAction) == []
     assert len(telegram.sent(SendMessage)) == 1

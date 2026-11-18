@@ -144,7 +144,7 @@ async def test_about_has_site_documents_and_back(
 ) -> None:
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), menu_data(ScreenId.ABOUT)))
 
-    [sent] = telegram.sent(SendMessage)
+    [sent] = telegram.sent(SendPhoto)
     markup = sent.reply_markup
     assert isinstance(markup, InlineKeyboardMarkup)
     buttons = [(b.text, b.url, b.callback_data) for row in markup.inline_keyboard for b in row]
@@ -159,7 +159,6 @@ async def test_about_has_site_documents_and_back(
 @pytest.mark.parametrize(
     ("screen", "text_key"),
     [
-        (ScreenId.ABOUT, "about.text"),
         (ScreenId.INSTRUCTIONS, "instructions.choose"),
         (ScreenId.TARIFFS, "tariffs.title"),
         (ScreenId.SUPPORT, "support.intro"),
@@ -203,10 +202,10 @@ async def test_pressed_message_that_cannot_be_deleted_loses_buttons(
 ) -> None:
     telegram.fail_next(DeleteMessage, TelegramBadRequest, reason)
 
-    await dispatcher.feed_update(bot, callback(user(CLIENT_ID), menu_data(ScreenId.ABOUT)))
+    await dispatcher.feed_update(bot, callback(user(CLIENT_ID), menu_data(ScreenId.INSTRUCTIONS)))
 
     [sent] = telegram.sent(SendMessage)
-    assert sent.text == content.texts.get("about.text")  # без извинения об ошибке
+    assert sent.text == content.texts.get("instructions.choose")  # без извинения об ошибке
     [stripped] = telegram.sent(EditMessageReplyMarkup)
     assert (stripped.chat_id, stripped.message_id) == (CLIENT_ID, MENU_MESSAGE_ID)
     assert stripped.reply_markup is None
@@ -232,10 +231,10 @@ async def test_buttons_already_gone_is_not_an_error(
     )
     telegram.fail_next(EditMessageReplyMarkup, TelegramBadRequest, reason)
 
-    await dispatcher.feed_update(bot, callback(user(CLIENT_ID), menu_data(ScreenId.ABOUT)))
+    await dispatcher.feed_update(bot, callback(user(CLIENT_ID), menu_data(ScreenId.INSTRUCTIONS)))
 
     [sent] = telegram.sent(SendMessage)
-    assert sent.text == content.texts.get("about.text")  # без извинения об ошибке
+    assert sent.text == content.texts.get("instructions.choose")  # без извинения об ошибке
 
 
 async def test_client_who_blocked_bot_keeps_pressed_menu(
@@ -246,7 +245,7 @@ async def test_client_who_blocked_bot_keeps_pressed_menu(
         SendMessage, TelegramForbiddenError, "Forbidden: bot was blocked by the user"
     )
 
-    await dispatcher.feed_update(bot, callback(user(CLIENT_ID), menu_data(ScreenId.ABOUT)))
+    await dispatcher.feed_update(bot, callback(user(CLIENT_ID), menu_data(ScreenId.INSTRUCTIONS)))
 
     assert telegram.sent(DeleteMessage) == []
     assert telegram.sent(EditMessageReplyMarkup) == []

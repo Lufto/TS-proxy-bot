@@ -109,7 +109,7 @@ async def test_forbidden_on_send_sets_blocked_mark(
         SendMessage, TelegramForbiddenError, "Forbidden: bot was blocked by the user"
     )
 
-    result = await ctx.delivery.send(CLIENT_ID, ctx.screens.about())
+    result = await ctx.delivery.send(CLIENT_ID, ctx.screens.instructions_menu())
 
     assert result is None
     assert await blocked_at(session_factory) == NOW
@@ -129,7 +129,7 @@ async def test_successful_send_keeps_client_unmarked(
     ctx: BotContext, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     await add_client(session_factory)
-    assert await ctx.delivery.send(CLIENT_ID, ctx.screens.about()) is not None
+    assert await ctx.delivery.send(CLIENT_ID, ctx.screens.instructions_menu()) is not None
     assert await blocked_at(session_factory) is None
 
 
