@@ -11,6 +11,7 @@ from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
 from tsproxy.bot.callbacks import DeviceCallback, MenuCallback, RevokeLinkCallback, ScreenId
+from tsproxy.bot.chat_typing import TYPING
 from tsproxy.bot.connect import PANEL_DOWN_ERRORS, panel_unavailable_screen
 from tsproxy.bot.context import BotContext, profile_of
 from tsproxy.bot.profile_screens import ProfileScreens
@@ -25,14 +26,18 @@ def create_profile_router() -> Router:
     router = Router(name="profile")
     router.message.filter(F.chat.type == ChatType.PRIVATE)
     router.callback_query.filter(F.message.chat.type == ChatType.PRIVATE)
-    router.message.register(on_profile_command, Command(PROFILE_COMMAND))
-    router.callback_query.register(on_profile, MenuCallback.filter(F.screen == ScreenId.PROFILE))
-    router.callback_query.register(on_devices, MenuCallback.filter(F.screen == ScreenId.DEVICES))
-    router.callback_query.register(on_delete_device, DeviceCallback.filter())
+    router.message.register(on_profile_command, Command(PROFILE_COMMAND), flags=TYPING)
+    router.callback_query.register(
+        on_profile, MenuCallback.filter(F.screen == ScreenId.PROFILE), flags=TYPING
+    )
+    router.callback_query.register(
+        on_devices, MenuCallback.filter(F.screen == ScreenId.DEVICES), flags=TYPING
+    )
+    router.callback_query.register(on_delete_device, DeviceCallback.filter(), flags=TYPING)
     router.callback_query.register(
         on_revoke_ask, MenuCallback.filter(F.screen == ScreenId.REVOKE_LINK)
     )
-    router.callback_query.register(on_revoke, RevokeLinkCallback.filter())
+    router.callback_query.register(on_revoke, RevokeLinkCallback.filter(), flags=TYPING)
     return router
 
 
