@@ -44,7 +44,7 @@ async def test_button_on_menu_older_than_a_day_opens_main_menu(
 ) -> None:
     clock.advance(MORE_THAN_A_DAY)
 
-    await dispatcher.feed_update(bot, callback(user(CLIENT_ID), menu_data(ScreenId.ABOUT)))
+    await dispatcher.feed_update(bot, callback(user(CLIENT_ID), menu_data(ScreenId.INSTRUCTIONS)))
 
     [sent] = telegram.sent(SendPhoto)
     assert sent.caption == content.texts.get("menu.title")
@@ -64,10 +64,10 @@ async def test_button_on_menu_younger_than_a_day_opens_pressed_screen(
 ) -> None:
     clock.advance(idle)  # ровно сутки — ещё не «больше суток»
 
-    await dispatcher.feed_update(bot, callback(user(CLIENT_ID), menu_data(ScreenId.ABOUT)))
+    await dispatcher.feed_update(bot, callback(user(CLIENT_ID), menu_data(ScreenId.INSTRUCTIONS)))
 
     [sent] = telegram.sent(SendMessage)
-    assert sent.text == content.texts.get("about.text")
+    assert sent.text == content.texts.get("instructions.choose")
 
 
 @pytest.mark.parametrize(

@@ -16,7 +16,7 @@ from tsproxy.bot.throttling import (
 )
 from tsproxy.content.loader import Content
 
-ABOUT = MenuCallback(screen=ScreenId.ABOUT).pack()
+INSTRUCTIONS = MenuCallback(screen=ScreenId.INSTRUCTIONS).pack()
 SECONDS_PER_TOKEN = SECONDS_PER_MINUTE / RATE_LIMIT_PER_MINUTE
 
 
@@ -57,7 +57,7 @@ async def test_button_flood_is_not_processed(
 ) -> None:
     flood = RATE_LIMIT_BURST + 5
     for _ in range(flood):
-        await dispatcher.feed_update(bot, callback(user(CLIENT_ID), ABOUT))
+        await dispatcher.feed_update(bot, callback(user(CLIENT_ID), INSTRUCTIONS))
 
     assert len(telegram.sent(SendMessage)) == RATE_LIMIT_BURST
     throttled = [
@@ -84,6 +84,6 @@ async def test_admins_are_not_limited(
     dispatcher: Dispatcher, bot: Bot, telegram: FakeTelegramSession
 ) -> None:
     for _ in range(RATE_LIMIT_BURST + 5):
-        await dispatcher.feed_update(bot, callback(user(ADMIN_ID), ABOUT))
+        await dispatcher.feed_update(bot, callback(user(ADMIN_ID), INSTRUCTIONS))
 
     assert len(telegram.sent(SendMessage)) == RATE_LIMIT_BURST + 5

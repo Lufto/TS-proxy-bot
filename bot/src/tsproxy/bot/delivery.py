@@ -26,9 +26,9 @@
 пуста, и у клиента может остаться одно старое меню с рабочими кнопками — оно уберётся при
 нажатии на нём; при этом убирается и меню, которое бот помнит (`show`).
 
-Экран с картинкой (`Screen.picture`: главное меню, задача 27) уходит фото с подписью;
-картинку загружает один раз и дальше шлёт по `file_id` `TelegramPictures`. Живое меню
-обращается с фото так же, как с текстом: удаляет его или снимает кнопки.
+Экран с картинкой (`Screen.picture`: главное меню и «О сервисе», задачи 27 и 28) уходит
+фото с подписью; картинку загружает один раз и дальше шлёт по `file_id` `TelegramPictures`.
+Живое меню обращается с фото так же, как с текстом: удаляет его или снимает кнопки.
 
 Виды сообщений:
 - экран меню (ответ на кнопку или команду) — при нажатии удаляется;
@@ -250,18 +250,15 @@ class ClientDelivery:
             return await self.call(
                 telegram_id, self._bot.send_message(telegram_id, screen.text, reply_markup=markup)
             )
-        sent = await self.call(
+        return await self.call(
             telegram_id,
-            self._bot.send_photo(
-                telegram_id,
-                self._pictures.photo(screen.picture),
-                caption=screen.text,
-                reply_markup=markup,
+            self._pictures.send(
+                screen.picture,
+                lambda photo: self._bot.send_photo(
+                    telegram_id, photo, caption=screen.text, reply_markup=markup
+                ),
             ),
         )
-        if sent is not None:
-            self._pictures.remember(screen.picture, sent)
-        return sent
 
     def _remember(self, telegram_id: int, menu: LiveMenu | None) -> LiveMenu | None:
         """Запомнить новое живое меню (`None` — у сообщения нет кнопок, которые нажимают)

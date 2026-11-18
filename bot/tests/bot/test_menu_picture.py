@@ -175,3 +175,68 @@ def test_longest_caption_fits_photo_limit(content: Content) -> None:
     ]
     longest = max(statuses, key=len)
     assert len(f"{longest}\n\n{content.texts.get('menu.title')}") <= PHOTO_CAPTION_MAX_LENGTH
+
+
+async def test_about_is_photo_with_caption_and_buttons(
+    dispatcher: Dispatcher, bot: Bot, telegram: FakeTelegramSession, content: Content
+) -> None:
+    """«О сервисе» (задача 28) — фото с подписью, тем же способом, что главное меню."""
+    await dispatcher.feed_update(
+        bot, callback(user(CLIENT_ID), MenuCallback(screen=ScreenId.ABOUT).pack())
+    )
+
+    assert telegram.sent(SendMessage) == []
+    [about] = telegram.sent(SendPhoto)
+    assert file_name(about.photo) == "about.png"
+    assert about.caption == (
+        "Шифруем ваш трафик, скрываем IP-адрес и защищаем данные в публичных Wi-Fi сетях. "
+        "До 3 устройств на одной подписке."
+    )
+    assert about.reply_markup is not None and about.reply_markup.inline_keyboard
+
+
+async def test_rejected_file_id_is_forgotten_and_picture_uploaded_again(
+    dispatcher: Dispatcher, bot: Bot, telegram: FakeTelegramSession, content: Content
+) -> None:
+    """Telegram отверг запомненный `file_id` (например, бот сменил токен) — картинка
+    загружается заново, клиент получает меню без извинений."""
+    await start(dispatcher, bot)
+    telegram.fail_next(
+        SendPhoto, TelegramBadRequest, "Bad Request: wrong file identifier/HTTP URL specified"
+    )
+
+    await start(dispatcher, bot)
+
+    _, rejected, uploaded = telegram.sent(SendPhoto)
+    assert isinstance(rejected.photo, str)
+    assert file_name(uploaded.photo) == "menu-new.png"
+    assert uploaded.caption == content.texts.get("menu.title")
+    assert telegram.sent(SendMessage) == []
+
+
+async def test_after_upload_again_picture_is_sent_by_new_file_id(
+    dispatcher: Dispatcher, bot: Bot, telegram: FakeTelegramSession
+) -> None:
+    await start(dispatcher, bot)
+    telegram.fail_next(
+        SendPhoto, TelegramBadRequest, "Bad Request: wrong file identifier/HTTP URL specified"
+    )
+    await start(dispatcher, bot)
+
+    await start(dispatcher, bot)
+
+    *_, uploaded, latest = telegram.sent(SendPhoto)
+    assert isinstance(uploaded.photo, FSInputFile)
+    assert latest.photo == telegram.photo_file_id(uploaded.photo)
+
+
+async def test_other_bad_request_on_photo_is_not_retried(
+    dispatcher: Dispatcher, bot: Bot, telegram: FakeTelegramSession
+) -> None:
+    """Отказ не из-за файла (подпись, кнопки) повторной загрузкой не лечится."""
+    await start(dispatcher, bot)
+    telegram.fail_next(SendPhoto, TelegramBadRequest, "Bad Request: message caption is too long")
+
+    await start(dispatcher, bot)
+
+    assert len(telegram.sent(SendPhoto)) == 2

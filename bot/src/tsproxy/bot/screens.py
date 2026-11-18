@@ -74,7 +74,7 @@ class Screen:
     сообщение (`ClientDelivery.show`). Обычный экран меню при нажатии удаляется.
 
     `picture` — экран приходит фото с подписью `text` (до 1024 символов): главное меню
-    (задача 27); `None` — обычный текст.
+    (задача 27) и «О сервисе» (задача 28); `None` — обычный текст.
     """
 
     text: str
@@ -145,13 +145,17 @@ class Screens:
         return Screen(text, InlineKeyboardMarkup(inline_keyboard=rows), picture=picture)
 
     def about(self) -> Screen:
-        """«О сервисе»: сайт, документы и возврат в меню."""
+        """«О сервисе» — фото с подписью (задача 28): сайт, документы и возврат в меню."""
         rows = [
             [self._link("buttons.site", "documents.site_url")],
             self._documents(),
             self._back(),
         ]
-        return Screen(self._texts.get("about.text"), InlineKeyboardMarkup(inline_keyboard=rows))
+        return Screen(
+            self._texts.get("about.text"),
+            InlineKeyboardMarkup(inline_keyboard=rows),
+            picture=Picture.ABOUT,
+        )
 
     def support(self) -> Screen:
         """«Поддержка»: частые вопросы кнопками, иначе — просто напишите вопрос в чат."""
