@@ -19,7 +19,8 @@ class Picture(StrEnum):
     MENU_ACTIVE = "menu-active"  # на связи: оплаченный срок или пробный
     MENU_GRACE = "menu-grace"  # срок кончился, доступ сохранён (льготный период)
     MENU_EXPIRED = "menu-expired"  # нет доступа
-    MENU_NEW = "menu-new"  # не подключено: нет прокси-аккаунта или панель не ответила
+    MENU_NEW = "menu-new"  # не подключено: нет прокси-аккаунта
+    MENU_NEUTRAL = "menu-neutral"  # без индикатора: панель не ответила, статус неизвестен
     ABOUT = "about"  # «О сервисе» (задача 28)
 
 

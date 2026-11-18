@@ -10,7 +10,8 @@
 Картинку описания в пустом чате ставит только владелец в @BotFather —
 шаги в `docs/areas/server.md`, «Профиль бота».
 
-Код выхода 0 — профиль в порядке; 1 — ошибка в `.env`, текстах или ответ Telegram с ошибкой.
+Код выхода 0 — профиль в порядке; 1 — ошибка в `.env`, текстах, нет аватара (тогда
+Telegram не трогаем) или ответ Telegram с ошибкой.
 """
 
 import argparse
@@ -24,11 +25,13 @@ from aiogram.utils.token import TokenValidationError
 from pydantic import ValidationError
 
 from tsproxy.bot.bot_profile import BotProfile, ProfileUpdate, apply_bot_profile, bot_profile
-from tsproxy.config import load_settings
+from tsproxy.config import describe_settings_error, load_settings
 from tsproxy.content.loader import ContentError, load_content
 from tsproxy.logging_setup import setup_logging
 
 logger = logging.getLogger("set_bot_profile")
+# Уровень журнала, пока `.env` не прочитан (дальше — LOG_LEVEL из `.env`)
+DEFAULT_LOG_LEVEL = "INFO"
 
 
 def _parse_args() -> argparse.Namespace:
@@ -59,18 +62,20 @@ def _report(update: ProfileUpdate) -> None:
 
 def main() -> int:
     args = _parse_args()
+    # до чтения `.env` секретов ещё нет — журнал без маскировки, в нём только имена переменных
+    setup_logging(DEFAULT_LOG_LEVEL, ())
     try:
         settings = load_settings()
     except ValidationError as error:
-        print(f"Ошибка в .env: {error.error_count()} переменных с ошибкой", file=sys.stderr)
+        logger.error("Ошибка в .env, проверьте переменные: %s", describe_settings_error(error))
         return 1
     setup_logging(settings.log_level, settings.secret_values())
     try:
         content = load_content(settings.content_dir, settings.config_dir)
+        profile = bot_profile(content.texts, settings.content_dir)
     except ContentError as error:
-        logger.error("Тексты с ошибкой: %s", error)
+        logger.error("Тексты или аватар с ошибкой: %s", error)
         return 1
-    profile = bot_profile(content.texts, settings.content_dir)
     token = settings.bot_token.get_secret_value()
     try:
         update = asyncio.run(_apply(token, profile, replace_avatar=args.replace_avatar))

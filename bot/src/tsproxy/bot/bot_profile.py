@@ -22,7 +22,7 @@ from pathlib import Path
 from aiogram import Bot
 from aiogram.types import FSInputFile, InputProfilePhotoStatic
 
-from tsproxy.content.loader import Texts
+from tsproxy.content.loader import ContentError, Texts
 
 AVATAR_FILE = Path("images") / "avatar.jpg"
 # Чтобы узнать, есть ли у бота аватар, хватит одного фото
@@ -51,11 +51,18 @@ class ProfileUpdate:
 
 
 def bot_profile(texts: Texts, content_dir: Path) -> BotProfile:
-    """Профиль из текстов и картинок папки `content/`."""
+    """Профиль из текстов и картинок папки `content/`.
+
+    Нет файла аватара — `ContentError` сразу, до Telegram: иначе описания встали бы,
+    а аватар — нет (профиль наполовину).
+    """
+    avatar = content_dir / AVATAR_FILE
+    if not avatar.is_file():
+        raise ContentError(f"Нет аватара бота: {avatar}")
     return BotProfile(
         description=texts.get("bot_profile.description"),
         short_description=texts.get("bot_profile.short_description"),
-        avatar=content_dir / AVATAR_FILE,
+        avatar=avatar,
     )
 
 
@@ -68,12 +75,13 @@ async def apply_bot_profile(
         changed.append(ProfilePart.DESCRIPTION)
     if await _set_short_description(bot, profile.short_description):
         changed.append(ProfilePart.SHORT_DESCRIPTION)
-    has_avatar = await _has_avatar(bot)
-    if replace_avatar or not has_avatar:
+    # заменяем в любом случае — спрашивать, есть ли аватар, незачем
+    avatar_kept = not replace_avatar and await _has_avatar(bot)
+    if not avatar_kept:
         photo = InputProfilePhotoStatic(photo=FSInputFile(profile.avatar))
         await bot.set_my_profile_photo(photo=photo)
         changed.append(ProfilePart.AVATAR)
-    return ProfileUpdate(changed=tuple(changed), avatar_kept=has_avatar and not replace_avatar)
+    return ProfileUpdate(changed=tuple(changed), avatar_kept=avatar_kept)
 
 
 async def _set_description(bot: Bot, text: str) -> bool:

@@ -156,6 +156,36 @@ def test_missing_picture_stops_startup(tmp_path: Path) -> None:
         load_content(tmp_path, REPO_CONFIG)
 
 
+def _edit_menu_texts(content_dir: Path, **changes: str) -> None:
+    """Поменять тексты `client/menu.yaml`: `group__key="…"` — ключ `group.key`."""
+    path = content_dir / "client" / "menu.yaml"
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    for name, text in changes.items():
+        group, key = name.split("__")
+        data[group][key] = text
+    path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+
+
+def test_too_long_about_caption_stops_startup(tmp_path: Path) -> None:
+    """Подпись под фото — до 1024 символов: длинная сломала бы «О сервисе» у клиента."""
+    shutil.copytree(REPO_CONTENT, tmp_path, dirs_exist_ok=True)
+    _edit_menu_texts(tmp_path, about__text="а" * 1025)
+
+    with pytest.raises(ContentError, match=r"about\.text"):
+        load_content(tmp_path, REPO_CONFIG)
+
+
+def test_menu_caption_with_longest_status_line_must_fit(tmp_path: Path) -> None:
+    """Подпись меню — строка статуса и заголовок: каждый по отдельности влезает, вместе — нет."""
+    shutil.copytree(REPO_CONTENT, tmp_path, dirs_exist_ok=True)
+    _edit_menu_texts(
+        tmp_path, menu__title="а" * 600, menu__status_grace="⛔ " + "б" * 400 + " {expire_at}"
+    )
+
+    with pytest.raises(ContentError, match=r"menu\.status_grace"):
+        load_content(tmp_path, REPO_CONFIG)
+
+
 @pytest.mark.parametrize(
     "path", sorted(REPO_CONTENT.rglob("*.yaml")), ids=lambda path: f"{path.parent.name}/{path.name}"
 )

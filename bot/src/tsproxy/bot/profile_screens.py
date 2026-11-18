@@ -3,7 +3,9 @@
 Без UUID, HWID, имени аккаунта в панели и других технических кодов (задача 10).
 """
 
+from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum, auto
 
 from aiogram.types import DisabledButton, InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -11,6 +13,7 @@ from tsproxy.bot.callbacks import DeviceCallback, MenuCallback, RevokeLinkCallba
 from tsproxy.bot.screens import BUTTON_STYLES, Screen
 from tsproxy.content.dates import client_time
 from tsproxy.content.loader import Texts
+from tsproxy.content.pictures import Picture
 from tsproxy.domain.profile import ProfileStatus, TimeLeft, format_gigabytes, plural_form
 from tsproxy.integrations.remnawave_types import Device
 from tsproxy.services.profile import DeviceList, Profile, SubscriptionStatus, device_ref
@@ -38,6 +41,39 @@ MENU_STATUS_TEXTS: dict[ProfileStatus, str] = {
     ProfileStatus.EXPIRED: "menu.status_expired",
     ProfileStatus.SUSPENDED: "menu.status_suspended",
 }
+
+# Статус подписки → картинка главного меню (задачи 04, 27): зелёный «на связи», жёлтый «доступ
+# сохранён», красный «нет доступа» (в том числе кончился пробный трафик и выключенный доступ).
+# Здесь все статусы: тест проверяет это для каждого `ProfileStatus`
+MENU_PICTURES: dict[ProfileStatus, Picture] = {
+    ProfileStatus.NO_SUBSCRIPTION: Picture.MENU_NEW,
+    ProfileStatus.TRIAL: Picture.MENU_ACTIVE,
+    ProfileStatus.ACTIVE: Picture.MENU_ACTIVE,
+    ProfileStatus.GRACE: Picture.MENU_GRACE,
+    ProfileStatus.TRIAL_TRAFFIC_USED_UP: Picture.MENU_EXPIRED,
+    ProfileStatus.EXPIRED: Picture.MENU_EXPIRED,
+    ProfileStatus.SUSPENDED: Picture.MENU_EXPIRED,
+}
+
+
+class PanelSilent(Enum):
+    """Панель не ответила или не успела: статус подписки неизвестен."""
+
+    PANEL_SILENT = auto()
+
+
+PANEL_SILENT = PanelSilent.PANEL_SILENT
+# Что меню знает о подписке: статус, `None` — прокси-аккаунта нет, `PANEL_SILENT` — неизвестно
+type MenuSubscription = SubscriptionStatus | PanelSilent | None
+
+
+@dataclass(frozen=True)
+class MenuHeader:
+    """Над главным меню: строка статуса (`None` — без неё) и картинка."""
+
+    status: str | None
+    picture: Picture
+
 
 # Куда ведёт кнопка под статусом: продлить, выбрать тариф или написать в поддержку
 STATUS_ACTIONS: dict[ProfileStatus, tuple[str, ScreenId]] = {
@@ -119,12 +155,24 @@ class ProfileScreens:
         ]
         return Screen(text, InlineKeyboardMarkup(inline_keyboard=rows))
 
-    def menu_status(self, status: SubscriptionStatus) -> str | None:
-        """Строка статуса над главным меню: «✅ Активна до …», «⛔ Закончилась»."""
-        key = MENU_STATUS_TEXTS.get(status.status)
-        if key is None:
-            return None
-        return self._texts.get(key, expire_at=client_time(status.expire_at))
+    def menu_header(self, subscription: MenuSubscription) -> MenuHeader:
+        """Строка статуса и картинка главного меню (задачи 19, 27) — по одному статусу.
+
+        Нет прокси-аккаунта — без строки, картинка «не подключено». Панель не ответила —
+        без строки, картинка без индикатора: оплатившему клиенту нельзя сказать
+        «не подключено», а статуса мы не знаем.
+        """
+        if subscription is PANEL_SILENT:
+            return MenuHeader(status=None, picture=Picture.MENU_NEUTRAL)
+        if subscription is None:
+            return MenuHeader(status=None, picture=Picture.MENU_NEW)
+        key = MENU_STATUS_TEXTS.get(subscription.status)
+        line = (
+            None
+            if key is None
+            else self._texts.get(key, expire_at=client_time(subscription.expire_at))
+        )
+        return MenuHeader(status=line, picture=MENU_PICTURES[subscription.status])
 
     def no_account(self, *, trial_available: bool) -> Screen:
         """Профиль, когда подписки ещё нет: предложить пробный и тарифы.
