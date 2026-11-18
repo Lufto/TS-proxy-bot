@@ -22,6 +22,7 @@ from tsproxy.bot.admin_site_banner import banner_alert_button
 from tsproxy.bot.callbacks import DeviceCallback, MenuCallback, ScreenId
 from tsproxy.bot.fakes import FakeTelegramSession
 from tsproxy.bot.profile_screens import ProfileScreens
+from tsproxy.content.dates import client_time
 from tsproxy.content.loader import REQUIRED_TEXTS, Content, Texts
 from tsproxy.db.models import Client
 from tsproxy.domain.constants import BYTES_PER_GB
@@ -97,7 +98,7 @@ async def test_profile_shows_status_term_and_devices(
     [edited] = telegram.sent(EditMessageText)
     assert (edited.chat_id, edited.message_id) == (CLIENT_ID, MENU_MESSAGE_ID)
     status = content.texts.get(
-        "profile.status_active", expire_at=format_moscow(EXPIRE_AT), left="5 дней 3 часа"
+        "profile.status_active", expire_at=client_time(EXPIRE_AT), left="5 дней 3 часа"
     )
     assert status in edited.text
     assert content.texts.get("profile.devices", used=1, limit=3) in edited.text

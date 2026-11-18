@@ -22,9 +22,9 @@ from tsproxy.bot.callbacks import MenuCallback, ScreenId
 from tsproxy.bot.connect import deliver_pending_connects
 from tsproxy.bot.context import BotContext
 from tsproxy.bot.fakes import FakeTelegramSession
+from tsproxy.content.dates import client_time
 from tsproxy.content.loader import Content
 from tsproxy.db.models import Client
-from tsproxy.domain.dates import format_moscow
 from tsproxy.integrations.failures import Failure
 from tsproxy.integrations.fakes import FakeRemnawave
 from tsproxy.integrations.remnawave_types import (
@@ -72,7 +72,9 @@ async def test_connect_opens_own_subscription_page(
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), CONNECT))
 
     [edited] = telegram.sent(EditMessageText)
-    assert edited.text == content.texts.get("connect.active", expire_at=format_moscow(EXPIRE_AT))
+    assert edited.text == content.texts.get("connect.active", expire_at=client_time(EXPIRE_AT))
+    # дату Telegram покажет по часам клиента; старые версии — по Москве
+    assert '<tg-time unix="1795435200" format="Dt">23.11.2026, 15:00 МСК</tg-time>' in edited.text
     url_buttons = [b for b in buttons(edited) if b.url is not None]
     copy_buttons = [b for b in buttons(edited) if b.copy_text is not None]
     assert [b.url for b in url_buttons] == [account.subscription_url]
@@ -139,7 +141,7 @@ async def test_expired_subscription_suggests_tariffs(
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), CONNECT))
 
     [edited] = telegram.sent(EditMessageText)
-    assert edited.text == content.texts.get("connect.inactive", expire_at=format_moscow(EXPIRE_AT))
+    assert edited.text == content.texts.get("connect.inactive", expire_at=client_time(EXPIRE_AT))
     assert content.texts.get("buttons.tariffs") in [b.text for b in buttons(edited)]
 
 
@@ -214,7 +216,7 @@ async def test_link_is_sent_once_when_panel_answers_again(
 
     [sent] = telegram.sent(SendMessage)
     assert sent.chat_id == CLIENT_ID
-    assert sent.text == content.texts.get("connect.active", expire_at=format_moscow(EXPIRE_AT))
+    assert sent.text == content.texts.get("connect.active", expire_at=client_time(EXPIRE_AT))
     assert account.subscription_url in [
         b.url
         for row in sent.reply_markup.inline_keyboard

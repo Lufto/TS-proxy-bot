@@ -14,8 +14,8 @@ from bot_updates import callback as press
 from tsproxy.bot.callbacks import MenuCallback, RevokeLinkCallback, ScreenId
 from tsproxy.bot.fakes import FakeTelegramSession
 from tsproxy.bot.profile_screens import ProfileScreens
+from tsproxy.content.dates import client_time
 from tsproxy.content.loader import REQUIRED_TEXTS, Content, Texts
-from tsproxy.domain.dates import format_moscow
 from tsproxy.integrations.fakes import FakeRemnawave
 from tsproxy.integrations.remnawave_types import RemnawaveUnavailable
 from tsproxy.services.fakes import FakeAlertSender, FakeClock
@@ -120,7 +120,7 @@ async def test_second_revoke_within_a_day_shows_when_possible(
     for data in (ASK, YES):
         await dispatcher.feed_update(bot, press(user(CLIENT_ID), data))
         edited = last_screen(telegram)
-        when = format_moscow(NOW + timedelta(days=1))
+        when = client_time(NOW + timedelta(days=1))
         assert edited.text == content.texts.get("revoke_link.too_soon", available_at=when)
         assert MenuCallback(screen=ScreenId.CONNECT).pack() in callback_data(edited.reply_markup)
     assert revoke_writes(remnawave) == 1

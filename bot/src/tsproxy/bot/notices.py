@@ -10,9 +10,9 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from tsproxy.bot.callbacks import MenuCallback, ScreenId
 from tsproxy.bot.delivery import ClientDelivery
 from tsproxy.bot.screens import Screen
+from tsproxy.content.dates import client_time
 from tsproxy.content.loader import Texts
 from tsproxy.domain.constants import TRIAL_EXTENSION_DAYS
-from tsproxy.domain.dates import format_moscow
 from tsproxy.domain.profile import format_gigabytes, plural_form
 from tsproxy.domain.reminders import AccessPeriod, ReminderKind, TrialTrafficNotice
 from tsproxy.services.reminders import (
@@ -63,7 +63,7 @@ class NoticeScreens:
             case ExpiryReminder(reminder):
                 text = self._texts.get(
                     REMINDER_TEXTS[(reminder.period, reminder.kind)],
-                    expire_at=format_moscow(reminder.ends_at),
+                    expire_at=client_time(reminder.ends_at),
                 )
                 return self._screen(
                     text, self._button(REMINDER_BUTTONS[reminder.period], ScreenId.TARIFFS)
@@ -73,7 +73,7 @@ class NoticeScreens:
                 text = self._texts.get(
                     "notices.trial_extended",
                     days=self._texts.get(f"units.days_{days}", n=TRIAL_EXTENSION_DAYS),
-                    expire_at=format_moscow(expire_at),
+                    expire_at=client_time(expire_at),
                 )
                 return self._screen(
                     text,

@@ -35,8 +35,8 @@ from tsproxy.bot.connect import PANEL_DOWN_ERRORS
 from tsproxy.bot.context import BotContext
 from tsproxy.bot.menu import HELP_COMMAND
 from tsproxy.bot.screens import Screen
+from tsproxy.content.dates import client_time
 from tsproxy.domain.admin import GrantDaysOutOfRange, parse_client_query
-from tsproxy.domain.dates import format_moscow
 from tsproxy.domain.profile import plural_form
 from tsproxy.services.admin import ExtensionOutcome, RevokeOutcome, TrialResetOutcome
 from tsproxy.services.support import TicketRef
@@ -217,7 +217,7 @@ async def _tell_client(ctx: BotContext, telegram_id: int, days: int, expire_at: 
         ctx.texts.get(
             "manual_grant.added",
             days=ctx.texts.get(f"units.days_{plural_form(days).value}", n=days),
-            expire_at=format_moscow(expire_at),
+            expire_at=client_time(expire_at),
         ),
         InlineKeyboardMarkup(inline_keyboard=[[connect]]),
     )
