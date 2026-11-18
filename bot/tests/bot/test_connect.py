@@ -4,7 +4,7 @@ from datetime import timedelta
 
 import pytest
 from aiogram import Bot, Dispatcher
-from aiogram.methods import SendMessage
+from aiogram.methods import DeleteMessage, EditMessageReplyMarkup, SendMessage
 from aiogram.types import InlineKeyboardButton
 from bot_updates import (
     ADMIN_CHAT_ID,
@@ -13,6 +13,7 @@ from bot_updates import (
     NOW,
     OTHER_CLIENT_ID,
     callback,
+    message,
     user,
 )
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -284,3 +285,30 @@ async def test_client_who_opened_link_himself_gets_nothing_extra(
     await deliver_pending_connects(ctx)
 
     assert telegram.sent(SendMessage) == []
+
+
+async def test_link_sent_by_bot_keeps_its_text_under_new_menu(
+    dispatcher: Dispatcher,
+    bot: Bot,
+    ctx: BotContext,
+    telegram: FakeTelegramSession,
+    remnawave: FakeRemnawave,
+    clock: FakeClock,
+) -> None:
+    """Ссылка, которую бот прислал сам, — сохраняемый текст (задача bot-telegram-ui/25):
+    в ней личная ссылка клиента, новое меню гасит только её кнопки."""
+    await create_account(remnawave)
+    remnawave.fail_next(RemnawaveUnavailable("timeout"))
+    await dispatcher.feed_update(bot, callback(user(CLIENT_ID), CONNECT))
+    pending_id = telegram.last_message_id
+    clock.advance(timedelta(minutes=1))
+    await deliver_pending_connects(ctx)
+    link_id = telegram.last_message_id
+    telegram.requests.clear()
+
+    await dispatcher.feed_update(bot, message(user(CLIENT_ID), "/start"))
+
+    assert [d.message_id for d in telegram.sent(DeleteMessage)] == []
+    [stripped] = telegram.sent(EditMessageReplyMarkup)
+    assert (stripped.message_id, stripped.reply_markup) == (link_id, None)
+    assert pending_id != link_id

@@ -4,9 +4,14 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 
 from aiogram import Bot, Dispatcher
-from aiogram.methods import AnswerCallbackQuery, SendMessage
+from aiogram.methods import (
+    AnswerCallbackQuery,
+    DeleteMessage,
+    EditMessageReplyMarkup,
+    SendMessage,
+)
 from aiogram.types import InlineKeyboardButton
-from bot_updates import ADMIN_CHAT_ID, CLIENT_ID, callback, user
+from bot_updates import ADMIN_CHAT_ID, CLIENT_ID, callback, message, user
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -164,6 +169,30 @@ async def test_trial_link_arrives_by_itself_when_panel_is_back(
     [sent] = telegram.sent(SendMessage)
     assert sent.chat_id == CLIENT_ID
     assert sent.text == content_granted(ctx, account.expire_at)
+
+
+async def test_trial_link_sent_by_bot_keeps_its_text_under_new_menu(
+    dispatcher: Dispatcher,
+    bot: Bot,
+    telegram: FakeTelegramSession,
+    remnawave: FakeRemnawave,
+    ctx: BotContext,
+    clock: FakeClock,
+) -> None:
+    """Ссылка пробного, присланная ботом сама, — сохраняемый текст (задача
+    bot-telegram-ui/25): новое меню гасит только её кнопки."""
+    remnawave.fail_next(RemnawaveUnavailable("timeout"))
+    await dispatcher.feed_update(bot, callback(user(CLIENT_ID), TRIAL))
+    clock.advance(timedelta(minutes=5))
+    await deliver_pending_trials(ctx)
+    link_id = telegram.last_message_id
+    telegram.requests.clear()
+
+    await dispatcher.feed_update(bot, message(user(CLIENT_ID), "/start"))
+
+    assert telegram.sent(DeleteMessage) == []
+    [stripped] = telegram.sent(EditMessageReplyMarkup)
+    assert (stripped.message_id, stripped.reply_markup) == (link_id, None)
 
 
 async def test_menu_hides_trial_from_paying_client(

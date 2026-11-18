@@ -189,7 +189,7 @@ async def on_quick_reply(
     text = texts.quick_reply_text(callback_data.reply)
     client_id = ticket.client_telegram_id
     try:
-        delivered = await ctx.delivery.call(
+        delivered = await ctx.delivery.send_kept(
             client_id,
             bot.send_message(
                 client_id,

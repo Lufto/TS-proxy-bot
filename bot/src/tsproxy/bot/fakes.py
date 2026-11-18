@@ -59,6 +59,11 @@ class FakeTelegramSession(BaseSession):
         """
         self._failures[method_type] = (error_type, message, extra)
 
+    @property
+    def last_message_id(self) -> int:
+        """Номер последнего сообщения, которое прислал бот (Telegram нумерует подряд)."""
+        return self._next_message_id
+
     def sent[M: TelegramMethod[Any]](self, method_type: type[M]) -> list[M]:
         """Запросы одного вида, по порядку."""
         return [r for r in self.requests if isinstance(r, method_type)]
