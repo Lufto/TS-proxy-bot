@@ -5,20 +5,29 @@ from datetime import timedelta
 
 import pytest
 from aiogram import Bot, Dispatcher
-from aiogram.exceptions import TelegramForbiddenError
+from aiogram.exceptions import TelegramForbiddenError, TelegramNetworkError
 from aiogram.methods import (
     AnswerCallbackQuery,
     CopyMessage,
     CreateForumTopic,
     DeleteMessage,
+    EditMessageReplyMarkup,
     EditMessageText,
     SendMessage,
+    SendPhoto,
 )
 from aiogram.types import InlineKeyboardMarkup, Update
-from bot_updates import ADMIN_CHAT_ID, ADMIN_ID, CLIENT_ID, NOW, callback, user
+from bot_updates import ADMIN_CHAT_ID, ADMIN_ID, CLIENT_ID, NOW, callback, message, user
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-from test_support_bot import client_text, open_ticket, tickets, topic_text, transcript
+from test_support_bot import (
+    TO_MENU,
+    client_text,
+    open_ticket,
+    tickets,
+    topic_text,
+    transcript,
+)
 
 from tsproxy.bot.admin_callbacks import AdminExtendCallback
 from tsproxy.bot.callbacks import (
@@ -98,10 +107,10 @@ async def test_support_screen_shows_frequent_questions(
     data = MenuCallback(screen=ScreenId.SUPPORT).pack()
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), data))
 
-    [edited] = telegram.sent(EditMessageText)
-    shown = buttons(edited.reply_markup)  # type: ignore[arg-type]
+    [screen] = telegram.sent(SendMessage)
+    shown = buttons(screen.reply_markup)  # type: ignore[arg-type]
     faq = [(text, data) for text, data in shown if data and data.startswith("faq")]
-    assert 3 <= len(faq) - 1 <= 5  # частые вопросы и «✍️ Другой вопрос»
+    assert 3 <= len(faq) - 1 <= 5  # частые вопросы и «Другой вопрос»
     assert faq[0] == (
         content.texts.get("faq.connect.button"),
         FaqCallback(question=FaqQuestion.CONNECT).pack(),
@@ -123,10 +132,10 @@ async def test_frequent_question_shows_its_answer(
     data = FaqCallback(question=question).pack()
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), data))
 
-    [edited] = telegram.sent(EditMessageText)
-    assert edited.text == content.texts.get(f"faq.{question.value}.answer")
+    [answer] = telegram.sent(SendMessage)
+    assert answer.text == content.texts.get(f"faq.{question.value}.answer")
     back = MenuCallback(screen=ScreenId.SUPPORT).pack()
-    assert (content.texts.get("buttons.faq_back"), back) in buttons(edited.reply_markup)  # type: ignore[arg-type]
+    assert (content.texts.get("buttons.faq_back"), back) in buttons(answer.reply_markup)  # type: ignore[arg-type]
     assert telegram.sent(CreateForumTopic) == []  # частый вопрос — не обращение
 
 
@@ -320,7 +329,7 @@ async def test_message_25_hours_after_closing_opens_new_ticket_and_topic(
     assert second.topic_id not in (None, first_topic)
     assert len(telegram.sent(CreateForumTopic)) == 2
     client_texts = [m.text for m in telegram.sent(SendMessage) if m.chat_id == CLIENT_ID]
-    assert client_texts[-1] == content.texts.get("support.ticket_created", ticket_id=second.id)
+    assert client_texts[-1] == content.texts.get("support.ticket_created")
 
 
 async def test_card_buttons_open_admin_actions_for_ticket_client(
@@ -375,6 +384,7 @@ async def test_quick_reply_goes_to_client_and_is_shown_in_topic(
 
     to_client = [m for m in telegram.sent(SendMessage) if m.chat_id == CLIENT_ID][-1]
     assert to_client.text == content.texts.get("support.reply_prefix") + reply_text
+    assert buttons(to_client.reply_markup) == TO_MENU  # type: ignore[arg-type]
     [edited] = telegram.sent(EditMessageText)
     assert edited.message_id == CARD_MESSAGE_ID
     assert edited.text.endswith(reply_text) and "Админ" in edited.text
@@ -387,6 +397,65 @@ async def test_quick_reply_goes_to_client_and_is_shown_in_topic(
     [ticket] = await tickets(session_factory)
     assert ticket.first_response_at is not None
     assert await journal(session_factory) == []  # ответы в журнал не пишем
+
+
+async def test_quick_reply_is_live_menu_with_kept_text(
+    dispatcher: Dispatcher,
+    bot: Bot,
+    telegram: FakeTelegramSession,
+    session_factory: async_sessionmaker[AsyncSession],
+    content: Content,
+) -> None:
+    """Заготовка — как ответ поддержки (задача 25): гасит кнопки «Обращение принято»,
+    при новом меню сама теряет только кнопки."""
+    await open_ticket(dispatcher, bot, session_factory)
+    accepted_id = telegram.last_message_id
+    reply_id = quick_reply_ids(content.admin_texts)[0]
+    await dispatcher.feed_update(
+        bot, press_quick_reply(await ticket_id_of(session_factory), reply_id)
+    )
+    sent_id = (await transcript(session_factory))[-1].client_message_id
+
+    await dispatcher.feed_update(bot, message(user(CLIENT_ID), "/start"))
+
+    stripped = [
+        e.message_id for e in telegram.sent(EditMessageReplyMarkup) if e.chat_id == CLIENT_ID
+    ]
+    assert stripped == [accepted_id, sent_id]
+    assert [d for d in telegram.sent(DeleteMessage) if d.chat_id == CLIENT_ID] == []
+
+
+async def test_to_menu_under_support_reply_opens_main_menu_and_keeps_reply(
+    dispatcher: Dispatcher,
+    bot: Bot,
+    telegram: FakeTelegramSession,
+    session_factory: async_sessionmaker[AsyncSession],
+    content: Content,
+) -> None:
+    topic_id = await open_ticket(dispatcher, bot, session_factory)
+    accepted_id = telegram.last_message_id
+    await dispatcher.feed_update(bot, topic_text("Переустановите Happ", topic_id))
+    reply = [m for m in telegram.sent(SendMessage) if m.chat_id == CLIENT_ID][-1]
+    reply_id = telegram.last_message_id
+    [(_, data)] = buttons(reply.reply_markup)  # type: ignore[arg-type]
+
+    await dispatcher.feed_update(
+        bot,
+        callback(
+            user(CLIENT_ID),
+            data or "",
+            message_id=reply_id,
+            markup=reply.reply_markup,  # type: ignore[arg-type]
+        ),
+    )
+
+    [menu] = telegram.sent(SendPhoto)  # главное меню — фото
+    assert (menu.chat_id, menu.caption) == (CLIENT_ID, content.texts.get("menu.title"))
+    assert telegram.sent(DeleteMessage) == []  # текст ответа поддержки не удаляем
+    # ответ погасил кнопки «Обращение принято» (задача 25), нажатие — кнопки самого ответа
+    accepted, pressed = telegram.sent(EditMessageReplyMarkup)
+    assert (accepted.message_id, accepted.reply_markup) == (accepted_id, None)
+    assert (pressed.message_id, pressed.reply_markup) == (reply_id, None)
 
 
 async def test_quick_reply_menu_can_be_hidden(
@@ -440,6 +509,27 @@ async def test_quick_reply_to_client_who_blocked_bot(
     )
     saved = (await transcript(session_factory))[-1]
     assert (saved.author, saved.client_message_id) == (MessageAuthor.SUPPORT, None)
+
+
+async def test_quick_reply_delivered_but_previous_menu_not_taken_down_counts_as_sent(
+    dispatcher: Dispatcher,
+    bot: Bot,
+    telegram: FakeTelegramSession,
+    session_factory: async_sessionmaker[AsyncSession],
+    content: Content,
+) -> None:
+    await open_ticket(dispatcher, bot, session_factory)
+    telegram.fail_next(EditMessageReplyMarkup, TelegramNetworkError, "ServerDisconnectedError")
+    reply_id = quick_reply_ids(content.admin_texts)[0]
+
+    await dispatcher.feed_update(
+        bot, press_quick_reply(await ticket_id_of(session_factory), reply_id)
+    )
+
+    assert alerts(telegram) == []  # не «заготовка не отправлена»
+    saved = (await transcript(session_factory))[-1]
+    assert saved.author == MessageAuthor.SUPPORT
+    assert saved.client_message_id is not None
 
 
 # --- Напоминание о забытом обращении ---

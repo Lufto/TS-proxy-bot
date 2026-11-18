@@ -4,11 +4,11 @@
 (случайную вторую — через поддержку, владелец 2026-11-10).
 
 Задача 15: «доступ отключён — платёж оспорен через банк» (реализует
-`services.payment_status.DisputeMessages`), с кнопкой «💬 Поддержка».
+`services.payment_status.DisputeMessages`), с кнопкой «Поддержка».
 
 Реализует `services.crediting.PaymentMessages`. Оплата к этому моменту уже засчитана,
 поэтому сбой Telegram не бросается дальше, а пишется в лог: подписку клиент всё равно
-увидит в «🚀 Подключиться».
+увидит в «Подключиться».
 """
 
 import logging
@@ -23,9 +23,9 @@ from tsproxy.bot.callbacks import (
 )
 from tsproxy.bot.delivery import ClientDelivery
 from tsproxy.bot.screens import Screen, Screens
+from tsproxy.content.dates import client_time
 from tsproxy.content.loader import Texts
 from tsproxy.domain.constants import PAID_DEVICE_LIMIT
-from tsproxy.domain.dates import format_moscow
 from tsproxy.domain.money import format_rubles
 from tsproxy.services.crediting import GrantedAccess
 
@@ -43,7 +43,7 @@ class PaymentScreens:
         """Оплачено: срок, ссылка подписки; при сумме не по тарифу — с извинением."""
         account = granted.account
         values: dict[str, object] = {
-            "expire_at": format_moscow(account.expire_at),
+            "expire_at": client_time(account.expire_at),
             "device_limit": PAID_DEVICE_LIMIT,
         }
         if granted.prorated:
@@ -72,7 +72,7 @@ class PaymentScreens:
         if access_ended:
             text = self._texts.get("payment.disputed_ended")
         elif expire_at is not None:
-            text = self._texts.get("payment.disputed", expire_at=format_moscow(expire_at))
+            text = self._texts.get("payment.disputed", expire_at=client_time(expire_at))
         else:
             text = self._texts.get("payment.disputed_pending")
         support = InlineKeyboardButton(
@@ -125,8 +125,8 @@ class TelegramPaymentMessages:
 
     async def _send(self, telegram_id: int, screen: Screen) -> None:
         try:
-            await self._delivery.send(telegram_id, screen)
-        # Оплата засчитана и доступ выдан (или выдаётся): ссылка есть в «🚀 Подключиться».
+            await self._delivery.send(telegram_id, screen.kept())
+        # Оплата засчитана и доступ выдан (или выдаётся): ссылка есть в «Подключиться».
         # Сбой Telegram не должен ронять зачёт или фоновую задачу повторов.
         except TelegramAPIError:
             logger.exception("Не удалось прислать сообщение об оплате клиенту %s", telegram_id)

@@ -8,6 +8,7 @@ import html
 import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from string import Formatter
@@ -15,9 +16,22 @@ from typing import Any
 
 import yaml
 
+from tsproxy.content.pictures import PICTURES_FOLDER, PictureFiles
+from tsproxy.domain.dates import format_moscow
 from tsproxy.domain.site_banner import SiteBanner
 from tsproxy.integrations.payments_types import PaymentFailure
 from tsproxy.integrations.remnawave_types import RemnawaveFailure
+
+# Подпись под фото в Telegram — до 1024 символов (главное меню, «О сервисе»)
+PHOTO_CAPTION_MAX_LENGTH = 1024
+ABOUT_CAPTION = "about.text"
+MENU_TITLE = "menu.title"
+# Строки статуса над меню (задача 19): все тексты `menu.status_*`
+MENU_STATUS_GROUP = "menu"
+MENU_STATUS_PREFIX = "status_"
+# Дата в строке статуса для проверки длины: «10.12.2026, 18:00 МСК» — та, что видит клиент
+# (теги `<tg-time>` Telegram в подпись не засчитывает)
+SAMPLE_EXPIRE_AT = datetime(2026, 12, 10, 15, 0, tzinfo=UTC)
 
 # Тексты клиента — из client/, администратора — из admin/ и alerts/; все .yaml папки — один набор
 CLIENT_FOLDERS = ("client",)
@@ -229,6 +243,7 @@ class Content:
     admin_texts: Texts
     tariffs: tuple[Tariff, ...]
     stars_rub_rate: Decimal  # курс звезды Telegram в рублях (задача 33)
+    pictures: PictureFiles  # картинки экранов (bot-telegram-ui, задача 27)
 
     def tariff(self, tariff_id: str) -> Tariff | None:
         return next((t for t in self.tariffs if t.id == tariff_id), None)
@@ -249,6 +264,7 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         "buttons.instructions",
         "buttons.support",
         "buttons.about",
+        "buttons.site",
         "buttons.terms",
         "buttons.privacy",
         "buttons.back",
@@ -261,6 +277,13 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         "buttons.platform_macos",
         "buttons.platform_linux",
         "menu.title",
+        # задача 19: строка статуса подписки в главном меню
+        "menu.status_trial",
+        "menu.status_trial_traffic_used_up",
+        "menu.status_active",
+        "menu.status_grace",
+        "menu.status_expired",
+        "menu.status_suspended",
         "connect.active",
         "connect.inactive",
         "connect.no_account",
@@ -272,6 +295,7 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         "trial.has_subscription",
         "trial.disabled",  # задача 28
         "about.text",
+        "documents.site_url",
         "documents.terms_url",
         "documents.privacy_url",
         "instructions.choose",
@@ -280,6 +304,8 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         "instructions.windows",
         "instructions.macos",
         "instructions.linux",
+        "instructions.open_page_link",  # задача 17
+        "instructions.open_page_connect",
         "throttle.callback",
         "throttle.message",
         "errors.generic",
@@ -315,6 +341,7 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         "buttons.cancel_revoke_link",
         "revoke_link.ask",
         "revoke_link.too_soon",
+        "revoke_link.available_at",  # задача 20 (bot-telegram-ui)
         "revoke_link.done",
         "units.days_one",
         "units.days_few",
@@ -331,7 +358,7 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         "support.not_delivered",
         "support.reply_prefix",
         "fallback.unknown_command",
-        # задача 17: частые вопросы на экране «💬 Поддержка» (набор — FaqQuestion)
+        # задача 17: частые вопросы на экране «Поддержка» (набор — FaqQuestion)
         "buttons.faq_back",
         *(
             f"faq.{question}.{part}"
@@ -415,6 +442,9 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         "stars.returned",
         "stars.return_failed",
         "stars.unrecorded",
+        # задача 29 (bot-telegram-ui): профиль бота, ставит scripts/set_bot_profile.py
+        "bot_profile.description",
+        "bot_profile.short_description",
     }
 )
 REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
@@ -939,6 +969,29 @@ def _check_causes(admin_texts: Texts, prefix: str) -> None:
     )
 
 
+def check_photo_captions(texts: Texts) -> None:
+    """Подписи под фото влезают в 1024 символа: «О сервисе» и главное меню с самой длинной
+    строкой статуса (подпись меню — строка, пустая строка и заголовок, `Screens.main_menu`)."""
+    _check_caption(ABOUT_CAPTION, texts.get(ABOUT_CAPTION))
+    title = texts.get(MENU_TITLE)
+    _check_caption(MENU_TITLE, title)
+    expire_at = format_moscow(SAMPLE_EXPIRE_AT)
+    for status in texts.ids_under(MENU_STATUS_GROUP):
+        if status.startswith(MENU_STATUS_PREFIX):
+            key = f"{MENU_STATUS_GROUP}.{status}"
+            _check_caption(
+                f"{key} + {MENU_TITLE}", f"{texts.get(key, expire_at=expire_at)}\n\n{title}"
+            )
+
+
+def _check_caption(what: str, caption: str) -> None:
+    if len(caption) > PHOTO_CAPTION_MAX_LENGTH:
+        raise ContentError(
+            f"client/: подпись под фото {what} — {len(caption)} символов, "
+            f"Telegram принимает до {PHOTO_CAPTION_MAX_LENGTH}"
+        )
+
+
 def load_content(directory: Path, config_dir: Path) -> Content:
     """Тексты бота — из `directory`, тарифы — из общего конфига сервиса `config_dir`.
 
@@ -949,8 +1002,13 @@ def load_content(directory: Path, config_dir: Path) -> Content:
         admin_texts=load_admin_texts(directory),
         tariffs=load_tariffs(config_dir / TARIFFS_FILE),
         stars_rub_rate=load_stars_rate(config_dir / TARIFFS_FILE),
+        pictures=PictureFiles(directory / PICTURES_FOLDER),
     )
+    missing = content.pictures.missing()
+    if missing:
+        raise ContentError(f"Нет картинок: {', '.join(str(path) for path in missing)}")
     content.texts.require(REQUIRED_TEXTS)
+    check_photo_captions(content.texts)
     content.admin_texts.require(REQUIRED_ADMIN_TEXTS)
     quick_reply_ids(content.admin_texts)
     check_alert_texts(content.admin_texts, FAILURE_KINDS)

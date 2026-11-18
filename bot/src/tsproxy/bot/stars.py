@@ -24,6 +24,7 @@ from aiogram.types import (
 from sqlalchemy.exc import SQLAlchemyError
 
 from tsproxy.bot.callbacks import MenuCallback, ScreenId, StarsCallback
+from tsproxy.bot.chat_typing import TYPING
 from tsproxy.bot.context import BotContext, profile_of
 from tsproxy.bot.delivery import Invoice
 from tsproxy.bot.screens import Screen
@@ -87,7 +88,7 @@ def create_stars_router() -> Router:
     """
     router = Router(name="stars")
     router.callback_query.filter(F.message.chat.type == ChatType.PRIVATE)
-    router.callback_query.register(on_stars, StarsCallback.filter())
+    router.callback_query.register(on_stars, StarsCallback.filter(), flags=TYPING)
     router.pre_checkout_query.register(on_pre_checkout)
     router.message.register(
         on_successful_payment, F.chat.type == ChatType.PRIVATE, F.successful_payment
@@ -163,17 +164,19 @@ async def on_successful_payment(message: Message, ctx: BotContext) -> None:
             charge_id=paid.telegram_payment_charge_id,
         )
         await ctx.delivery.send(
-            telegram_id, _notice(ctx.texts, "stars.unrecorded", paid.total_amount)
+            telegram_id, _notice(ctx.texts, "stars.unrecorded", paid.total_amount).kept()
         )
         return
     logger.info("Оплата звёздами от %s: %s", client.telegram_id, outcome)
     key = PAID_NOTICES.get(outcome)
     if key is not None:
-        await ctx.delivery.send(client.telegram_id, _notice(ctx.texts, key, paid.total_amount))
+        await ctx.delivery.send(
+            client.telegram_id, _notice(ctx.texts, key, paid.total_amount).kept()
+        )
 
 
 def _notice(texts: Texts, key: str, stars: int) -> Screen:
-    """Сообщение о вернувшихся звёздах — с кнопкой «💬 Поддержка»."""
+    """Сообщение о вернувшихся звёздах — с кнопкой «Поддержка»."""
     support = InlineKeyboardButton(
         text=texts.get("buttons.support"),
         callback_data=MenuCallback(screen=ScreenId.SUPPORT).pack(),

@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from tsproxy.config import PaymentsMode, RunMode, Settings
+from tsproxy.config import PaymentsMode, RunMode, Settings, describe_settings_error
 
 REQUIRED = {
     "BOT_TOKEN": "1:abc",
@@ -48,6 +48,20 @@ def test_missing_token_is_error(env: pytest.MonkeyPatch) -> None:
     env.delenv("BOT_TOKEN")
     with pytest.raises(ValidationError):
         make()
+
+
+def test_settings_error_names_variables_without_values(env: pytest.MonkeyPatch) -> None:
+    """Ошибка `.env` для журнала: какие переменные, без значений (там бывают секреты)."""
+    env.delenv("BOT_TOKEN")
+    env.setenv("ADMIN_CHAT_ID", "secret-looking-value")
+    with pytest.raises(ValidationError) as caught:
+        make()
+
+    described = describe_settings_error(caught.value)
+
+    assert "BOT_TOKEN" in described
+    assert "ADMIN_CHAT_ID" in described
+    assert "secret-looking-value" not in described
 
 
 def test_fake_payments_are_default_in_dev(env: pytest.MonkeyPatch) -> None:

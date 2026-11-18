@@ -9,7 +9,6 @@ from aiogram.methods import (
     AnswerPreCheckoutQuery,
     CopyMessage,
     CreateForumTopic,
-    EditMessageText,
     RefundStarPayment,
     SendInvoice,
     SendMessage,
@@ -124,6 +123,7 @@ async def pay_month(
     """Клиент берёт счёт за месяц и платит 100 ⭐. Возвращает payload счёта."""
     await ask_invoice(dispatcher, bot)
     payload = telegram.sent(SendInvoice)[-1].payload
+    telegram.requests.clear()  # дальше — только то, что бот ответил на оплату
     await dispatcher.feed_update(bot, pre_checkout(user(CLIENT_ID), payload, 100))
     await dispatcher.feed_update(bot, successful_payment(user(CLIENT_ID), payload, 100, charge))
     return payload
@@ -138,7 +138,7 @@ async def test_tariff_screen_offers_sbp_and_stars(
     data = TariffScreenCallback(tariff_id="m3").pack()
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), data))
 
-    screen = telegram.sent(EditMessageText)[-1]
+    screen = telegram.sent(SendMessage)[-1]
     assert "405 ₽" in screen.text and "270 ⭐" in screen.text
     buttons = markup_data(screen.reply_markup)
     assert buttons[:2] == [
@@ -192,9 +192,7 @@ async def test_stars_button_sends_invoice_in_stars(
         MenuCallback(screen=ScreenId.TARIFFS).pack(),
         MenuCallback(screen=ScreenId.MAIN).pack(),
     ]
-    assert telegram.sent(EditMessageText)[-1].text == content.texts.get(
-        "stars.invoice_sent", stars=270
-    )
+    assert telegram.sent(SendMessage)[-1].text == content.texts.get("stars.invoice_sent", stars=270)
     assert order.payment_provider == STARS_PROVIDER
     assert payments.ledger.all() == []
 
@@ -367,6 +365,7 @@ async def test_payment_lost_to_database_failure_names_the_charge(
 
     await ask_invoice(dispatcher, bot)
     payload = telegram.sent(SendInvoice)[-1].payload
+    telegram.requests.clear()  # дальше — только то, что бот ответил на оплату
     monkeypatch.setattr(ctx.stars, "paid", database_down)
 
     await dispatcher.feed_update(bot, successful_payment(user(CLIENT_ID), payload, 100))

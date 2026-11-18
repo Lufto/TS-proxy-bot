@@ -1,8 +1,8 @@
-"""«💳 Тарифы», `/buy` и старые кнопки тарифов, когда оплата выключена (задача 29)."""
+"""«Тарифы», `/buy` и старые кнопки тарифов, когда оплата выключена (задача 29)."""
 
 import pytest
 from aiogram import Bot, Dispatcher
-from aiogram.methods import EditMessageText, SendMessage
+from aiogram.methods import SendMessage
 from aiogram.types import InlineKeyboardMarkup
 from bot_updates import ADMIN_ID, CLIENT_ID, NOW, callback, message, user
 from sqlalchemy import select
@@ -48,13 +48,13 @@ async def test_tariffs_listed_without_buy_buttons_and_trial_offered(
 ) -> None:
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), TARIFFS))
 
-    edited = telegram.sent(EditMessageText)[-1]
-    assert edited.text.startswith(content.texts.get("tariffs.off_title"))
-    assert "1 месяц — 150 ₽" in edited.text
-    assert "3 месяца — 405 ₽ · выгода 10%" in edited.text
-    assert "Тест — 1 день" not in edited.text  # тестового тарифа больше нет (задача 15)
-    assert edited.text.endswith(content.texts.get("tariffs.off_trial"))
-    assert button_data(edited.reply_markup) == [TRIAL, MAIN]  # type: ignore[arg-type]
+    screen = telegram.sent(SendMessage)[-1]
+    assert screen.text.startswith(content.texts.get("tariffs.off_title"))
+    assert "1 месяц — 150 ₽" in screen.text
+    assert "3 месяца — 405 ₽ · выгода 10%" in screen.text
+    assert "Тест — 1 день" not in screen.text  # тестового тарифа больше нет (задача 15)
+    assert screen.text.endswith(content.texts.get("tariffs.off_trial"))
+    assert button_data(screen.reply_markup) == [TRIAL, MAIN]  # type: ignore[arg-type]
 
 
 async def test_no_trial_button_when_trial_already_used(
@@ -68,9 +68,9 @@ async def test_no_trial_button_when_trial_already_used(
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), TARIFFS))
 
-    edited = telegram.sent(EditMessageText)[-1]
-    assert edited.text.endswith(content.texts.get("tariffs.off_later"))
-    assert button_data(edited.reply_markup) == [MAIN]  # type: ignore[arg-type]
+    screen = telegram.sent(SendMessage)[-1]
+    assert screen.text.endswith(content.texts.get("tariffs.off_later"))
+    assert button_data(screen.reply_markup) == [MAIN]  # type: ignore[arg-type]
 
 
 async def test_buy_command_shows_payments_off_screen(
@@ -103,8 +103,8 @@ async def test_old_tariff_button_creates_no_order(
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), data))
 
-    edited = telegram.sent(EditMessageText)[-1]
-    assert edited.text.startswith(content.texts.get("tariffs.off_title"))
+    screen = telegram.sent(SendMessage)[-1]
+    assert screen.text.startswith(content.texts.get("tariffs.off_title"))
     async with session_factory() as session:
         assert list(await session.scalars(select(Order))) == []
         assert list(await session.scalars(select(Event))) == []

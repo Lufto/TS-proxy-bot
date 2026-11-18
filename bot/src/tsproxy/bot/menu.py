@@ -1,29 +1,103 @@
-"""Меню клиента: `/start`, `/help`, переключение экранов в одном сообщении, инструкции.
+"""Меню клиента: `/start`, `/help`, живое меню (экран на каждое нажатие), инструкции.
 
 Ссылка `t.me/<бот>?start=support` (кнопки «Написать в поддержку» на сайте) открывает
 сразу экран поддержки вместо меню (задача сайта 07), `?start=devices` (кнопка «Устройства»
-на странице подписки) — «📱 Мои устройства».
+на странице подписки) — «Мои устройства».
+
+Над главным меню — строка статуса подписки (задача 19): «✅ Активна до …», «⛔ Закончилась»,
+пробный — с датой. Срок знает только Remnawave, меню спрашивает панель (тот же расчёт
+статуса, что в «Мой профиль»). Нет прокси-аккаунта, панель не ответила или думает дольше
+`MENU_STATUS_TIMEOUT_SECONDS` — меню без строки, без ошибки и без тревоги.
+
+Главное меню — фото с подписью (задача 27): картинка по тому же статусу
+(`ProfileScreens.menu_header`: на связи, доступ сохранён, нет доступа, не подключено — нет
+аккаунта; панель молчит — картинка без индикатора, статус неизвестен), подпись — строка
+статуса и «Выберите, что нужно:». Остальные экраны — текст.
+
+Инструкция платформы (задача 17): шаг «откройте вашу страницу подключения» — личная ссылка
+подписки нажавшего, её тоже даёт только панель (пока ждём — «печатает…»). Нет прокси-аккаунта,
+панель не ответила или думает дольше `INSTRUCTIONS_LINK_TIMEOUT_SECONDS` — шаг «нажмите
+„Подключиться“», ссылка на сайт остаётся; ошибки и тревоги нет.
 
 Обработчики работают только в личном чате с ботом. Клиент всегда определяется по
 `from_user.id` нажавшего, данные кнопки говорят только «какой экран открыть».
+
+Возвращение после простоя (задача 26): нажатие кнопки на экране меню, отправленном
+больше суток назад (`IDLE_RETURN_AFTER`), открывает главное меню вместо нажатого экрана;
+нажатое сообщение убирается как обычно (`ClientDelivery.show`). Простой — по дате
+нажатого сообщения: Telegram присылает её с нажатием, бот ничего не хранит.
+Правило только для переходов по меню (`STALE_NAVIGATION`), чтобы клиент после перерыва
+начинал с начала, а не с забытого глубокого экрана:
+- кнопки экранов меню (`MenuCallback`), кроме «Подключиться», «Попробовать бесплатно»
+  и «Тарифы»: это действия — ссылка, выдача пробного и покупка, ради них клиент и вернулся.
+  Решаем по данным кнопки, а не только по метке сохраняемого текста: у уведомлений,
+  отправленных до выкатки метки, её нет, а их «Продлить» и «Тарифы» ведут в тарифы;
+- платформа в инструкциях, тариф в списке тарифов.
+Не трогает действия, где главное меню вместо них потеряло бы намерение клиента: оплату
+(СБП, звёзды, «Проверить оплату»), «Удалить» устройство, «Да, перевыпустить», частый
+вопрос в поддержке — клиент выбрал вопрос, бот на него отвечает (владелец, 2026-11-18).
+Не трогает и сообщения с сохраняемым текстом (`keeps_text`: уведомления, оплата, ответы
+поддержки): их кнопки — призыв к действию из этого текста («Продлить», «В поддержку»).
+Сообщение, недоступное боту (Telegram прислал его без даты), правило не трогает.
 """
+
+import asyncio
+import logging
+from datetime import timedelta
 
 from aiogram import F, Router
 from aiogram.enums import ChatType
-from aiogram.filters import Command, CommandObject, CommandStart
+from aiogram.filters import Command, CommandObject, CommandStart, Filter, or_f
 from aiogram.types import CallbackQuery, Message
 
-from tsproxy.bot.callbacks import InstructionsCallback, MenuCallback, ScreenId
+from tsproxy.bot.callbacks import (
+    InstructionsCallback,
+    MenuCallback,
+    ScreenId,
+    TariffScreenCallback,
+)
+from tsproxy.bot.chat_typing import TYPING
 from tsproxy.bot.context import BotContext, profile_of
+from tsproxy.bot.delivery import keeps_text
 from tsproxy.bot.profile import devices_screen
+from tsproxy.bot.profile_screens import PANEL_SILENT, MenuSubscription, ProfileScreens
 from tsproxy.bot.screens import Screen
 from tsproxy.db.models import Client
+from tsproxy.integrations.remnawave_types import AccountNotFound, RemnawaveError
+from tsproxy.services.clock import utc_now
+
+logger = logging.getLogger(__name__)
 
 # Параметры `/start` из ссылок сайта и страницы подписки: открыть поддержку, устройства
 START_SUPPORT = "support"
 START_DEVICES = "devices"
 # `/help`: в личном чате — команды клиента, в группе администраторов — админки
 HELP_COMMAND = "help"
+# Сколько меню ждёт статус от панели: дольше — меню без строки статуса (задача 19)
+MENU_STATUS_TIMEOUT_SECONDS = 3.0
+# Сколько инструкция ждёт ссылку подписки от панели: дольше — шаг через «Подключиться» (задача 17)
+INSTRUCTIONS_LINK_TIMEOUT_SECONDS = 3.0
+# Простой, после которого старая кнопка меню открывает главное меню (задача 26)
+IDLE_RETURN_AFTER = timedelta(days=1)
+# Экраны меню, кнопки которых — действия, а не переходы: правило простоя их не трогает.
+# «Тарифы» — ещё и «Продлить» уведомлений, в том числе старых, без метки сохраняемого текста
+ACTION_SCREENS = frozenset({ScreenId.CONNECT, ScreenId.TRIAL, ScreenId.TARIFFS})
+# Переходы по меню, к которым применяется правило простоя
+STALE_NAVIGATION = or_f(
+    MenuCallback.filter(~F.screen.in_(ACTION_SCREENS)),
+    InstructionsCallback.filter(),
+    TariffScreenCallback.filter(),
+)
+
+
+class SentLongAgo(Filter):
+    """Нажатое сообщение — экран меню, отправленный больше `IDLE_RETURN_AFTER` назад."""
+
+    async def __call__(self, callback: CallbackQuery, ctx: BotContext) -> bool:
+        pressed = callback.message
+        if not isinstance(pressed, Message) or keeps_text(pressed):
+            return False
+        return utc_now(ctx.clock) - pressed.date > IDLE_RETURN_AFTER
 
 
 def create_menu_router() -> Router:
@@ -31,14 +105,19 @@ def create_menu_router() -> Router:
     router = Router(name="menu")
     router.message.filter(F.chat.type == ChatType.PRIVATE)
     router.callback_query.filter(F.message.chat.type == ChatType.PRIVATE)
-    router.message.register(on_start, CommandStart())
+    # главное меню ждёт статус подписки от панели (до `MENU_STATUS_TIMEOUT_SECONDS`)
+    router.message.register(on_start, CommandStart(), flags=TYPING)
     router.message.register(on_help, Command(HELP_COMMAND))
-    router.callback_query.register(on_main_menu, MenuCallback.filter(F.screen == ScreenId.MAIN))
+    # первым: роутер меню подключён раньше остальных экранов, переход сюда не дойдёт до них
+    router.callback_query.register(on_main_menu, STALE_NAVIGATION, SentLongAgo(), flags=TYPING)
+    router.callback_query.register(
+        on_main_menu, MenuCallback.filter(F.screen == ScreenId.MAIN), flags=TYPING
+    )
     router.callback_query.register(on_about, MenuCallback.filter(F.screen == ScreenId.ABOUT))
     router.callback_query.register(
         on_instructions, MenuCallback.filter(F.screen == ScreenId.INSTRUCTIONS)
     )
-    router.callback_query.register(on_platform, InstructionsCallback.filter())
+    router.callback_query.register(on_platform, InstructionsCallback.filter(), flags=TYPING)
     return router
 
 
@@ -46,11 +125,61 @@ async def _show(callback: CallbackQuery, ctx: BotContext, screen: Screen) -> Non
     await ctx.delivery.show(callback, screen)
 
 
+async def _subscription(ctx: BotContext, client: Client) -> MenuSubscription:
+    """Статус подписки для строки и картинки меню (задачи 19, 27). Срок знает только
+    панель — спрашиваем её.
+
+    Нет прокси-аккаунта — `None`. Панель не ответила или думает дольше
+    `MENU_STATUS_TIMEOUT_SECONDS` — `PANEL_SILENT`: меню без строки, картинка без
+    индикатора; статус не важнее самого меню. Тревогу «панель не отвечает» здесь не шлём —
+    её шлют действия, которым панель нужна.
+    """
+    try:
+        async with asyncio.timeout(MENU_STATUS_TIMEOUT_SECONDS):
+            return await ctx.profiles.status(client)
+    except TimeoutError:
+        logger.warning("Клиент %s: панель не дала статус для меню вовремя", client.telegram_id)
+        return PANEL_SILENT
+    except RemnawaveError as error:
+        logger.warning("Клиент %s: статус для меню не получен: %s", client.telegram_id, error)
+        return PANEL_SILENT
+
+
+async def _subscription_url(ctx: BotContext, telegram_id: int) -> str | None:
+    """Личная ссылка подписки для инструкции (задача 17); `None` — шаг через «Подключиться».
+
+    Нет прокси-аккаунта — обычная ситуация. Панель не ответила или не успела — тоже не ошибка:
+    инструкция работает и без ссылки, тревогу шлют действия, которым панель нужна.
+    """
+    try:
+        async with asyncio.timeout(INSTRUCTIONS_LINK_TIMEOUT_SECONDS):
+            account = await ctx.remnawave.get_account(telegram_id)
+    except AccountNotFound:
+        return None
+    except TimeoutError:
+        logger.warning("Клиент %s: панель не дала ссылку для инструкции вовремя", telegram_id)
+        return None
+    except RemnawaveError as error:
+        logger.warning("Клиент %s: ссылка для инструкции не получена: %s", telegram_id, error)
+        return None
+    return account.subscription_url
+
+
 async def _main_menu(ctx: BotContext, client: Client) -> Screen:
-    """Главное меню. «🎁 Попробовать бесплатно» — пока пробные включены (задача 28)
-    и клиенту пробный положен."""
-    trial_available = await ctx.trial_switch.enabled() and await ctx.clients.trial_offered(client)
-    return ctx.screens.main_menu(trial_available=trial_available)
+    """Главное меню: картинка и строка по статусу подписки. «Попробовать бесплатно» — пока
+    пробные включены (задача 28) и клиенту пробный положен. Панель и база спрашиваются
+    одновременно: меню ждёт дольшего из ответов, а не их сумму."""
+    trials_enabled, trial_offered, subscription = await asyncio.gather(
+        ctx.trial_switch.enabled(),
+        ctx.clients.trial_offered(client),
+        _subscription(ctx, client),
+    )
+    header = ProfileScreens(ctx.texts).menu_header(subscription)
+    return ctx.screens.main_menu(
+        trial_available=trials_enabled and trial_offered,
+        status=header.status,
+        picture=header.picture,
+    )
 
 
 async def on_start(message: Message, command: CommandObject, ctx: BotContext) -> None:
@@ -98,4 +227,5 @@ async def on_platform(
     callback: CallbackQuery, callback_data: InstructionsCallback, ctx: BotContext
 ) -> None:
     await callback.answer()
-    await _show(callback, ctx, ctx.screens.instructions(callback_data.platform))
+    url = await _subscription_url(ctx, callback.from_user.id)
+    await _show(callback, ctx, ctx.screens.instructions(callback_data.platform, url))

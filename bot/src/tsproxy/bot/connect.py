@@ -1,9 +1,11 @@
-"""«🚀 Подключиться»: страница подписки клиента и кнопка «📋 Скопировать ссылку».
+"""«Подключиться»: страница подписки клиента и кнопка «Скопировать ссылку».
 
 Прокси-аккаунт ищется по Telegram ID нажавшего — чужую ссылку подменой кнопки не получить.
 
 Панель не ответила — клиенту «пришлём ссылку сюда», и фоновая задача `deliver_pending_connects`
 присылает экран подключения, когда панель ожила (владелец, 2026-11-10; `services.connect_waits`).
+Этот экран — сохраняемый текст (в нём личная ссылка клиента): новое меню гасит только его
+кнопки (задача bot-telegram-ui/25).
 """
 
 import logging
@@ -15,6 +17,7 @@ from aiogram.exceptions import TelegramAPIError
 from aiogram.types import CallbackQuery
 
 from tsproxy.bot.callbacks import MenuCallback, ScreenId
+from tsproxy.bot.chat_typing import TYPING
 from tsproxy.bot.context import BotContext, profile_of
 from tsproxy.bot.screens import Screen
 from tsproxy.db.models import Client
@@ -84,7 +87,8 @@ async def deliver_pending_connects(ctx: BotContext) -> None:
         # Отмечаем до отправки: сбой Telegram не должен слать ссылку каждую минуту
         await ctx.connect_waits.delivered(client.id, DeliveredBy.BOT)
         try:
-            await ctx.delivery.send(telegram_id, screen)
+            # в сообщении личная ссылка клиента — новое меню его не удаляет (задача 25)
+            await ctx.delivery.send(telegram_id, screen.kept())
         except TelegramAPIError:
             logger.exception("Не удалось прислать ссылку клиенту %s", telegram_id)
 
@@ -92,7 +96,9 @@ async def deliver_pending_connects(ctx: BotContext) -> None:
 def create_connect_router() -> Router:
     router = Router(name="connect")
     router.callback_query.filter(F.message.chat.type == ChatType.PRIVATE)
-    router.callback_query.register(on_connect, MenuCallback.filter(F.screen == ScreenId.CONNECT))
+    router.callback_query.register(
+        on_connect, MenuCallback.filter(F.screen == ScreenId.CONNECT), flags=TYPING
+    )
     return router
 
 

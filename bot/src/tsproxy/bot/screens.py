@@ -1,8 +1,9 @@
 """Экраны клиента: текст и кнопки. Только сборка из `content/client/`, без Telegram-вызовов."""
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
+from aiogram.enums import ButtonStyle
 from aiogram.types import CopyTextButton, InlineKeyboardButton, InlineKeyboardMarkup
 
 from tsproxy.bot.callbacks import (
@@ -13,14 +14,24 @@ from tsproxy.bot.callbacks import (
     Platform,
     ScreenId,
 )
-from tsproxy.content.loader import Texts
+from tsproxy.content.dates import client_time
+from tsproxy.content.loader import Html, Texts
+from tsproxy.content.pictures import Picture
 from tsproxy.domain.constants import TRIAL_DEVICE_LIMIT, TRIAL_TRAFFIC_GB
-from tsproxy.domain.dates import format_moscow
 from tsproxy.integrations.remnawave_types import AccountStatus, ProxyAccount
 
 logger = logging.getLogger(__name__)
 
-# Telegram копирует кнопкой «📋 Скопировать ссылку» не больше 256 символов
+# Цвет кнопок клиента (Bot API `style`, спека «Кнопки»): главная кнопка экрана — зелёная,
+# опасные действия — красные, остальные — обычного цвета приложения
+BUTTON_STYLES: dict[str, ButtonStyle] = {
+    "buttons.connect": ButtonStyle.SUCCESS,
+    "buttons.delete_device": ButtonStyle.DANGER,
+    "buttons.revoke_link": ButtonStyle.DANGER,
+    "buttons.confirm_revoke_link": ButtonStyle.DANGER,
+}
+
+# Telegram копирует кнопкой «Скопировать ссылку» не больше 256 символов
 COPY_TEXT_MAX_LENGTH = 256
 
 PLATFORM_TEXTS: dict[Platform, tuple[str, str]] = {
@@ -35,10 +46,24 @@ PLATFORM_TEXTS: dict[Platform, tuple[str, str]] = {
 
 @dataclass(frozen=True)
 class Screen:
-    """Что показать клиенту: текст (HTML) и кнопки под ним."""
+    """Что показать клиенту: текст (HTML) и кнопки под ним.
+
+    `keeps_text` — сообщение с текстом, который нужно сохранить (уведомление, сообщение
+    об оплате): когда клиент нажимает его кнопку, бот снимает кнопки, а не удаляет
+    сообщение (`ClientDelivery.show`). Обычный экран меню при нажатии удаляется.
+
+    `picture` — экран приходит фото с подписью `text` (до 1024 символов): главное меню
+    (задача 27) и «О сервисе» (задача 28); `None` — обычный текст.
+    """
 
     text: str
     markup: InlineKeyboardMarkup
+    keeps_text: bool = False
+    picture: Picture | None = None
+
+    def kept(self) -> "Screen":
+        """Тот же экран как сообщение с сохраняемым текстом."""
+        return replace(self, keeps_text=True)
 
 
 class Screens:
@@ -49,26 +74,37 @@ class Screens:
 
     def _button(self, key: str, screen: ScreenId) -> InlineKeyboardButton:
         return InlineKeyboardButton(
-            text=self._texts.get(key), callback_data=MenuCallback(screen=screen).pack()
+            text=self._texts.get(key),
+            callback_data=MenuCallback(screen=screen).pack(),
+            style=BUTTON_STYLES.get(key),
         )
 
     def _back(self) -> list[InlineKeyboardButton]:
         return [self._button("buttons.back", ScreenId.MAIN)]
 
+    def _link(self, key: str, url_key: str) -> InlineKeyboardButton:
+        return InlineKeyboardButton(text=self._texts.get(key), url=self._texts.get(url_key))
+
     def _documents(self) -> list[InlineKeyboardButton]:
-        """Соглашение и политика на сайте — всегда под рукой (требование Platega)."""
+        """Соглашение и политика на сайте — ряд кнопок в «О сервисе»."""
         return [
-            InlineKeyboardButton(
-                text=self._texts.get("buttons.terms"), url=self._texts.get("documents.terms_url")
-            ),
-            InlineKeyboardButton(
-                text=self._texts.get("buttons.privacy"),
-                url=self._texts.get("documents.privacy_url"),
-            ),
+            self._link("buttons.terms", "documents.terms_url"),
+            self._link("buttons.privacy", "documents.privacy_url"),
         ]
 
-    def main_menu(self, *, trial_available: bool) -> Screen:
-        """Главное меню. «Попробовать бесплатно» — только если пробный ещё не брал."""
+    def main_menu(
+        self,
+        *,
+        trial_available: bool,
+        status: str | None,
+        picture: Picture,
+    ) -> Screen:
+        """Главное меню — фото с подписью (задача 27). «Попробовать бесплатно» — только если
+        пробный ещё не брал.
+
+        `status` — строка статуса подписки над меню (задача 19), `None` — без неё;
+        `picture` — картинка по статусу подписки (`ProfileScreens.menu_header`).
+        """
         rows = [[self._button("buttons.connect", ScreenId.CONNECT)]]
         if trial_available:
             rows.append([self._button("buttons.trial", ScreenId.TRIAL)])
@@ -82,18 +118,26 @@ class Screens:
                 self._button("buttons.support", ScreenId.SUPPORT),
             ],
             [self._button("buttons.about", ScreenId.ABOUT)],
-            self._documents(),
         ]
-        return Screen(self._texts.get("menu.title"), InlineKeyboardMarkup(inline_keyboard=rows))
+        title = self._texts.get("menu.title")
+        text = title if status is None else f"{status}\n\n{title}"
+        return Screen(text, InlineKeyboardMarkup(inline_keyboard=rows), picture=picture)
 
     def about(self) -> Screen:
+        """«О сервисе» — фото с подписью (задача 28): сайт, документы и возврат в меню."""
+        rows = [
+            [self._link("buttons.site", "documents.site_url")],
+            self._documents(),
+            self._back(),
+        ]
         return Screen(
             self._texts.get("about.text"),
-            InlineKeyboardMarkup(inline_keyboard=[self._documents(), self._back()]),
+            InlineKeyboardMarkup(inline_keyboard=rows),
+            picture=Picture.ABOUT,
         )
 
     def support(self) -> Screen:
-        """«💬 Поддержка»: частые вопросы кнопками, иначе — просто напишите вопрос в чат."""
+        """«Поддержка»: частые вопросы кнопками, иначе — просто напишите вопрос в чат."""
         rows = [
             [
                 InlineKeyboardButton(
@@ -105,6 +149,15 @@ class Screens:
         ]
         rows.append(self._back())
         return Screen(self._texts.get("support.intro"), InlineKeyboardMarkup(inline_keyboard=rows))
+
+    def ticket_accepted(self) -> Screen:
+        """«Обращение принято» после первого сообщения обращения — без номера, с «В меню».
+        Текст сохраняемый: при нажатии «В меню» гаснут только кнопки."""
+        return Screen(self._texts.get("support.ticket_created"), self.to_menu()).kept()
+
+    def to_menu(self) -> InlineKeyboardMarkup:
+        """Одна кнопка «В меню» — под «Обращение принято» и под каждым ответом поддержки."""
+        return InlineKeyboardMarkup(inline_keyboard=[self._back()])
 
     def faq_answer(self, question: FaqQuestion) -> Screen:
         """Ответ на частый вопрос: назад к вопросам или в меню."""
@@ -130,18 +183,27 @@ class Screens:
             self._texts.get("instructions.choose"), InlineKeyboardMarkup(inline_keyboard=rows)
         )
 
-    def instructions(self, platform: Platform) -> Screen:
-        """Три шага для одной платформы."""
+    def instructions(self, platform: Platform, subscription_url: str | None) -> Screen:
+        """Три шага для одной платформы.
+
+        `subscription_url` — личная ссылка подписки клиента (задача 17): шаг «откройте вашу
+        страницу подключения» ведёт прямо на неё; `None` — шаг через «Подключиться».
+        """
         _, text_key = PLATFORM_TEXTS[platform]
+        if subscription_url is None:
+            open_page = self._texts.get("instructions.open_page_connect")
+        else:
+            open_page = self._texts.get("instructions.open_page_link", url=subscription_url)
+        text = self._texts.get(text_key, open_page=Html(open_page))
         rows = [
             [self._button("buttons.connect", ScreenId.CONNECT)],
             [self._button("buttons.instructions_back", ScreenId.INSTRUCTIONS)],
             self._back(),
         ]
-        return Screen(self._texts.get(text_key), InlineKeyboardMarkup(inline_keyboard=rows))
+        return Screen(text, InlineKeyboardMarkup(inline_keyboard=rows))
 
     def _link_rows(self, account: ProxyAccount) -> list[list[InlineKeyboardButton]]:
-        """Кнопки «Открыть страницу подключения» и «📋 Скопировать ссылку»."""
+        """Кнопки «Открыть страницу подключения» и «Скопировать ссылку»."""
         url = account.subscription_url
         rows = [[InlineKeyboardButton(text=self._texts.get("buttons.open_subscription"), url=url)]]
         if len(url) <= COPY_TEXT_MAX_LENGTH:
@@ -158,9 +220,9 @@ class Screens:
         return rows
 
     def connect(self, account: ProxyAccount) -> Screen:
-        """«🚀 Подключиться»: страница подписки и копирование ссылки."""
+        """«Подключиться»: страница подписки и копирование ссылки."""
         rows = self._link_rows(account)
-        expire_at = format_moscow(account.expire_at)
+        expire_at = client_time(account.expire_at)
         if account.status is AccountStatus.ACTIVE:
             text = self._texts.get("connect.active", expire_at=expire_at)
         else:
@@ -171,7 +233,7 @@ class Screens:
         return Screen(text, InlineKeyboardMarkup(inline_keyboard=rows))
 
     def no_account(self, *, trial_available: bool) -> Screen:
-        """«🚀 Подключиться», а подписки ещё нет: предложить пробный и тарифы.
+        """«Подключиться», а подписки ещё нет: предложить пробный и тарифы.
 
         Пробный предлагаем, пока пробные включены (задача 28): без аккаунта доступа клиент
         ещё не получал, даже если пробный отмечен (панель не ответила при выдаче) —
@@ -189,7 +251,7 @@ class Screens:
         rows += [[self._button("buttons.instructions", ScreenId.INSTRUCTIONS)], self._back()]
         text = self._texts.get(
             "trial.granted",
-            expire_at=format_moscow(account.expire_at),
+            expire_at=client_time(account.expire_at),
             traffic_gb=TRIAL_TRAFFIC_GB,
             device_limit=TRIAL_DEVICE_LIMIT,
         )
@@ -201,34 +263,15 @@ class Screens:
         rows += [[self._button("buttons.instructions", ScreenId.INSTRUCTIONS)], self._back()]
         return Screen(text, InlineKeyboardMarkup(inline_keyboard=rows))
 
-    def trial_already_used(self) -> Screen:
-        """Пробный уже был — предложить тарифы."""
-        rows = [
-            [self._button("buttons.connect", ScreenId.CONNECT)],
-            [self._button("buttons.tariffs", ScreenId.TARIFFS)],
-            self._back(),
-        ]
-        return Screen(
-            self._texts.get("trial.already_used"), InlineKeyboardMarkup(inline_keyboard=rows)
-        )
+    def refusal(self, key: str) -> Screen:
+        """Отказ экраном, когда всплывашка над кнопкой опоздала (`ClientDelivery.answer`)."""
+        return Screen(self._texts.get(key), InlineKeyboardMarkup(inline_keyboard=[self._back()]))
 
     def trial_pending(self) -> Screen:
         """Панель не ответила: пробный за клиентом, ссылку бот пришлёт сам."""
         return Screen(
             self._texts.get("trial.pending"), InlineKeyboardMarkup(inline_keyboard=[self._back()])
         )
-
-    def trial_has_subscription(self) -> Screen:
-        """Подписка уже есть — пробный не нужен."""
-        rows = [[self._button("buttons.connect", ScreenId.CONNECT)], self._back()]
-        return Screen(
-            self._texts.get("trial.has_subscription"), InlineKeyboardMarkup(inline_keyboard=rows)
-        )
-
-    def trial_disabled(self) -> Screen:
-        """Пробные выключены (задача 28): «временно недоступен» и тарифы."""
-        rows = [[self._button("buttons.tariffs", ScreenId.TARIFFS)], self._back()]
-        return Screen(self._texts.get("trial.disabled"), InlineKeyboardMarkup(inline_keyboard=rows))
 
     def unavailable(self) -> Screen:
         """Панель Remnawave не ответила — попросить попробовать позже."""

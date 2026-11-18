@@ -4,9 +4,10 @@ from datetime import timedelta
 from pathlib import Path
 
 import pytest
+from aiogram import Bot, Dispatcher
 from aiogram.exceptions import TelegramForbiddenError
-from aiogram.methods import SendMessage
-from bot_updates import CLIENT_ID, NOW
+from aiogram.methods import DeleteMessage, EditMessageReplyMarkup, SendMessage
+from bot_updates import CLIENT_ID, NOW, callback, user
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from test_app import make_settings
@@ -14,7 +15,7 @@ from test_app import make_settings
 from tsproxy.app import build_application, close_application
 from tsproxy.bot.callbacks import MenuCallback, ScreenId
 from tsproxy.bot.context import BotContext
-from tsproxy.bot.fakes import FakeTelegramSession
+from tsproxy.bot.fakes import FIRST_MESSAGE_ID, FakeTelegramSession
 from tsproxy.bot.notices import NoticeScreens, TelegramNotifier
 from tsproxy.content.loader import REQUIRED_TEXTS, Content, Texts
 from tsproxy.db.models import Client
@@ -30,6 +31,7 @@ from tsproxy.services.reminders import (
 from tsproxy.services.term_guard import TermLockedHandlers
 
 GB = 1024**3
+NOTICE_MESSAGE_ID = FIRST_MESSAGE_ID + 1  # первое сообщение, которое шлёт подделка Telegram
 EXPIRE_AT = NOW + timedelta(days=1)  # 13:00 МСК следующего дня
 
 ALL_NOTICES: list[ClientNotice] = [
@@ -121,6 +123,38 @@ async def test_notifier_sends_new_message(
     [sent] = telegram.sent(SendMessage)
     assert sent.chat_id == CLIENT_ID
     assert sent.text == content.texts.get("notices.trial_farewell")
+
+
+async def test_pressed_notice_keeps_its_text_and_loses_buttons(
+    ctx: BotContext,
+    dispatcher: Dispatcher,
+    bot: Bot,
+    content: Content,
+    telegram: FakeTelegramSession,
+) -> None:
+    """Текст уведомления не удаляется: нажатие присылает новый экран, а у уведомления
+    гаснут только кнопки."""
+    await TelegramNotifier(screens_of(content), ctx.delivery).notify(CLIENT_ID, TrialFarewell())
+    [notice] = telegram.sent(SendMessage)
+    assert notice.reply_markup is not None
+    tariffs = notice.reply_markup.inline_keyboard[0][0]  # type: ignore[union-attr]
+    assert tariffs.callback_data is not None
+
+    await dispatcher.feed_update(
+        bot,
+        callback(
+            user(CLIENT_ID),
+            tariffs.callback_data,
+            message_id=NOTICE_MESSAGE_ID,
+            markup=notice.reply_markup,  # type: ignore[arg-type]
+        ),
+    )
+
+    [_, screen] = telegram.sent(SendMessage)
+    assert screen.text == content.texts.get("tariffs.title")
+    assert telegram.sent(DeleteMessage) == []
+    [stripped] = telegram.sent(EditMessageReplyMarkup)
+    assert (stripped.message_id, stripped.reply_markup) == (NOTICE_MESSAGE_ID, None)
 
 
 async def test_notifier_marks_client_who_blocked_bot(

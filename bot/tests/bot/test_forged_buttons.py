@@ -100,7 +100,7 @@ async def test_check_button_with_other_clients_order_number_reveals_nothing(
     telegram: FakeTelegramSession,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Номер чужого заказа в «🔄 Проверить оплату»: ни статуса, ни ссылки на оплату."""
+    """Номер чужого заказа в «Проверить оплату»: ни статуса, ни ссылки на оплату."""
     async with session_factory() as session:
         victim = Client(telegram_id=OTHER_CLIENT_ID)
         session.add(victim)

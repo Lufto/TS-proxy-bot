@@ -1,10 +1,10 @@
-"""«🚀 Подключиться»: ссылка подписки только своя, без аккаунта — предложение пробного."""
+"""«Подключиться»: ссылка подписки только своя, без аккаунта — предложение пробного."""
 
 from datetime import timedelta
 
 import pytest
 from aiogram import Bot, Dispatcher
-from aiogram.methods import EditMessageText, SendMessage
+from aiogram.methods import DeleteMessage, EditMessageReplyMarkup, SendMessage
 from aiogram.types import InlineKeyboardButton
 from bot_updates import (
     ADMIN_CHAT_ID,
@@ -13,6 +13,7 @@ from bot_updates import (
     NOW,
     OTHER_CLIENT_ID,
     callback,
+    message,
     user,
 )
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -22,9 +23,9 @@ from tsproxy.bot.callbacks import MenuCallback, ScreenId
 from tsproxy.bot.connect import deliver_pending_connects
 from tsproxy.bot.context import BotContext
 from tsproxy.bot.fakes import FakeTelegramSession
+from tsproxy.content.dates import client_time
 from tsproxy.content.loader import Content
 from tsproxy.db.models import Client
-from tsproxy.domain.dates import format_moscow
 from tsproxy.integrations.failures import Failure
 from tsproxy.integrations.fakes import FakeRemnawave
 from tsproxy.integrations.remnawave_types import (
@@ -55,9 +56,9 @@ async def create_account(remnawave: FakeRemnawave, telegram_id: int = CLIENT_ID)
     )
 
 
-def buttons(edited: EditMessageText) -> list[InlineKeyboardButton]:
-    assert edited.reply_markup is not None
-    return [b for row in edited.reply_markup.inline_keyboard for b in row]  # type: ignore[union-attr]
+def buttons(screen: SendMessage) -> list[InlineKeyboardButton]:
+    assert screen.reply_markup is not None
+    return [b for row in screen.reply_markup.inline_keyboard for b in row]  # type: ignore[union-attr]
 
 
 async def test_connect_opens_own_subscription_page(
@@ -71,10 +72,12 @@ async def test_connect_opens_own_subscription_page(
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), CONNECT))
 
-    [edited] = telegram.sent(EditMessageText)
-    assert edited.text == content.texts.get("connect.active", expire_at=format_moscow(EXPIRE_AT))
-    url_buttons = [b for b in buttons(edited) if b.url is not None]
-    copy_buttons = [b for b in buttons(edited) if b.copy_text is not None]
+    [screen] = telegram.sent(SendMessage)
+    assert screen.text == content.texts.get("connect.active", expire_at=client_time(EXPIRE_AT))
+    # дату Telegram покажет по часам клиента; старые версии — по Москве
+    assert '<tg-time unix="1795435200" format="Dt">23.11.2026, 15:00 МСК</tg-time>' in screen.text
+    url_buttons = [b for b in buttons(screen) if b.url is not None]
+    copy_buttons = [b for b in buttons(screen) if b.copy_text is not None]
     assert [b.url for b in url_buttons] == [account.subscription_url]
     assert [b.copy_text.text for b in copy_buttons] == [account.subscription_url]  # type: ignore[union-attr]
     assert copy_buttons[0].text == content.texts.get("buttons.copy_link")
@@ -85,11 +88,11 @@ async def test_connect_without_account_offers_trial(
 ) -> None:
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), CONNECT))
 
-    [edited] = telegram.sent(EditMessageText)
-    assert edited.text == content.texts.get("connect.no_account")
-    texts = [b.text for b in buttons(edited)]
+    [screen] = telegram.sent(SendMessage)
+    assert screen.text == content.texts.get("connect.no_account")
+    texts = [b.text for b in buttons(screen)]
     assert content.texts.get("buttons.trial") in texts
-    assert all(b.url is None and b.copy_text is None for b in buttons(edited))
+    assert all(b.url is None and b.copy_text is None for b in buttons(screen))
 
 
 async def test_trial_marked_but_never_delivered_is_offered_again(
@@ -107,9 +110,9 @@ async def test_trial_marked_but_never_delivered_is_offered_again(
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), CONNECT))
 
-    [edited] = telegram.sent(EditMessageText)
-    assert edited.text == content.texts.get("connect.no_account")
-    assert content.texts.get("buttons.trial") in [b.text for b in buttons(edited)]
+    [screen] = telegram.sent(SendMessage)
+    assert screen.text == content.texts.get("connect.no_account")
+    assert content.texts.get("buttons.trial") in [b.text for b in buttons(screen)]
 
 
 async def test_button_of_another_client_shows_only_own_data(
@@ -138,9 +141,9 @@ async def test_expired_subscription_suggests_tariffs(
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), CONNECT))
 
-    [edited] = telegram.sent(EditMessageText)
-    assert edited.text == content.texts.get("connect.inactive", expire_at=format_moscow(EXPIRE_AT))
-    assert content.texts.get("buttons.tariffs") in [b.text for b in buttons(edited)]
+    [screen] = telegram.sent(SendMessage)
+    assert screen.text == content.texts.get("connect.inactive", expire_at=client_time(EXPIRE_AT))
+    assert content.texts.get("buttons.tariffs") in [b.text for b in buttons(screen)]
 
 
 @pytest.mark.parametrize(
@@ -160,8 +163,8 @@ async def test_panel_failure_apologizes_and_alerts_with_real_cause(
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), CONNECT))
 
-    [edited] = telegram.sent(EditMessageText)
-    assert edited.text == content.texts.get("connect.pending")
+    [screen] = telegram.sent(SendMessage)
+    assert screen.text == content.texts.get("connect.pending")
     [alert] = alert_sender.sent
     assert (alert.chat_id, alert.thread_id) == (ADMIN_CHAT_ID, ALERTS_THREAD_ID)
     assert content.admin_texts.get("alert.remnawave_unavailable.title") in alert.text
@@ -214,7 +217,7 @@ async def test_link_is_sent_once_when_panel_answers_again(
 
     [sent] = telegram.sent(SendMessage)
     assert sent.chat_id == CLIENT_ID
-    assert sent.text == content.texts.get("connect.active", expire_at=format_moscow(EXPIRE_AT))
+    assert sent.text == content.texts.get("connect.active", expire_at=client_time(EXPIRE_AT))
     assert account.subscription_url in [
         b.url
         for row in sent.reply_markup.inline_keyboard
@@ -282,3 +285,30 @@ async def test_client_who_opened_link_himself_gets_nothing_extra(
     await deliver_pending_connects(ctx)
 
     assert telegram.sent(SendMessage) == []
+
+
+async def test_link_sent_by_bot_keeps_its_text_under_new_menu(
+    dispatcher: Dispatcher,
+    bot: Bot,
+    ctx: BotContext,
+    telegram: FakeTelegramSession,
+    remnawave: FakeRemnawave,
+    clock: FakeClock,
+) -> None:
+    """Ссылка, которую бот прислал сам, — сохраняемый текст (задача bot-telegram-ui/25):
+    в ней личная ссылка клиента, новое меню гасит только её кнопки."""
+    await create_account(remnawave)
+    remnawave.fail_next(RemnawaveUnavailable("timeout"))
+    await dispatcher.feed_update(bot, callback(user(CLIENT_ID), CONNECT))
+    pending_id = telegram.last_message_id
+    clock.advance(timedelta(minutes=1))
+    await deliver_pending_connects(ctx)
+    link_id = telegram.last_message_id
+    telegram.requests.clear()
+
+    await dispatcher.feed_update(bot, message(user(CLIENT_ID), "/start"))
+
+    assert [d.message_id for d in telegram.sent(DeleteMessage)] == []
+    [stripped] = telegram.sent(EditMessageReplyMarkup)
+    assert (stripped.message_id, stripped.reply_markup) == (link_id, None)
+    assert pending_id != link_id

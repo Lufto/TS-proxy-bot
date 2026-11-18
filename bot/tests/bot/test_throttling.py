@@ -1,7 +1,7 @@
 """Ограничение частоты: флуд кнопками и сообщениями не доходит до обработчиков."""
 
 from aiogram import Bot, Dispatcher
-from aiogram.methods import AnswerCallbackQuery, EditMessageText, SendMessage
+from aiogram.methods import AnswerCallbackQuery, SendMessage, SendPhoto
 from bot_updates import ADMIN_ID, CLIENT_ID, OTHER_CLIENT_ID, callback, message, user
 from conftest import ManualMonotonic
 
@@ -16,7 +16,7 @@ from tsproxy.bot.throttling import (
 )
 from tsproxy.content.loader import Content
 
-ABOUT = MenuCallback(screen=ScreenId.ABOUT).pack()
+INSTRUCTIONS = MenuCallback(screen=ScreenId.INSTRUCTIONS).pack()
 SECONDS_PER_TOKEN = SECONDS_PER_MINUTE / RATE_LIMIT_PER_MINUTE
 
 
@@ -57,9 +57,9 @@ async def test_button_flood_is_not_processed(
 ) -> None:
     flood = RATE_LIMIT_BURST + 5
     for _ in range(flood):
-        await dispatcher.feed_update(bot, callback(user(CLIENT_ID), ABOUT))
+        await dispatcher.feed_update(bot, callback(user(CLIENT_ID), INSTRUCTIONS))
 
-    assert len(telegram.sent(EditMessageText)) == RATE_LIMIT_BURST
+    assert len(telegram.sent(SendMessage)) == RATE_LIMIT_BURST
     throttled = [
         a
         for a in telegram.sent(AnswerCallbackQuery)
@@ -75,15 +75,15 @@ async def test_command_flood_gets_one_warning(
     for _ in range(RATE_LIMIT_BURST + 5):
         await dispatcher.feed_update(bot, message(user(CLIENT_ID), "/start"))
 
+    assert len(telegram.sent(SendPhoto)) == RATE_LIMIT_BURST  # главное меню — фото
     texts = [m.text for m in telegram.sent(SendMessage)]
-    assert texts.count(content.texts.get("menu.title")) == RATE_LIMIT_BURST
-    assert texts.count(content.texts.get("throttle.message")) == 1
+    assert texts == [content.texts.get("throttle.message")]
 
 
 async def test_admins_are_not_limited(
     dispatcher: Dispatcher, bot: Bot, telegram: FakeTelegramSession
 ) -> None:
     for _ in range(RATE_LIMIT_BURST + 5):
-        await dispatcher.feed_update(bot, callback(user(ADMIN_ID), ABOUT))
+        await dispatcher.feed_update(bot, callback(user(ADMIN_ID), INSTRUCTIONS))
 
-    assert len(telegram.sent(EditMessageText)) == RATE_LIMIT_BURST + 5
+    assert len(telegram.sent(SendMessage)) == RATE_LIMIT_BURST + 5

@@ -5,9 +5,23 @@ import logging
 
 import pytest
 from aiogram import Bot, Dispatcher
-from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
-from aiogram.methods import CopyMessage, CreateForumTopic, SendMessage
-from aiogram.types import Chat, Message, PhotoSize, Sticker, Update, User
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter
+from aiogram.methods import (
+    CopyMessage,
+    CreateForumTopic,
+    DeleteMessage,
+    EditMessageReplyMarkup,
+    SendMessage,
+)
+from aiogram.types import (
+    Chat,
+    InlineKeyboardMarkup,
+    Message,
+    PhotoSize,
+    Sticker,
+    Update,
+    User,
+)
 from bot_updates import (
     ADMIN_CHAT_ID,
     ADMIN_ID,
@@ -15,6 +29,7 @@ from bot_updates import (
     CLIENT_ID,
     DATE,
     OTHER_CLIENT_ID,
+    message,
     private_chat,
     user,
 )
@@ -22,6 +37,8 @@ from conftest import ManualMonotonic
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from tsproxy.bot.callbacks import MenuCallback, ScreenId
+from tsproxy.bot.delivery import KEPT_TEXT_MARK
 from tsproxy.bot.fakes import FakeTelegramSession
 from tsproxy.bot.support_guard import KeyedLock
 from tsproxy.bot.throttling import is_command
@@ -145,6 +162,16 @@ async def open_ticket(
     return ticket.topic_id
 
 
+# Кнопка «В меню» под «Обращение принято» и под ответами поддержки. Данные кнопки несут
+# метку сохраняемого текста (`delivery.KEPT_TEXT_MARK`): при нажатии гаснут только кнопки
+TO_MENU = [("В меню", KEPT_TEXT_MARK + MenuCallback(screen=ScreenId.MAIN).pack())]
+
+
+def menu_buttons(markup: object) -> list[tuple[str, str | None]]:
+    assert isinstance(markup, InlineKeyboardMarkup)
+    return [(b.text, b.callback_data) for row in markup.inline_keyboard for b in row]
+
+
 def texts_to(telegram: FakeTelegramSession, chat_id: int) -> list[str]:
     return [m.text for m in telegram.sent(SendMessage) if m.chat_id == chat_id]
 
@@ -172,9 +199,13 @@ async def test_first_message_opens_ticket_with_topic(
         ticket.topic_id,
         CLIENT_ID,
     )
-    assert texts_to(telegram, CLIENT_ID) == [
-        content.texts.get("support.ticket_created", ticket_id=ticket.id)
-    ]
+    [accepted] = [m for m in telegram.sent(SendMessage) if m.chat_id == CLIENT_ID]
+    assert accepted.text == (
+        "Спасибо! Обращение принято — мы рассмотрим его в ближайшее время "
+        "и ответим здесь, в этом чате."
+    )
+    assert str(ticket.id) not in accepted.text  # номер обращения клиенту не показываем
+    assert menu_buttons(accepted.reply_markup) == TO_MENU
     [saved] = await transcript(session_factory)
     assert (saved.ticket_id, saved.author, saved.text) == (
         ticket.id,
@@ -367,6 +398,8 @@ async def test_admin_reply_goes_to_client_from_support(
 
     reply = texts_to(telegram, CLIENT_ID)[-1]
     assert reply == content.texts.get("support.reply_prefix") + "Переустановите Happ"
+    sent = [m for m in telegram.sent(SendMessage) if m.chat_id == CLIENT_ID][-1]
+    assert menu_buttons(sent.reply_markup) == TO_MENU
     saved = (await transcript(session_factory))[-1]
     assert (saved.author, saved.text) == (MessageAuthor.SUPPORT, "Переустановите Happ")
     assert saved.client_message_id is not None
@@ -518,12 +551,128 @@ async def test_admin_photo_goes_to_client_with_signature(
         photo.message_id,
     )
     assert copy.caption == content.texts.get("support.reply_prefix") + "Нажмите сюда"
+    assert menu_buttons(copy.reply_markup) == TO_MENU
     saved = (await transcript(session_factory))[-1]
     assert (saved.author, saved.file_id, saved.file_kind) == (
         MessageAuthor.SUPPORT,
         "admin-photo",
         "photo",
     )
+
+
+# --- Живое меню (задача bot-telegram-ui/25) ---
+
+
+def stripped_ids(telegram: FakeTelegramSession) -> list[int | None]:
+    """Сообщения клиента, у которых бот снял кнопки."""
+    edits = telegram.sent(EditMessageReplyMarkup)
+    assert all(edit.reply_markup is None for edit in edits)
+    return [edit.message_id for edit in edits if edit.chat_id == CLIENT_ID]
+
+
+async def test_ticket_accepted_loses_only_buttons_under_new_menu(
+    dispatcher: Dispatcher,
+    bot: Bot,
+    telegram: FakeTelegramSession,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    await open_ticket(dispatcher, bot, session_factory)
+    accepted_id = telegram.last_message_id
+
+    await dispatcher.feed_update(bot, message(user(CLIENT_ID), "/start"))
+
+    assert telegram.sent(DeleteMessage) == []  # переписку и «Обращение принято» не удаляем
+    assert stripped_ids(telegram) == [accepted_id]
+
+
+async def test_support_reply_replaces_previous_menu_and_keeps_its_text(
+    dispatcher: Dispatcher,
+    bot: Bot,
+    telegram: FakeTelegramSession,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Ответ поддержки — живое меню: гасит кнопки «Обращение принято», а при новом меню
+    сам теряет только кнопки."""
+    topic_id = await open_ticket(dispatcher, bot, session_factory)
+    accepted_id = telegram.last_message_id
+    await dispatcher.feed_update(bot, topic_text("Переустановите Happ", topic_id))
+    reply_id = telegram.last_message_id
+
+    assert stripped_ids(telegram) == [accepted_id]
+
+    await dispatcher.feed_update(bot, message(user(CLIENT_ID), "/start"))
+
+    assert telegram.sent(DeleteMessage) == []
+    assert stripped_ids(telegram) == [accepted_id, reply_id]
+
+
+async def test_support_photo_reply_is_live_menu_too(
+    dispatcher: Dispatcher,
+    bot: Bot,
+    telegram: FakeTelegramSession,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Ответ с фото уходит копией (`copyMessage`) — его тоже помним."""
+    topic_id = await open_ticket(dispatcher, bot, session_factory)
+    photo = Message(
+        message_id=next(_ids),
+        date=DATE,
+        chat=ADMIN_GROUP,
+        from_user=user(ADMIN_ID, first_name="Админ", username=None),
+        photo=[PhotoSize(file_id="admin-photo", file_unique_id="a", width=800, height=600)],
+        message_thread_id=topic_id,
+        is_topic_message=True,
+    )
+    await dispatcher.feed_update(bot, _update(photo))
+    reply_id = telegram.last_message_id
+
+    await dispatcher.feed_update(bot, message(user(CLIENT_ID), "/start"))
+
+    assert telegram.sent(DeleteMessage) == []
+    assert stripped_ids(telegram)[-1] == reply_id
+
+
+async def test_rejected_support_reply_keeps_previous_menu(
+    dispatcher: Dispatcher,
+    bot: Bot,
+    telegram: FakeTelegramSession,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    topic_id = await open_ticket(dispatcher, bot, session_factory)
+    accepted_id = telegram.last_message_id
+    telegram.fail_next(SendMessage, TelegramBadRequest, "Bad Request: message is too long")
+    await dispatcher.feed_update(bot, topic_text("Очень длинный ответ", topic_id))
+    assert stripped_ids(telegram) == []
+
+    await dispatcher.feed_update(bot, message(user(CLIENT_ID), "/start"))
+
+    assert stripped_ids(telegram) == [accepted_id]
+
+
+async def test_reply_delivered_but_previous_menu_not_taken_down_counts_as_sent(
+    dispatcher: Dispatcher,
+    bot: Bot,
+    telegram: FakeTelegramSession,
+    session_factory: async_sessionmaker[AsyncSession],
+    content: Content,
+) -> None:
+    """Ответ дошёл, а погасить кнопки «Обращение принято» Telegram не дал — это не
+    «ответ не отправлен»: ответ в переписке, администратору не о чем сообщать."""
+    topic_id = await open_ticket(dispatcher, bot, session_factory)
+    telegram.fail_next(
+        EditMessageReplyMarkup,
+        TelegramRetryAfter,
+        "Too Many Requests: retry after 5",
+        retry_after=5,
+    )
+
+    await dispatcher.feed_update(bot, topic_text("Переустановите Happ", topic_id))
+
+    to_topic = [m.text for m in telegram.sent(SendMessage) if m.message_thread_id == topic_id]
+    assert not any("retry after" in text for text in to_topic)
+    saved = (await transcript(session_factory))[-1]
+    assert (saved.author, saved.text) == (MessageAuthor.SUPPORT, "Переустановите Happ")
+    assert saved.client_message_id is not None
 
 
 # --- Мелкие правила ---

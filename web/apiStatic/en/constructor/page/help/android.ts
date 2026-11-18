@@ -41,8 +41,8 @@ const data: TBuilderPage = {
                 },
                 {
                   title: 'Add the subscription',
-                  text: 'Go back to the bot, tap «🚀 Подключиться» (Connect), then «Открыть страницу подключения» (Open connection page). There, pick Happ and tap «Добавить в Happ» (Add to Happ) — the app opens and adds the subscription itself.',
-                  note: 'The button does not open the app? Tap «📋 Скопировать ссылку» (Copy link) in the bot and paste it into Happ with «+».',
+                  text: 'Go back to the bot, tap «Подключиться» (Connect), then «Открыть страницу подключения» (Open connection page). There, pick Happ and tap «Добавить в Happ» (Add to Happ) — the app opens and adds the subscription itself.',
+                  note: 'The button does not open the app? Tap «Скопировать ссылку» (Copy link) in the bot and paste it into Happ with «+».',
                 },
                 {
                   title: 'Connect',
@@ -67,8 +67,8 @@ const data: TBuilderPage = {
                 },
                 {
                   title: 'Add the subscription',
-                  text: 'Go back to the bot, tap «🚀 Подключиться» (Connect), then «Открыть страницу подключения» (Open connection page). There, pick v2RayTun and tap «Добавить в v2RayTun» (Add to v2RayTun) — the app opens and adds the subscription itself.',
-                  note: 'The button does not open the app? Tap «📋 Скопировать ссылку» (Copy link) in the bot and paste it into v2RayTun with «+».',
+                  text: 'Go back to the bot, tap «Подключиться» (Connect), then «Открыть страницу подключения» (Open connection page). There, pick v2RayTun and tap «Добавить в v2RayTun» (Add to v2RayTun) — the app opens and adds the subscription itself.',
+                  note: 'The button does not open the app? Tap «Скопировать ссылку» (Copy link) in the bot and paste it into v2RayTun with «+».',
                 },
                 {
                   title: 'Connect',
@@ -97,7 +97,7 @@ const data: TBuilderPage = {
                 },
                 {
                   title: 'Add the subscription',
-                  text: 'Go back to the bot, tap «🚀 Подключиться» (Connect), then «Открыть страницу подключения» (Open connection page). There, pick Hiddify and tap «Добавить в Hiddify» (Add to Hiddify) — the app opens and adds the subscription itself.',
+                  text: 'Go back to the bot, tap «Подключиться» (Connect), then «Открыть страницу подключения» (Open connection page). There, pick Hiddify and tap «Добавить в Hiddify» (Add to Hiddify) — the app opens and adds the subscription itself.',
                 },
                 {
                   title: 'Connect',
@@ -123,7 +123,7 @@ const data: TBuilderPage = {
                 },
                 {
                   title: 'Add the subscription',
-                  text: 'In the bot, tap «📋 Скопировать ссылку» (Copy link) in the «🚀 Подключиться» (Connect) section. In OneXray, tap «+», choose adding a subscription by link (URL) and paste the link.',
+                  text: 'In the bot, tap «Скопировать ссылку» (Copy link) in the «Подключиться» (Connect) section. In OneXray, tap «+», choose adding a subscription by link (URL) and paste the link.',
                 },
                 {
                   title: 'Connect',
@@ -144,11 +144,11 @@ const data: TBuilderPage = {
           title: 'What you can do yourself',
           ordered: true,
           items: [
-            'Check in the bot («👤 Мой профиль», My profile) that your subscription is active.',
+            'Check in the bot («Мой профиль», My profile) that your subscription is active.',
             'In the app, refresh the subscription (the refresh button next to it) and connect again.',
             'Switch from Wi-Fi to mobile data or the other way round.',
             'Restart the app.',
-            'A new device will not connect? Every plan includes up to 3 devices. In the bot, open «👤 Мой профиль» → «📱 Мои устройства» (My devices) and remove one you no longer use.',
+            'A new device will not connect? Every plan includes up to 3 devices. In the bot, open «Мой профиль» → «Мои устройства» (My devices) and remove one you no longer use.',
           ],
           note: 'The subscription link is your personal access. Do not share it with others.',
         },

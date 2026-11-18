@@ -10,9 +10,11 @@ from tsproxy.bot.admin_clients import AdminCardClientActions, create_admin_route
 from tsproxy.bot.admin_refunds import create_admin_refunds_router
 from tsproxy.bot.admin_site_banner import create_admin_site_banner_router
 from tsproxy.bot.admin_trials import create_admin_trials_router
+from tsproxy.bot.chat_typing import TypingMiddleware
 from tsproxy.bot.chats import create_chats_router
 from tsproxy.bot.connect import create_connect_router
 from tsproxy.bot.context import CONTEXT_KEY, BotContext
+from tsproxy.bot.delivery import KeptTextMiddleware
 from tsproxy.bot.errors import on_error
 from tsproxy.bot.fallback import create_fallback_router
 from tsproxy.bot.menu import HELP_COMMAND, create_menu_router
@@ -40,6 +42,10 @@ def create_dispatcher(
     throttling = ThrottlingMiddleware(limiter, ctx.texts, ctx.access.admin_ids)
     dispatcher.message.outer_middleware(throttling)
     dispatcher.callback_query.outer_middleware(throttling)
+    dispatcher.callback_query.outer_middleware(KeptTextMiddleware())
+    # «печатает…» у обработчиков с флагом TYPING: внутренний слой, флаги видны после фильтров
+    dispatcher.message.middleware(TypingMiddleware())
+    dispatcher.callback_query.middleware(TypingMiddleware())
     dispatcher.include_routers(
         create_chats_router(ForeignChatFilter(ctx.access)),
         create_menu_router(),

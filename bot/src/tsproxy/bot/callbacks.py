@@ -17,17 +17,17 @@ from tsproxy.services.profile import DEVICE_REF_LENGTH
 
 
 class ScreenId(StrEnum):
-    """Экраны меню, которые меняются в одном сообщении."""
+    """Экраны меню: нажатие присылает экран новым сообщением (живое меню)."""
 
     MAIN = "main"
-    CONNECT = "connect"  # «🚀 Подключиться»
-    TRIAL = "trial"  # «🎁 Попробовать бесплатно» — задача 07
-    TARIFFS = "tariffs"  # «💳 Тарифы» — задача 12
-    PROFILE = "profile"  # «👤 Мой профиль» — задача 08
-    DEVICES = "devices"  # «📱 Мои устройства» — задача 08
-    REVOKE_LINK = "revoke_link"  # «🔄 Перевыпустить ссылку»: предупреждение — задача 31
+    CONNECT = "connect"  # «Подключиться»
+    TRIAL = "trial"  # «Попробовать бесплатно» — задача 07
+    TARIFFS = "tariffs"  # «Тарифы» — задача 12
+    PROFILE = "profile"  # «Мой профиль» — задача 08
+    DEVICES = "devices"  # «Мои устройства» — задача 08
+    REVOKE_LINK = "revoke_link"  # «Перевыпустить ссылку»: предупреждение — задача 31
     INSTRUCTIONS = "instructions"
-    SUPPORT = "support"  # «💬 Поддержка» — задачи 16–17
+    SUPPORT = "support"  # «Поддержка» — задачи 16–17
     ABOUT = "about"
 
 
@@ -50,7 +50,7 @@ class InstructionsCallback(CallbackData, prefix="howto"):
 
 
 class DeviceCallback(CallbackData, prefix="device"):
-    """«🗑 Удалить» устройство. `ref` — короткий хеш HWID (`services.profile.device_ref`).
+    """«Удалить» устройство. `ref` — короткий хеш HWID (`services.profile.device_ref`).
 
     Устройство ищется только среди устройств нажавшего, поэтому чужой `ref` ничего не удалит.
     """
@@ -59,11 +59,11 @@ class DeviceCallback(CallbackData, prefix="device"):
 
 
 class RevokeLinkCallback(CallbackData, prefix="relink"):
-    """«✅ Да, перевыпустить» (задача 31). Без данных: чью ссылку — решает `from_user.id`."""
+    """«Да, перевыпустить» (задача 31). Без данных: чью ссылку — решает `from_user.id`."""
 
 
 class TariffScreenCallback(CallbackData, prefix="tariff"):
-    """Тариф в списке «💳 Тарифы» — экран тарифа с выбором способа оплаты (задача 33)."""
+    """Тариф в списке «Тарифы» — экран тарифа с выбором способа оплаты (задача 33)."""
 
     tariff_id: str
 
@@ -82,7 +82,7 @@ class StarsCallback(CallbackData, prefix="stars"):
 
 
 class PaymentCheckCallback(CallbackData, prefix="paycheck"):
-    """«🔄 Проверить оплату» (задача 14). Номер заказа — не доступ: заказ ищется
+    """«Проверить оплату» (задача 14). Номер заказа — не доступ: заказ ищется
     только среди заказов нажавшего (аудит §4.3, R07)."""
 
     order_id: int
@@ -92,7 +92,7 @@ class PaymentCheckCallback(CallbackData, prefix="paycheck"):
 
 
 class FaqQuestion(StrEnum):
-    """Частые вопросы на экране «💬 Поддержка». Тексты — `faq.<значение>` в `content/client/`.
+    """Частые вопросы на экране «Поддержка». Тексты — `faq.<значение>` в `content/client/`.
 
     Порядок — порядок кнопок. `OTHER` всегда последний: только подсказка «напишите сюда»;
     обращение откроется, когда клиент что-то напишет, — иначе нажавшие и передумавшие
@@ -104,7 +104,7 @@ class FaqQuestion(StrEnum):
     DEVICES = "devices"
     RENEW = "renew"
     PAYMENT = "payment"
-    OTHER = "other"  # «✍️ Другой вопрос»
+    OTHER = "other"  # «Другой вопрос»
 
 
 class FaqCallback(CallbackData, prefix="faq"):

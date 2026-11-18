@@ -16,8 +16,8 @@ from tsproxy.bot.callbacks import MenuCallback, ScreenId
 from tsproxy.bot.delivery import ClientDelivery
 from tsproxy.bot.screens import Screen
 from tsproxy.content.amounts import paid_text
+from tsproxy.content.dates import client_time
 from tsproxy.content.loader import Texts
-from tsproxy.domain.dates import format_moscow
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ class RefundScreens:
             text = self._texts.get("refund.completed_access_ended", amount=refunded)
             return self._screen(text, [self._button("buttons.tariffs", ScreenId.TARIFFS)])
         text = self._texts.get(
-            "refund.completed", amount=refunded, expire_at=format_moscow(expire_at)
+            "refund.completed", amount=refunded, expire_at=client_time(expire_at)
         )
         return self._screen(text, [self._button("buttons.profile", ScreenId.PROFILE)])
 
@@ -63,6 +63,6 @@ class TelegramRefundMessages:
     ) -> None:
         screen = self._screens.completed(amount, expire_at, stars)
         try:
-            await self._delivery.send(telegram_id, screen)
+            await self._delivery.send(telegram_id, screen.kept())
         except TelegramAPIError:
             logger.exception("Не удалось сообщить клиенту %s о возврате", telegram_id)

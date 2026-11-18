@@ -2,7 +2,10 @@
 
 `Bot(token, session=FakeTelegramSession())` ведёт себя как настоящий, но ничего не шлёт:
 запросы копятся в `session.requests`, ответы собираются из самого запроса. Ошибку Telegram
-на следующий запрос нужного вида задаёт `fail_next(SendMessage, TelegramForbiddenError, "…")`.
+на следующий запрос нужного вида задаёт `fail_next(SendMessage, TelegramForbiddenError, "…")`,
+медленный Telegram — `hold(SendChatAction)`: запросы этого вида ждут, пока тест не отпустит.
+Профиль бота (описания, число аватаров) подделка помнит: `description`, `short_description`,
+`profile_photos` — их можно и задать заранее.
 """
 
 import asyncio
@@ -19,16 +22,35 @@ from aiogram.methods import (
     CreateForumTopic,
     EditMessageText,
     GetMe,
+    GetMyDescription,
+    GetMyShortDescription,
     GetUpdates,
+    GetUserProfilePhotos,
     SendInvoice,
     SendMessage,
+    SendPhoto,
+    SetMyDescription,
+    SetMyProfilePhoto,
+    SetMyShortDescription,
     TelegramMethod,
 )
 from aiogram.methods.base import TelegramType
-from aiogram.types import Chat, ForumTopic, Message, MessageId, User
+from aiogram.types import (
+    BotDescription,
+    BotShortDescription,
+    Chat,
+    ForumTopic,
+    InputFile,
+    Message,
+    MessageId,
+    PhotoSize,
+    User,
+    UserProfilePhotos,
+)
 
 FAKE_BOT_USERNAME = "ts_proxy_test_bot"
 FIRST_MESSAGE_ID = 1000
+FAKE_PHOTO_SIDE = 1280  # размер фото в ответе подделки; бот на него не смотрит
 FAKE_TOPIC_ICON_COLOR = 0x6FB9F0  # один из цветов тем, которые разрешает Telegram
 # Пауза «долгого опроса»: без неё polling на подделке крутится, не отпуская остальных
 FAKE_POLL_DELAY_SECONDS = 0.05
@@ -43,6 +65,11 @@ class FakeTelegramSession(BaseSession):
             type[TelegramMethod[Any]], tuple[type[TelegramAPIError], str, dict[str, Any]]
         ] = {}
         self._next_message_id = FIRST_MESSAGE_ID
+        self._holds: dict[type[TelegramMethod[Any]], asyncio.Event] = {}
+        # Профиль бота: пустые описания и ни одного аватара, как у нового бота
+        self.description = ""
+        self.short_description = ""
+        self.profile_photos = 0
 
     # --- Помощники для тестов ---
 
@@ -59,6 +86,24 @@ class FakeTelegramSession(BaseSession):
         """
         self._failures[method_type] = (error_type, message, extra)
 
+    def hold(self, method_type: type[TelegramMethod[Any]]) -> asyncio.Event:
+        """Запросы вида `method_type` повиснут (Telegram думает), пока тест не вызовет
+        `set()` у возвращённого события."""
+        release = asyncio.Event()
+        self._holds[method_type] = release
+        return release
+
+    @staticmethod
+    def photo_file_id(photo: InputFile) -> str:
+        """`file_id`, который подделка выдаёт загруженному файлу (один и тот же на файл)."""
+        name = photo.filename or "photo"
+        return f"fake-file-id:{name}"
+
+    @property
+    def last_message_id(self) -> int:
+        """Номер последнего сообщения, которое прислал бот (Telegram нумерует подряд)."""
+        return self._next_message_id
+
     def sent[M: TelegramMethod[Any]](self, method_type: type[M]) -> list[M]:
         """Запросы одного вида, по порядку."""
         return [r for r in self.requests if isinstance(r, method_type)]
@@ -74,6 +119,9 @@ class FakeTelegramSession(BaseSession):
         self.requests.append(method)
         if isinstance(method, GetUpdates):
             await asyncio.sleep(FAKE_POLL_DELAY_SECONDS)
+        release = self._holds.get(type(method))
+        if release is not None:
+            await release.wait()
         failure = self._failures.pop(type(method), None)
         if failure is not None:
             error_type, message, extra = failure
@@ -105,10 +153,33 @@ class FakeTelegramSession(BaseSession):
             text=text,
         )
 
+    def _photo_message(self, method: SendPhoto) -> Message:
+        """Фото: Telegram отвечает его `file_id` — тем же, если фото прислали по `file_id`."""
+        photo = method.photo
+        file_id = photo if isinstance(photo, str) else self.photo_file_id(photo)
+        sent = self._message(method.chat_id, self._next_message_id, "")
+        return sent.model_copy(
+            update={
+                "text": None,
+                "caption": method.caption,
+                "photo": [
+                    PhotoSize(
+                        file_id=file_id,
+                        file_unique_id=file_id,
+                        width=FAKE_PHOTO_SIDE,
+                        height=FAKE_PHOTO_SIDE,
+                    )
+                ],
+            }
+        )
+
     def _result(self, bot: Bot, method: TelegramMethod[Any]) -> object:
         if isinstance(method, SendMessage):
             self._next_message_id += 1
             return self._message(method.chat_id, self._next_message_id, method.text)
+        if isinstance(method, SendPhoto):
+            self._next_message_id += 1
+            return self._photo_message(method)
         if isinstance(method, SendInvoice):
             self._next_message_id += 1
             return self._message(method.chat_id, self._next_message_id, method.title)
@@ -131,5 +202,26 @@ class FakeTelegramSession(BaseSession):
             return []  # новых апдейтов нет (для polling)
         if isinstance(method, GetMe):
             return User(id=bot.id, is_bot=True, first_name="TS Proxy", username=FAKE_BOT_USERNAME)
+        return self._profile_result(bot, method)
+
+    def _profile_result(self, bot: Bot, method: TelegramMethod[Any]) -> object:
+        """Описания и аватар бота: запоминаем, что поставили, и отдаём по запросу."""
+        if isinstance(method, SetMyDescription):
+            self.description = method.description or ""
+        if isinstance(method, SetMyShortDescription):
+            self.short_description = method.short_description or ""
+        if isinstance(method, SetMyProfilePhoto):
+            self.profile_photos += 1
+        if isinstance(method, GetMyDescription):
+            return BotDescription(description=self.description)
+        if isinstance(method, GetMyShortDescription):
+            return BotShortDescription(short_description=self.short_description)
+        if isinstance(method, GetUserProfilePhotos):
+            if method.user_id != bot.id:
+                raise NotImplementedError(
+                    f"Подделка Telegram знает фото профиля только бота, не {method.user_id}"
+                )
+            # сами фото тестам не нужны — только сколько их
+            return UserProfilePhotos(total_count=self.profile_photos, photos=[])
         # answerCallbackQuery, leaveChat, setWebhook, deleteWebhook, setMyCommands, …
         return True

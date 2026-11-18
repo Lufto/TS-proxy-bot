@@ -1,19 +1,22 @@
-"""Экраны «👤 Мой профиль» и «📱 Мои устройства»: текст и кнопки из `content/client/`.
+"""Экраны «Мой профиль» и «Мои устройства»: текст и кнопки из `content/client/`.
 
 Без UUID, HWID, имени аккаунта в панели и других технических кодов (задача 10).
 """
 
+from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum, auto
 
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import DisabledButton, InlineKeyboardButton, InlineKeyboardMarkup
 
 from tsproxy.bot.callbacks import DeviceCallback, MenuCallback, RevokeLinkCallback, ScreenId
-from tsproxy.bot.screens import Screen
+from tsproxy.bot.screens import BUTTON_STYLES, Screen
+from tsproxy.content.dates import client_time
 from tsproxy.content.loader import Texts
-from tsproxy.domain.dates import format_moscow
+from tsproxy.content.pictures import Picture
 from tsproxy.domain.profile import ProfileStatus, TimeLeft, format_gigabytes, plural_form
 from tsproxy.integrations.remnawave_types import Device
-from tsproxy.services.profile import DeviceList, Profile, device_ref
+from tsproxy.services.profile import DeviceList, Profile, SubscriptionStatus, device_ref
 
 # Части экрана разделяем пустой строкой
 PARAGRAPH = "\n\n"
@@ -28,6 +31,49 @@ STATUS_TEXTS: dict[ProfileStatus, str] = {
     ProfileStatus.EXPIRED: "profile.status_expired",
     ProfileStatus.SUSPENDED: "profile.status_suspended",
 }
+
+# Строка статуса в главном меню (задача 19); у NO_SUBSCRIPTION строки нет
+MENU_STATUS_TEXTS: dict[ProfileStatus, str] = {
+    ProfileStatus.TRIAL: "menu.status_trial",
+    ProfileStatus.TRIAL_TRAFFIC_USED_UP: "menu.status_trial_traffic_used_up",
+    ProfileStatus.ACTIVE: "menu.status_active",
+    ProfileStatus.GRACE: "menu.status_grace",
+    ProfileStatus.EXPIRED: "menu.status_expired",
+    ProfileStatus.SUSPENDED: "menu.status_suspended",
+}
+
+# Статус подписки → картинка главного меню (задачи 04, 27): зелёный «на связи», жёлтый «доступ
+# сохранён», красный «нет доступа» (в том числе кончился пробный трафик и выключенный доступ).
+# Здесь все статусы: тест проверяет это для каждого `ProfileStatus`
+MENU_PICTURES: dict[ProfileStatus, Picture] = {
+    ProfileStatus.NO_SUBSCRIPTION: Picture.MENU_NEW,
+    ProfileStatus.TRIAL: Picture.MENU_ACTIVE,
+    ProfileStatus.ACTIVE: Picture.MENU_ACTIVE,
+    ProfileStatus.GRACE: Picture.MENU_GRACE,
+    ProfileStatus.TRIAL_TRAFFIC_USED_UP: Picture.MENU_EXPIRED,
+    ProfileStatus.EXPIRED: Picture.MENU_EXPIRED,
+    ProfileStatus.SUSPENDED: Picture.MENU_EXPIRED,
+}
+
+
+class PanelSilent(Enum):
+    """Панель не ответила или не успела: статус подписки неизвестен."""
+
+    PANEL_SILENT = auto()
+
+
+PANEL_SILENT = PanelSilent.PANEL_SILENT
+# Что меню знает о подписке: статус, `None` — прокси-аккаунта нет, `PANEL_SILENT` — неизвестно
+type MenuSubscription = SubscriptionStatus | PanelSilent | None
+
+
+@dataclass(frozen=True)
+class MenuHeader:
+    """Над главным меню: строка статуса (`None` — без неё) и картинка."""
+
+    status: str | None
+    picture: Picture
+
 
 # Куда ведёт кнопка под статусом: продлить, выбрать тариф или написать в поддержку
 STATUS_ACTIONS: dict[ProfileStatus, tuple[str, ScreenId]] = {
@@ -48,7 +94,9 @@ class ProfileScreens:
 
     def _button(self, key: str, screen: ScreenId) -> InlineKeyboardButton:
         return InlineKeyboardButton(
-            text=self._texts.get(key), callback_data=MenuCallback(screen=screen).pack()
+            text=self._texts.get(key),
+            callback_data=MenuCallback(screen=screen).pack(),
+            style=BUTTON_STYLES.get(key),
         )
 
     def _back(self) -> list[InlineKeyboardButton]:
@@ -66,11 +114,14 @@ class ProfileScreens:
             parts.append(self._count("hours", left.hours))
         return " ".join(parts) or self._texts.get("units.less_than_hour")
 
-    def profile(self, profile: Profile) -> Screen:
-        """«👤 Мой профиль»: статус, срок и остаток, устройства, трафик в пробном."""
+    def profile(self, profile: Profile, *, revoke_available_at: datetime | None = None) -> Screen:
+        """«Мой профиль»: статус, срок и остаток, устройства, трафик в пробном.
+
+        `revoke_available_at` — когда снова можно перевыпустить ссылку (`None` — можно сейчас).
+        """
         status = self._texts.get(
             STATUS_TEXTS[profile.status],
-            expire_at=format_moscow(profile.expire_at),
+            expire_at=client_time(profile.expire_at),
             left=self._left(profile.time_left),
         )
         slots = profile.devices
@@ -86,21 +137,47 @@ class ProfileScreens:
                     limit=format_gigabytes(profile.traffic.limit_bytes),
                 )
             )
-        text = PARAGRAPH.join([self._texts.get("profile.title"), status, "\n".join(details)])
+        text = PARAGRAPH.join(
+            [
+                self._texts.get("profile.title"),
+                status,
+                "\n".join(details),
+                *self._revoke_note(revoke_available_at),
+            ]
+        )
         action_key, action_screen = STATUS_ACTIONS[profile.status]
         rows = [
             [self._button("buttons.devices", ScreenId.DEVICES)],
             [self._button(action_key, action_screen)],
             [self._button("buttons.connect", ScreenId.CONNECT)],
-            self._revoke_row(),
+            self._revoke_row(revoke_available_at),
             self._back(),
         ]
         return Screen(text, InlineKeyboardMarkup(inline_keyboard=rows))
 
+    def menu_header(self, subscription: MenuSubscription) -> MenuHeader:
+        """Строка статуса и картинка главного меню (задачи 19, 27) — по одному статусу.
+
+        Нет прокси-аккаунта — без строки, картинка «не подключено». Панель не ответила —
+        без строки, картинка без индикатора: оплатившему клиенту нельзя сказать
+        «не подключено», а статуса мы не знаем.
+        """
+        if subscription is PANEL_SILENT:
+            return MenuHeader(status=None, picture=Picture.MENU_NEUTRAL)
+        if subscription is None:
+            return MenuHeader(status=None, picture=Picture.MENU_NEW)
+        key = MENU_STATUS_TEXTS.get(subscription.status)
+        line = (
+            None
+            if key is None
+            else self._texts.get(key, expire_at=client_time(subscription.expire_at))
+        )
+        return MenuHeader(status=line, picture=MENU_PICTURES[subscription.status])
+
     def no_account(self, *, trial_available: bool) -> Screen:
         """Профиль, когда подписки ещё нет: предложить пробный и тарифы.
 
-        Пробный — пока пробные включены, как в «🚀 Подключиться» (`Screens.no_account`):
+        Пробный — пока пробные включены, как в «Подключиться» (`Screens.no_account`):
         без аккаунта доступа клиент не получал, даже если пробный отмечен.
         """
         rows = [[self._button("buttons.trial", ScreenId.TRIAL)]] if trial_available else []
@@ -114,7 +191,7 @@ class ProfileScreens:
             :DEVICE_NAME_MAX_LENGTH
         ]
         system = " ".join(part for part in (device.platform, device.os_version) if part)
-        connected_at = format_moscow(device.created_at)
+        connected_at = client_time(device.created_at)
         if not system:
             return self._texts.get(
                 "devices.item_no_system", number=number, name=name, connected_at=connected_at
@@ -127,20 +204,28 @@ class ProfileScreens:
             connected_at=connected_at,
         )
 
-    def devices(self, devices: DeviceList, *, notice_key: str | None = None) -> Screen:
-        """«📱 Мои устройства»: список и «🗑 Удалить» у каждого.
+    def devices(
+        self,
+        devices: DeviceList,
+        *,
+        notice_key: str | None = None,
+        revoke_available_at: datetime | None = None,
+    ) -> Screen:
+        """«Мои устройства»: список и «Удалить» у каждого.
 
         `notice_key` — итог удаления («удалено» или «уже нет») над списком.
+        `revoke_available_at` — когда снова можно перевыпустить ссылку (`None` — можно сейчас).
         """
         notice = [] if notice_key is None else [self._texts.get(notice_key)]
+        revoke_note = self._revoke_note(revoke_available_at)
         # Удаление только освобождает место — выгнать чужое устройство может лишь перевыпуск
         back_rows = [
-            self._revoke_row(),
+            self._revoke_row(revoke_available_at),
             [self._button("buttons.profile_back", ScreenId.PROFILE)],
             self._back(),
         ]
         if not devices.devices:
-            text = PARAGRAPH.join([self._texts.get("devices.empty"), *notice])
+            text = PARAGRAPH.join([self._texts.get("devices.empty"), *notice, *revoke_note])
             rows = [[self._button("buttons.connect", ScreenId.CONNECT)], *back_rows]
             return Screen(text, InlineKeyboardMarkup(inline_keyboard=rows))
         used = len(devices.devices)
@@ -149,12 +234,14 @@ class ProfileScreens:
         else:
             title = self._texts.get("devices.title", used=used, limit=devices.limit)
         items = [self._device(number, d) for number, d in enumerate(devices.devices, start=1)]
-        text = PARAGRAPH.join([title, *notice, *items, self._texts.get("devices.hint")])
+        hint = self._texts.get("devices.hint")
+        text = PARAGRAPH.join([title, *notice, *items, hint, *revoke_note])
         rows = [
             [
                 InlineKeyboardButton(
                     text=self._texts.get("buttons.delete_device", number=number),
                     callback_data=DeviceCallback(ref=device_ref(device.hwid)).pack(),
+                    style=BUTTON_STYLES["buttons.delete_device"],
                 )
             ]
             for number, device in enumerate(devices.devices, start=1)
@@ -164,8 +251,19 @@ class ProfileScreens:
 
     # --- Перевыпуск ссылки (задача 31) ---
 
-    def _revoke_row(self) -> list[InlineKeyboardButton]:
-        return [self._button("buttons.revoke_link", ScreenId.REVOKE_LINK)]
+    def _revoke_row(self, available_at: datetime | None) -> list[InlineKeyboardButton]:
+        """«Перевыпустить ссылку»; раньше суток — серая неактивная (Bot API `disabled`)."""
+        if available_at is None:
+            return [self._button("buttons.revoke_link", ScreenId.REVOKE_LINK)]
+        text = self._texts.get("buttons.revoke_link")
+        return [InlineKeyboardButton(text=text, disabled=DisabledButton())]
+
+    def _revoke_note(self, available_at: datetime | None) -> list[str]:
+        """Рядом с серой кнопкой — когда перевыпуск снова можно."""
+        if available_at is None:
+            return []
+        when = client_time(available_at)
+        return [self._texts.get("revoke_link.available_at", available_at=when)]
 
     def revoke_ask(self) -> Screen:
         """Предупреждение: старая ссылка перестанет работать на всех устройствах."""
@@ -174,6 +272,7 @@ class ProfileScreens:
                 InlineKeyboardButton(
                     text=self._texts.get("buttons.confirm_revoke_link"),
                     callback_data=RevokeLinkCallback().pack(),
+                    style=BUTTON_STYLES["buttons.confirm_revoke_link"],
                 )
             ],
             [self._button("buttons.cancel_revoke_link", ScreenId.PROFILE)],
@@ -181,16 +280,3 @@ class ProfileScreens:
         return Screen(
             self._texts.get("revoke_link.ask"), InlineKeyboardMarkup(inline_keyboard=rows)
         )
-
-    def revoke_too_soon(self, available_at: datetime) -> Screen:
-        """Раньше суток с прошлого перевыпуска: когда можно снова.
-
-        Нынешняя ссылка — в «🚀 Подключиться»: туда же попадёт и второе из двух «Да».
-        """
-        rows = [
-            [self._button("buttons.connect", ScreenId.CONNECT)],
-            [self._button("buttons.profile_back", ScreenId.PROFILE)],
-            self._back(),
-        ]
-        text = self._texts.get("revoke_link.too_soon", available_at=format_moscow(available_at))
-        return Screen(text, InlineKeyboardMarkup(inline_keyboard=rows))

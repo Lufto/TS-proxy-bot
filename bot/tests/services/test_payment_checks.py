@@ -285,7 +285,7 @@ async def test_background_checks_skip_when_payments_off(
     assert s.alerts.sent == []
 
 
-# --- «🔄 Проверить оплату» ---
+# --- «Проверить оплату» ---
 
 
 async def test_check_button_credits_own_paid_order(s: PaymentSetup, client: Client) -> None:

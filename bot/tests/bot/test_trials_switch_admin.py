@@ -1,8 +1,8 @@
 """Выключатель пробных в боте (задача 28): `/trials` и кнопки в группе администраторов,
-кнопки «🎁 Попробовать бесплатно» нет, пока пробные выключены, старая кнопка — честный экран."""
+кнопки «Попробовать бесплатно» нет, пока пробные выключены, старая кнопка — честный экран."""
 
 from aiogram import Bot, Dispatcher
-from aiogram.methods import AnswerCallbackQuery, EditMessageText, SendMessage
+from aiogram.methods import AnswerCallbackQuery, EditMessageText, SendMessage, SendPhoto
 from aiogram.types import Chat, InlineKeyboardMarkup, Update
 from bot_updates import ADMIN_CHAT_ID, ADMIN_ID, CLIENT_ID, callback, message, user
 
@@ -109,7 +109,7 @@ async def test_stranger_in_admin_group_cannot_use_trials(
     await dispatcher.feed_update(bot, admin_press(DISABLE, sender_id=STRANGER_ID))
 
     assert telegram.sent(SendMessage) == []
-    assert telegram.sent(EditMessageText) == []
+    assert telegram.sent(SendMessage) == []  # нового экрана нет
     [answer] = telegram.sent(AnswerCallbackQuery)
     assert answer.text == content.admin_texts.get("admin.not_admin")
     assert await ctx.trial_switch.enabled()
@@ -123,7 +123,7 @@ async def test_admin_outside_admin_group_cannot_switch(
     await dispatcher.feed_update(bot, callback(admin, DISABLE))
 
     assert await ctx.trial_switch.enabled()
-    assert telegram.sent(EditMessageText) == []
+    assert telegram.sent(SendMessage) == []  # нового экрана нет
 
 
 async def test_menu_connect_and_profile_hide_trial_while_off(
@@ -140,14 +140,14 @@ async def test_menu_connect_and_profile_hide_trial_while_off(
     for screen in (ScreenId.MAIN, ScreenId.CONNECT, ScreenId.PROFILE):
         await dispatcher.feed_update(bot, callback(client, MenuCallback(screen=screen).pack()))
 
-    [menu] = telegram.sent(SendMessage)
-    screens = [menu.reply_markup, *(e.reply_markup for e in telegram.sent(EditMessageText))]
-    assert len(screens) == 4
+    sent = [*telegram.sent(SendPhoto), *telegram.sent(SendMessage)]  # главное меню — фото
+    screens = [screen.reply_markup for screen in sent]
+    assert len(screens) == 4  # /start и три нажатия
     trial_button = content.texts.get("buttons.trial")
     assert all(trial_button not in texts_of(markup) for markup in screens)
 
 
-async def test_old_trial_button_while_off_offers_tariffs(
+async def test_old_trial_button_while_off_says_unavailable(
     dispatcher: Dispatcher,
     bot: Bot,
     telegram: FakeTelegramSession,
@@ -159,9 +159,9 @@ async def test_old_trial_button_while_off_offers_tariffs(
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), TRIAL))
 
-    [edited] = telegram.sent(EditMessageText)
-    assert edited.text == content.texts.get("trial.disabled")
-    assert content.texts.get("buttons.tariffs") in texts_of(edited.reply_markup)
+    [answer] = telegram.sent(AnswerCallbackQuery)
+    assert (answer.text, answer.show_alert) == (content.texts.get("trial.disabled"), True)
+    assert telegram.sent(SendMessage) == []  # нового экрана нет
     assert remnawave.writes == []
 
 

@@ -1,29 +1,191 @@
-"""Отправка сообщений клиенту с пометкой «клиент заблокировал бота».
+"""Доставка сообщений клиенту: живое меню и пометка «клиент заблокировал бота».
 
 Все исходящие сообщения клиенту идут через `ClientDelivery`: если Telegram ответил
 «бот заблокирован» (`TelegramForbiddenError`), бот ставит клиенту пометку и дальше
 не шлёт ему уведомления и рассылки. Пометку снимает новый `/start`.
+
+Живое меню (спека «Внешний вид бота», задача 23). Нажатие кнопки — `show`: экран
+приходит новым сообщением (Telegram поднимает чат в списке только от нового сообщения),
+нажатое сообщение бот убирает (`remove`):
+- удаляет по одному сообщению (`deleteMessage`), не пакетом: из-за одного сообщения
+  старше 48 часов Telegram отказывает всему пакету;
+- удалить нельзя (`message can't be deleted…` — старше 48 часов, `message to delete not
+  found` — уже удалено) — снимает кнопки; «кнопок уже нет» (`message is not modified`)
+  и «сообщения нет» при снятии — не ошибка;
+- новый экран не дошёл (клиент заблокировал бота) — нажатое не трогаем;
+- новый экран дошёл, а убрать прошлое Telegram не дал (перегрузка, сеть, неизвестный
+  отказ) — только запись в журнал: сообщение доставлено, и сбой уборки не выдаётся за сбой
+  отправки (повтор уведомления, «попробуйте позже», «ответ не отправлен»);
+- нажатое сообщение недоступно боту (`InaccessibleMessage`: только номер) — снимаем кнопки
+  по номеру, не удаляем: сохраняемый ли там текст, не видно.
+
+Экран не по нажатию (`/start`, команды, уведомления — `send`) тоже убирает прошлое живое
+меню (задача 24). Telegram не даёт узнать последнее сообщение чата, поэтому бот помнит
+последнее живое меню каждого клиента в памяти (база не меняется): живое меню — последнее
+присланное сообщение с кнопками, нажатие которых приходит боту. После перезапуска память
+пуста, и у клиента может остаться одно старое меню с рабочими кнопками — оно уберётся при
+нажатии на нём; при этом убирается и меню, которое бот помнит (`show`).
+
+Экран с картинкой (`Screen.picture`: главное меню и «О сервисе», задачи 27 и 28) уходит
+фото с подписью; картинку загружает один раз и дальше шлёт по `file_id` `TelegramPictures`.
+Живое меню обращается с фото так же, как с текстом: удаляет его или снимает кнопки.
+
+Виды сообщений:
+- экран меню (ответ на кнопку или команду) — при нажатии удаляется;
+- сообщение с сохраняемым текстом (`Screen.keeps_text`) — при нажатии и при новом живом
+  меню теряет только кнопки. Бот узнаёт его по метке `KEPT_TEXT_MARK` в данных кнопок:
+  Telegram присылает кнопки нажатого сообщения, так что память не нужна и перезапуск не
+  мешает;
+- сообщение без кнопок (переписка с поддержкой, чеки) — бот его не касается.
+
+Фоновые сообщения и живое меню (задача bot-telegram-ui/25). С кнопками, нажатие которых
+приходит боту, — становятся живым меню (пока последние, их кнопки работают) и убирают
+прошлое; без таких кнопок — только убирают прошлое:
+- сохраняемый текст через `send(screen.kept())`: напоминания и уведомления (`bot.notices`),
+  оплата СБП (`bot.payments`) и звёздами (`bot.stars`), возврат (`bot.refunds`), льготный
+  период (`bot.grace`), компенсация (`bot.admin_compensation`), ручная выдача
+  (`bot.admin_clients`), перенос (`bot.admin_transfer`), «Обращение принято»
+  (`bot.support`), ссылка, которую бот прислал сам, когда панель ожила
+  (`connect.deliver_pending_connects`, `trial.deliver_pending_trials`: в ней личная ссылка
+  клиента);
+- сохраняемый текст мимо `send` — `send_kept`: ответы поддержки и заготовки (`bot.support`,
+  `bot.support_actions`) уходят копией с подписью или ответом на сообщение клиента;
+- экран меню через `send`: `/start`, команды, извинение за ошибку (`bot.errors`).
+Не живое меню и прошлое не трогают (уходят через `call`): рассылки `/broadcast` (без
+кнопок), короткие ответы клиенту в поддержке без кнопок («не доставлено», «такое не
+передаём»), счёт в звёздах (`invoice`).
+
+Счёт в звёздах бот не запоминает, и новое меню не гасит его кнопку оплаты: Bot API
+требует, чтобы первой под счётом была кнопка оплаты, а без кнопок Telegram сам рисует
+«Заплатить» — снять её правкой кнопок нельзя. Старый счёт оплатить всё равно не выйдет:
+проверка перед оплатой (`domain.stars.pre_checkout_refusal`) отказывает оплаченному
+и просроченному заказу (`STARS_INVOICE_LIFETIME`), а оплата в срок — честная оплата своего
+заказа. Нажатие «К тарифам» или «В меню» под счётом удаляет его, как экран меню.
+
+Уведомления, отправленные до выкатки метки (задача 23), метки не имеют: при нажатии на их
+кнопку они удалятся как экран меню. Принято (владелец, 2026-11-18): случается один раз
+на сообщение, а новых таких сообщений нет.
 """
 
 import logging
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from typing import Any
 
-from aiogram import Bot
-from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
-from aiogram.types import CallbackQuery, InlineKeyboardMarkup, LabeledPrice, Message
+from aiogram import BaseMiddleware, Bot
+from aiogram.exceptions import TelegramAPIError, TelegramBadRequest, TelegramForbiddenError
+from aiogram.types import (
+    CallbackQuery,
+    InaccessibleMessage,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    LabeledPrice,
+    Message,
+    MessageId,
+    TelegramObject,
+)
 
+from tsproxy.bot.pictures import TelegramPictures
 from tsproxy.bot.screens import Screen
 from tsproxy.services.clients import ClientService
 
 logger = logging.getLogger(__name__)
 
-# Ответы Telegram на «изменить сообщение», которые не ошибка бота
-MESSAGE_NOT_MODIFIED = "message is not modified"  # нажали ту же кнопку ещё раз
-MESSAGE_NOT_EDITABLE = (
-    "message can't be edited",  # сообщение слишком старое
-    "message to edit not found",  # клиент удалил сообщение
+# Ответы Telegram на «удалить сообщение», после которых у сообщения только снимаем кнопки
+MESSAGE_NOT_DELETABLE = (
+    "message can't be deleted",  # старше 48 часов («… for everyone») или служебное
+    "message to delete not found",  # клиент уже удалил
 )
+# Ответ на нажатие опоздал (бот долго ждал панель или платёжку) — Telegram его уже не примет
+QUERY_TOO_OLD = "query is too old"
+MESSAGE_NOT_MODIFIED = "message is not modified"  # правка ничего не меняет
+# Ответы Telegram на «снять кнопки», которые не ошибка бота
+BUTTONS_ALREADY_GONE = (
+    MESSAGE_NOT_MODIFIED,  # кнопок уже нет
+    "message to edit not found",  # сообщения уже нет
+)
+
+
+# Метка в данных кнопок сообщения с сохраняемым текстом (`Screen.keeps_text`). Telegram
+# присылает кнопки нажатого сообщения вместе с нажатием, поэтому по метке бот без памяти
+# и после перезапуска знает, что сообщение нельзя удалять. До обработчиков метку снимает
+# `KeptTextMiddleware`. Доступа метка не даёт: подделанная только сохранит меню.
+KEPT_TEXT_MARK = "~"
+CALLBACK_DATA_MAX_BYTES = 64  # предел Telegram для данных кнопки
+
+
+def _mark_button(button: InlineKeyboardButton) -> InlineKeyboardButton:
+    if button.callback_data is None:
+        return button  # ссылка, «скопировать» — нажатие не приходит боту
+    data = KEPT_TEXT_MARK + button.callback_data
+    if len(data.encode()) > CALLBACK_DATA_MAX_BYTES:
+        raise ValueError(f"Данные кнопки с меткой длиннее {CALLBACK_DATA_MAX_BYTES} байт: {data!r}")
+    return button.model_copy(update={"callback_data": data})
+
+
+def kept_markup(markup: InlineKeyboardMarkup) -> InlineKeyboardMarkup:
+    """Кнопки сообщения с сохраняемым текстом — с меткой в данных. Для сообщений, которые
+    уходят мимо `send` (ответы поддержки: копия с подписью), метку ставят сами
+    и отправляют через `send_kept`."""
+    rows = [[_mark_button(button) for button in row] for row in markup.inline_keyboard]
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def has_pressable_buttons(markup: InlineKeyboardMarkup) -> bool:
+    """Есть кнопки, нажатие которых приходит боту (ссылки и «скопировать» не в счёт)."""
+    return any(button.callback_data for row in markup.inline_keyboard for button in row)
+
+
+@dataclass(frozen=True)
+class LiveMenu:
+    """Сообщение бота с кнопками, которое убирается при новом живом меню."""
+
+    message_id: int
+    keeps_text: bool  # сохраняемый текст — снять только кнопки
+
+
+def keeps_text(message: Message) -> bool:
+    """Нажатое сообщение — с сохраняемым текстом: его кнопки несут метку."""
+    markup = message.reply_markup
+    if markup is None:
+        return False
+    return any(
+        (button.callback_data or "").startswith(KEPT_TEXT_MARK)
+        for row in markup.inline_keyboard
+        for button in row
+    )
+
+
+def pressed_menu(callback: CallbackQuery) -> LiveMenu | None:
+    """Нажатое сообщение как живое меню, которое нужно убрать.
+
+    Недоступное боту сообщение (`InaccessibleMessage`: Telegram прислал только номер,
+    без кнопок и даты) тоже убираем по номеру. Метку сохраняемого текста у него не
+    увидеть, поэтому только снимаем кнопки: текст уведомления или ответа поддержки
+    не пропадёт, а экран меню просто погаснет. `None` — Telegram не прислал сообщение.
+    """
+    pressed = callback.message
+    if isinstance(pressed, Message):
+        return LiveMenu(pressed.message_id, keeps_text(pressed))
+    if isinstance(pressed, InaccessibleMessage):
+        return LiveMenu(pressed.message_id, keeps_text=True)
+    return None
+
+
+class KeptTextMiddleware(BaseMiddleware):
+    """Снимает метку `KEPT_TEXT_MARK` с данных нажатой кнопки: обработчики и фильтры
+    видят те же данные, что у кнопки обычного экрана."""
+
+    async def __call__(
+        self,
+        handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]],
+        event: TelegramObject,
+        data: dict[str, Any],
+    ) -> Any:
+        if isinstance(event, CallbackQuery) and (event.data or "").startswith(KEPT_TEXT_MARK):
+            data_without_mark = (event.data or "").removeprefix(KEPT_TEXT_MARK)
+            event = event.model_copy(update={"data": data_without_mark})
+        return await handler(event, data)
 
 
 @dataclass(frozen=True)
@@ -44,9 +206,13 @@ class Invoice:
 class ClientDelivery:
     """Исходящие запросы к Telegram от имени клиента."""
 
-    def __init__(self, bot: Bot, clients: ClientService) -> None:
+    def __init__(self, bot: Bot, clients: ClientService, pictures: TelegramPictures) -> None:
         self._bot = bot
         self._clients = clients
+        self._pictures = pictures
+        # Последнее живое меню каждого клиента: Telegram не даёт узнать последнее
+        # сообщение чата, номер известен только при отправке. После перезапуска пусто.
+        self._live_menus: dict[int, LiveMenu] = {}
 
     async def call[T](self, telegram_id: int, request: Awaitable[T]) -> T | None:
         """Выполнить запрос к Telegram для клиента. `None` — клиент заблокировал бота."""
@@ -59,11 +225,85 @@ class ClientDelivery:
             return None
 
     async def send(self, telegram_id: int, screen: Screen) -> Message | None:
-        """Новое сообщение клиенту. `None` — клиент заблокировал бота."""
+        """Экран не по нажатию (команда, уведомление): новым сообщением, прошлое живое
+        меню, которое бот помнит, убрать. `None` — клиент заблокировал бота."""
+        sent = await self._send(telegram_id, screen)
+        if sent is not None:
+            await self._replace_live_menu(telegram_id, self._live_menu_of(sent, screen))
+        return sent
+
+    async def send_kept[T: Message | MessageId](
+        self, telegram_id: int, request: Awaitable[T]
+    ) -> T | None:
+        """Сообщение с сохраняемым текстом и кнопками, которое уходит мимо `send` (ответ
+        поддержки: копия с подписью, ответ на сообщение клиента). Кнопки размечает
+        вызывающий (`kept_markup`). Как `send`: становится живым меню, прошлое убирается.
+        `None` — клиент заблокировал бота."""
+        sent = await self.call(telegram_id, request)
+        if sent is not None:
+            await self._replace_live_menu(telegram_id, LiveMenu(sent.message_id, keeps_text=True))
+        return sent
+
+    async def _send(self, telegram_id: int, screen: Screen) -> Message | None:
+        markup = kept_markup(screen.markup) if screen.keeps_text else screen.markup
+        if screen.picture is None:
+            return await self.call(
+                telegram_id, self._bot.send_message(telegram_id, screen.text, reply_markup=markup)
+            )
         return await self.call(
             telegram_id,
-            self._bot.send_message(telegram_id, screen.text, reply_markup=screen.markup),
+            self._pictures.send(
+                screen.picture,
+                lambda photo: self._bot.send_photo(
+                    telegram_id, photo, caption=screen.text, reply_markup=markup
+                ),
+            ),
         )
+
+    def _remember(self, telegram_id: int, menu: LiveMenu | None) -> LiveMenu | None:
+        """Запомнить новое живое меню (`None` — у сообщения нет кнопок, которые нажимают)
+        и вернуть прошлое. Без ожиданий внутри: два экрана подряд не запомнят одно прошлое
+        дважды."""
+        previous = self._live_menus.pop(telegram_id, None)
+        if menu is not None:
+            self._live_menus[telegram_id] = menu
+        return previous
+
+    @staticmethod
+    def _live_menu_of(sent: Message, screen: Screen) -> LiveMenu | None:
+        """Присланный экран как живое меню; `None` — нет кнопок, которые нажимают."""
+        if not has_pressable_buttons(screen.markup):
+            return None
+        return LiveMenu(sent.message_id, screen.keeps_text)
+
+    async def _replace_live_menu(
+        self, telegram_id: int, menu: LiveMenu | None, *, pressed: LiveMenu | None = None
+    ) -> None:
+        """Новое сообщение уже дошло: запомнить его живым меню и убрать прошлое — нажатое
+        (`pressed`) и то, которое бот помнит, если это другое сообщение."""
+        previous = self._remember(telegram_id, menu)
+        if pressed is not None:
+            await self._take_down(telegram_id, pressed)
+        if previous is not None and (pressed is None or previous.message_id != pressed.message_id):
+            await self._take_down(telegram_id, previous)
+
+    async def _take_down(self, telegram_id: int, menu: LiveMenu) -> None:
+        """Убрать прошлое живое меню: сохраняемый текст теряет только кнопки.
+
+        Сбой Telegram здесь не поднимается: новое сообщение уже дошло, и ошибка уборки
+        выглядела бы как ошибка отправки — повтор уведомления, «попробуйте позже» после
+        оплаты, «ответ не отправлен» администратору. Худшее — у клиента осталось старое меню
+        с рабочими кнопками, как после перезапуска; оно уберётся при нажатии на нём.
+        """
+        try:
+            if menu.keeps_text:
+                await self._strip_buttons(telegram_id, menu.message_id)
+            else:
+                await self.remove(telegram_id, menu.message_id)
+        except TelegramAPIError as error:
+            logger.warning(
+                "Клиент %s: прошлое меню %s не убрано: %s", telegram_id, menu.message_id, error
+            )
 
     async def invoice(self, telegram_id: int, invoice: Invoice) -> Message | None:
         """Счёт в звёздах Telegram (задача 33): сообщение с кнопкой оплаты.
@@ -85,26 +325,61 @@ class ClientDelivery:
             ),
         )
 
-    async def show(self, callback: CallbackQuery, screen: Screen) -> None:
-        """Показать экран в том же сообщении, где нажата кнопка (меню — одно сообщение).
+    async def answer(self, callback: CallbackQuery, *, alert: str | None = None) -> bool:
+        """Ответить на нажатие. `alert` — короткий ответ (до 200 символов) всплывашкой над
+        кнопкой вместо отдельного экрана.
 
-        Если сообщение изменить нельзя (слишком старое или удалено) — прислать новое.
+        Опоздавший ответ (`query is too old`) не ошибка: экран после него всё равно показываем.
+        `False` — ответ опоздал, и всплывашку клиент не увидит: важный отказ тогда
+        присылают экраном.
+        """
+        try:
+            await callback.answer(alert, show_alert=alert is not None)
+        except TelegramBadRequest as error:
+            if QUERY_TOO_OLD not in error.message:
+                raise
+            logger.info("Ответ на нажатие клиента %s опоздал: %s", callback.from_user.id, error)
+            return False
+        return True
+
+    async def show(self, callback: CallbackQuery, screen: Screen) -> None:
+        """Живое меню: экран — новым сообщением, нажатое сообщение убрать (`remove`).
+
+        Нажатое сообщение с сохраняемым текстом (`keeps_text`) только теряет кнопки.
+        Живое меню, которое бот помнит, тоже убирается, если нажали не на нём (старое
+        меню, оставшееся с прошлого запуска).
         """
         telegram_id = callback.from_user.id
-        message = callback.message
-        if isinstance(message, Message) and await self._edit(telegram_id, message, screen):
-            return
-        await self.send(telegram_id, screen)
+        sent = await self._send(telegram_id, screen)
+        if sent is None:
+            return  # клиент заблокировал бота — убирать нечего
+        await self._replace_live_menu(
+            telegram_id, self._live_menu_of(sent, screen), pressed=pressed_menu(callback)
+        )
 
-    async def _edit(self, telegram_id: int, message: Message, screen: Screen) -> bool:
-        """`False` — изменить не получилось, нужно новое сообщение."""
+    async def remove(self, telegram_id: int, message_id: int) -> None:
+        """Убрать прошлое меню: удалить, а если Telegram не даёт — снять кнопки.
+
+        Удаляем по одному сообщению, не пакетом (`deleteMessages`): из-за одного сообщения
+        старше 48 часов Telegram отказывает всему пакету.
+        """
         try:
-            await self.call(telegram_id, message.edit_text(screen.text, reply_markup=screen.markup))
+            await self.call(telegram_id, self._bot.delete_message(telegram_id, message_id))
         except TelegramBadRequest as error:
-            if MESSAGE_NOT_MODIFIED in error.message:
-                return True  # на экране уже то, что нужно
-            if any(reason in error.message for reason in MESSAGE_NOT_EDITABLE):
-                logger.info("Сообщение %s не изменить, шлём новое", message.message_id)
-                return False
-            raise
-        return True
+            if not any(reason in error.message for reason in MESSAGE_NOT_DELETABLE):
+                raise
+            logger.info("Сообщение %s не удалить (%s), снимаем кнопки", message_id, error)
+            await self._strip_buttons(telegram_id, message_id)
+
+    async def _strip_buttons(self, telegram_id: int, message_id: int) -> None:
+        """Снять кнопки, текст оставить. Срока у этой правки для своих сообщений нет."""
+        try:
+            await self.call(
+                telegram_id,
+                self._bot.edit_message_reply_markup(
+                    chat_id=telegram_id, message_id=message_id, reply_markup=None
+                ),
+            )
+        except TelegramBadRequest as error:
+            if not any(reason in error.message for reason in BUTTONS_ALREADY_GONE):
+                raise
