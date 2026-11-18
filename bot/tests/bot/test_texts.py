@@ -148,6 +148,12 @@ def test_client_buttons_have_no_emoji(content: Content) -> None:
     assert {key: text for key, text in buttons.items() if not text[0].isalnum()} == {}
 
 
+def test_do_not_forward_warning_only_on_connect_screen(content: Content) -> None:
+    """«Не пересылайте ссылку» — один раз, там, где клиент получает ссылку (спека «Тексты»)."""
+    warned = [key for key, text in content.texts._items.items() if "Не пересылайте" in text]
+    assert warned == ["connect.active"]
+
+
 @pytest.mark.parametrize("path", QUOTING_FILES, ids=lambda path: str(path.relative_to(REPO_ROOT)))
 def test_buttons_are_quoted_without_emoji(path: Path) -> None:
     """«нажмите „Подключиться“», а не старое «Подключиться»."""
