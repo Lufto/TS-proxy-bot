@@ -6,8 +6,10 @@ menu:
     Platega test
     Выберите, что нужно:
 
-# Документы — отдельными кнопками в меню и «О сервисе» (требование Platega для банка)
+# Сайт и документы — кнопками в «О сервисе». Раньше Platega требовала документы в главном меню
+# для банка; владелец убрал их оттуда 2026-11-18 (карта bot-telegram-ui, задача 15)
 documents:
+  site_url: https://ts-proxy.com
   terms_url: https://ts-proxy.com/terms
   privacy_url: https://ts-proxy.com/privacy
 

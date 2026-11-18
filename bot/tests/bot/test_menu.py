@@ -116,6 +116,33 @@ async def test_menu_hides_trial_button_after_trial(
     assert content.texts.get("buttons.connect") in buttons
 
 
+async def test_main_menu_has_no_documents(
+    dispatcher: Dispatcher, bot: Bot, telegram: FakeTelegramSession
+) -> None:
+    await dispatcher.feed_update(bot, message(user(CLIENT_ID), "/start"))
+
+    [sent] = telegram.sent(SendMessage)
+    buttons = button_texts(sent.reply_markup)  # type: ignore[arg-type]
+    assert "Соглашение" not in buttons and "Конфиденциальность" not in buttons
+
+
+async def test_about_has_site_documents_and_back(
+    dispatcher: Dispatcher, bot: Bot, telegram: FakeTelegramSession
+) -> None:
+    await dispatcher.feed_update(bot, callback(user(CLIENT_ID), menu_data(ScreenId.ABOUT)))
+
+    [edited] = telegram.sent(EditMessageText)
+    markup = edited.reply_markup
+    assert isinstance(markup, InlineKeyboardMarkup)
+    buttons = [(b.text, b.url, b.callback_data) for row in markup.inline_keyboard for b in row]
+    assert buttons == [
+        ("Сайт", "https://ts-proxy.com", None),
+        ("Соглашение", "https://ts-proxy.com/terms", None),
+        ("Конфиденциальность", "https://ts-proxy.com/privacy", None),
+        ("В меню", None, menu_data(ScreenId.MAIN)),
+    ]
+
+
 @pytest.mark.parametrize(
     ("screen", "text_key"),
     [
