@@ -9,7 +9,7 @@ from datetime import timedelta
 
 import pytest
 from aiogram import Bot, Dispatcher
-from aiogram.methods import SendMessage
+from aiogram.methods import SendPhoto
 from bot_updates import CLIENT_ID, NOW, callback, message, user
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -37,8 +37,8 @@ TRIAL_TRAFFIC = 7 * BYTES_PER_GB
 
 async def start_menu_text(dispatcher: Dispatcher, bot: Bot, telegram: FakeTelegramSession) -> str:
     await dispatcher.feed_update(bot, message(user(CLIENT_ID), "/start"))
-    [sent] = telegram.sent(SendMessage)
-    return sent.text
+    [sent] = telegram.sent(SendPhoto)
+    return sent.caption
 
 
 async def test_active_subscription_shows_until_date(
@@ -107,8 +107,8 @@ async def test_back_to_menu_shows_status(
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), MAIN))
 
-    [sent] = telegram.sent(SendMessage)
-    assert sent.text.startswith("✅ Активна до ")
+    [sent] = telegram.sent(SendPhoto)
+    assert sent.caption.startswith("✅ Активна до ")
 
 
 async def test_no_account_menu_without_status(

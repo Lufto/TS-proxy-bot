@@ -11,6 +11,7 @@ from aiogram.methods import (
     EditMessageReplyMarkup,
     EditMessageText,
     SendMessage,
+    SendPhoto,
 )
 from aiogram.types import InlineKeyboardMarkup
 from bot_updates import CLIENT_ID, MENU_MESSAGE_ID, NOW, callback, message, user
@@ -56,9 +57,9 @@ async def test_start_creates_client_and_sends_menu(
     client = await stored_client(session_factory)
     assert client is not None
     assert (client.name, client.username, client.first_seen_at) == ("Иван", "ivan", NOW)
-    [sent] = telegram.sent(SendMessage)
+    [sent] = telegram.sent(SendPhoto)
     assert sent.chat_id == CLIENT_ID
-    assert sent.text == content.texts.get("menu.title")
+    assert sent.caption == content.texts.get("menu.title")
     assert content.texts.get("buttons.trial") in button_texts(sent.reply_markup)  # type: ignore[arg-type]
 
 
@@ -85,8 +86,8 @@ async def test_start_with_unknown_parameter_sends_menu(
 ) -> None:
     await dispatcher.feed_update(bot, message(user(CLIENT_ID), "/start promo"))
 
-    [sent] = telegram.sent(SendMessage)
-    assert sent.text == content.texts.get("menu.title")
+    [sent] = telegram.sent(SendPhoto)
+    assert sent.caption == content.texts.get("menu.title")
 
 
 async def test_start_updates_name_and_clears_blocked_mark(
@@ -122,7 +123,7 @@ async def test_menu_hides_trial_button_after_trial(
 
     await dispatcher.feed_update(bot, message(user(CLIENT_ID), "/start"))
 
-    [sent] = telegram.sent(SendMessage)
+    [sent] = telegram.sent(SendPhoto)
     buttons = button_texts(sent.reply_markup)  # type: ignore[arg-type]
     assert content.texts.get("buttons.trial") not in buttons
     assert content.texts.get("buttons.connect") in buttons
@@ -133,7 +134,7 @@ async def test_main_menu_has_no_documents(
 ) -> None:
     await dispatcher.feed_update(bot, message(user(CLIENT_ID), "/start"))
 
-    [sent] = telegram.sent(SendMessage)
+    [sent] = telegram.sent(SendPhoto)
     buttons = button_texts(sent.reply_markup)  # type: ignore[arg-type]
     assert "Соглашение" not in buttons and "Конфиденциальность" not in buttons
 
@@ -162,7 +163,6 @@ async def test_about_has_site_documents_and_back(
         (ScreenId.INSTRUCTIONS, "instructions.choose"),
         (ScreenId.TARIFFS, "tariffs.title"),
         (ScreenId.SUPPORT, "support.intro"),
-        (ScreenId.MAIN, "menu.title"),
     ],
 )
 async def test_menu_button_sends_new_screen_and_deletes_pressed_one(
@@ -324,7 +324,7 @@ async def test_connect_is_the_green_main_button(
     """Главная кнопка экрана — зелёная, остальные — обычного цвета (спека «Кнопки»)."""
     await dispatcher.feed_update(bot, message(user(CLIENT_ID), "/start"))
 
-    [sent] = telegram.sent(SendMessage)
+    [sent] = telegram.sent(SendPhoto)
     assert isinstance(sent.reply_markup, InlineKeyboardMarkup)
     styles = {b.text: b.style for row in sent.reply_markup.inline_keyboard for b in row}
     assert styles.pop(content.texts.get("buttons.connect")) == "success"

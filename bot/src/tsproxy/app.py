@@ -68,6 +68,7 @@ from tsproxy.bot.documents import TelegramDocumentSender
 from tsproxy.bot.grace import TelegramGraceMessenger
 from tsproxy.bot.notices import NoticeScreens, TelegramNotifier
 from tsproxy.bot.payments import PaymentScreens, TelegramPaymentMessages
+from tsproxy.bot.pictures import TelegramPictures
 from tsproxy.bot.refunds import RefundScreens, TelegramRefundMessages
 from tsproxy.bot.screens import Screens
 from tsproxy.bot.support_guard import SupportGuard, support_rate_limiter
@@ -355,7 +356,7 @@ def build_application(
     )
     profiles = ProfileService(remnawave, clock)
     screens = Screens(content.texts)
-    delivery = ClientDelivery(bot, clients)
+    delivery = ClientDelivery(bot, clients, TelegramPictures(content.pictures))
     # Одна блокировка на клиента для всего, что меняет срок подписки: зачёт оплаты,
     # ручное продление (задача 18), компенсация (задача 20). Иначе два изменения сразу
     # посчитают новый срок от одной и той же старой даты, и дни потеряются.

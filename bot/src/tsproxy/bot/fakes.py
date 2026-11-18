@@ -23,13 +23,15 @@ from aiogram.methods import (
     GetUpdates,
     SendInvoice,
     SendMessage,
+    SendPhoto,
     TelegramMethod,
 )
 from aiogram.methods.base import TelegramType
-from aiogram.types import Chat, ForumTopic, Message, MessageId, User
+from aiogram.types import Chat, ForumTopic, InputFile, Message, MessageId, PhotoSize, User
 
 FAKE_BOT_USERNAME = "ts_proxy_test_bot"
 FIRST_MESSAGE_ID = 1000
+FAKE_PHOTO_SIDE = 1280  # размер фото в ответе подделки; бот на него не смотрит
 FAKE_TOPIC_ICON_COLOR = 0x6FB9F0  # один из цветов тем, которые разрешает Telegram
 # Пауза «долгого опроса»: без неё polling на подделке крутится, не отпуская остальных
 FAKE_POLL_DELAY_SECONDS = 0.05
@@ -67,6 +69,12 @@ class FakeTelegramSession(BaseSession):
         release = asyncio.Event()
         self._holds[method_type] = release
         return release
+
+    @staticmethod
+    def photo_file_id(photo: InputFile) -> str:
+        """`file_id`, который подделка выдаёт загруженному файлу (один и тот же на файл)."""
+        name = photo.filename or "photo"
+        return f"fake-file-id:{name}"
 
     @property
     def last_message_id(self) -> int:
@@ -122,10 +130,33 @@ class FakeTelegramSession(BaseSession):
             text=text,
         )
 
+    def _photo_message(self, method: SendPhoto) -> Message:
+        """Фото: Telegram отвечает его `file_id` — тем же, если фото прислали по `file_id`."""
+        photo = method.photo
+        file_id = photo if isinstance(photo, str) else self.photo_file_id(photo)
+        sent = self._message(method.chat_id, self._next_message_id, "")
+        return sent.model_copy(
+            update={
+                "text": None,
+                "caption": method.caption,
+                "photo": [
+                    PhotoSize(
+                        file_id=file_id,
+                        file_unique_id=file_id,
+                        width=FAKE_PHOTO_SIDE,
+                        height=FAKE_PHOTO_SIDE,
+                    )
+                ],
+            }
+        )
+
     def _result(self, bot: Bot, method: TelegramMethod[Any]) -> object:
         if isinstance(method, SendMessage):
             self._next_message_id += 1
             return self._message(method.chat_id, self._next_message_id, method.text)
+        if isinstance(method, SendPhoto):
+            self._next_message_id += 1
+            return self._photo_message(method)
         if isinstance(method, SendInvoice):
             self._next_message_id += 1
             return self._message(method.chat_id, self._next_message_id, method.title)

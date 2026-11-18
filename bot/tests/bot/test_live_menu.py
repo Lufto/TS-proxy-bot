@@ -16,7 +16,7 @@ from aiogram.exceptions import (
     TelegramNetworkError,
     TelegramRetryAfter,
 )
-from aiogram.methods import DeleteMessage, EditMessageReplyMarkup, SendMessage
+from aiogram.methods import DeleteMessage, EditMessageReplyMarkup, SendMessage, SendPhoto
 from aiogram.types import CallbackQuery, InaccessibleMessage, Update
 from bot_updates import CLIENT_ID, MENU_MESSAGE_ID, callback, message, private_chat, user
 
@@ -25,6 +25,7 @@ from tsproxy.bot.context import BotContext
 from tsproxy.bot.delivery import ClientDelivery
 from tsproxy.bot.dispatcher import create_dispatcher
 from tsproxy.bot.fakes import FIRST_MESSAGE_ID, FakeTelegramSession
+from tsproxy.bot.pictures import TelegramPictures
 from tsproxy.bot.throttling import RateLimiter
 from tsproxy.content.loader import Content
 from tsproxy.services.clients import ClientService
@@ -40,7 +41,7 @@ async def test_second_start_removes_previous_menu(
     await dispatcher.feed_update(bot, message(user(CLIENT_ID), "/start"))
     await dispatcher.feed_update(bot, message(user(CLIENT_ID), "/start"))
 
-    _, second = telegram.sent(SendMessage)
+    _, second = telegram.sent(SendPhoto)  # главное меню — фото
     [deleted] = telegram.sent(DeleteMessage)
     assert (deleted.chat_id, deleted.message_id) == (CLIENT_ID, FIRST_SENT_ID)
     assert telegram.requests.index(second) < telegram.requests.index(deleted)  # сначала новое
@@ -65,11 +66,15 @@ async def test_after_restart_pressing_old_menu_removes_it(
     ctx: BotContext,
     clients: ClientService,
     limiter: RateLimiter,
+    content: Content,
 ) -> None:
     """Перезапуск стирает память: `/start` старое меню не видит, но нажатие на нём
     убирает и его, и меню, присланное уже после перезапуска."""
     await dispatcher.feed_update(bot, message(user(CLIENT_ID), "/start"))  # до перезапуска
-    restarted = create_dispatcher(replace(ctx, delivery=ClientDelivery(bot, clients)), limiter)
+    restarted = create_dispatcher(
+        replace(ctx, delivery=ClientDelivery(bot, clients, TelegramPictures(content.pictures))),
+        limiter,
+    )
 
     await restarted.feed_update(bot, message(user(CLIENT_ID), "/start"))
     assert telegram.sent(DeleteMessage) == []  # старое меню боту неизвестно
@@ -99,9 +104,7 @@ async def test_client_who_blocked_bot_keeps_previous_menu(
 ) -> None:
     """Новое меню не дошло — прошлое не трогаем, и бот помнит его дальше."""
     await dispatcher.feed_update(bot, message(user(CLIENT_ID), "/start"))
-    telegram.fail_next(
-        SendMessage, TelegramForbiddenError, "Forbidden: bot was blocked by the user"
-    )
+    telegram.fail_next(SendPhoto, TelegramForbiddenError, "Forbidden: bot was blocked by the user")
     await dispatcher.feed_update(bot, message(user(CLIENT_ID), "/start"))
     assert telegram.sent(DeleteMessage) == []
 
@@ -135,9 +138,8 @@ async def test_failed_take_down_of_remembered_menu_does_not_fail_new_screen(
 
     await dispatcher.feed_update(bot, message(user(CLIENT_ID), "/start"))
 
-    texts = [sent.text for sent in telegram.sent(SendMessage)]
-    assert content.texts.get("errors.generic") not in texts  # без извинения
-    assert len(texts) == 2
+    assert telegram.sent(SendMessage) == []  # без извинения
+    assert len(telegram.sent(SendPhoto)) == 2
     assert alert_sender.sent == []
 
 
@@ -184,8 +186,8 @@ async def test_old_message_with_unknown_strip_error_is_harmless(
         bot, callback(user(CLIENT_ID), MenuCallback(screen=ScreenId.MAIN).pack())
     )
 
-    [screen] = telegram.sent(SendMessage)
-    assert screen.text != content.texts.get("errors.generic")
+    assert len(telegram.sent(SendPhoto)) == 1
+    assert telegram.sent(SendMessage) == []  # без извинения
     assert alert_sender.sent == []
 
 

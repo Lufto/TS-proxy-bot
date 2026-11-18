@@ -1,7 +1,7 @@
 """Ограничение частоты: флуд кнопками и сообщениями не доходит до обработчиков."""
 
 from aiogram import Bot, Dispatcher
-from aiogram.methods import AnswerCallbackQuery, SendMessage
+from aiogram.methods import AnswerCallbackQuery, SendMessage, SendPhoto
 from bot_updates import ADMIN_ID, CLIENT_ID, OTHER_CLIENT_ID, callback, message, user
 from conftest import ManualMonotonic
 
@@ -75,9 +75,9 @@ async def test_command_flood_gets_one_warning(
     for _ in range(RATE_LIMIT_BURST + 5):
         await dispatcher.feed_update(bot, message(user(CLIENT_ID), "/start"))
 
+    assert len(telegram.sent(SendPhoto)) == RATE_LIMIT_BURST  # главное меню — фото
     texts = [m.text for m in telegram.sent(SendMessage)]
-    assert texts.count(content.texts.get("menu.title")) == RATE_LIMIT_BURST
-    assert texts.count(content.texts.get("throttle.message")) == 1
+    assert texts == [content.texts.get("throttle.message")]
 
 
 async def test_admins_are_not_limited(

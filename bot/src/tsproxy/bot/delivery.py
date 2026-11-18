@@ -26,6 +26,10 @@
 пуста, и у клиента может остаться одно старое меню с рабочими кнопками — оно уберётся при
 нажатии на нём; при этом убирается и меню, которое бот помнит (`show`).
 
+Экран с картинкой (`Screen.picture`: главное меню, задача 27) уходит фото с подписью;
+картинку загружает один раз и дальше шлёт по `file_id` `TelegramPictures`. Живое меню
+обращается с фото так же, как с текстом: удаляет его или снимает кнопки.
+
 Виды сообщений:
 - экран меню (ответ на кнопку или команду) — при нажатии удаляется;
 - сообщение с сохраняемым текстом (`Screen.keeps_text`) — при нажатии и при новом живом
@@ -81,6 +85,7 @@ from aiogram.types import (
     TelegramObject,
 )
 
+from tsproxy.bot.pictures import TelegramPictures
 from tsproxy.bot.screens import Screen
 from tsproxy.services.clients import ClientService
 
@@ -201,9 +206,10 @@ class Invoice:
 class ClientDelivery:
     """Исходящие запросы к Telegram от имени клиента."""
 
-    def __init__(self, bot: Bot, clients: ClientService) -> None:
+    def __init__(self, bot: Bot, clients: ClientService, pictures: TelegramPictures) -> None:
         self._bot = bot
         self._clients = clients
+        self._pictures = pictures
         # Последнее живое меню каждого клиента: Telegram не даёт узнать последнее
         # сообщение чата, номер известен только при отправке. После перезапуска пусто.
         self._live_menus: dict[int, LiveMenu] = {}
@@ -240,9 +246,22 @@ class ClientDelivery:
 
     async def _send(self, telegram_id: int, screen: Screen) -> Message | None:
         markup = kept_markup(screen.markup) if screen.keeps_text else screen.markup
-        return await self.call(
-            telegram_id, self._bot.send_message(telegram_id, screen.text, reply_markup=markup)
+        if screen.picture is None:
+            return await self.call(
+                telegram_id, self._bot.send_message(telegram_id, screen.text, reply_markup=markup)
+            )
+        sent = await self.call(
+            telegram_id,
+            self._bot.send_photo(
+                telegram_id,
+                self._pictures.photo(screen.picture),
+                caption=screen.text,
+                reply_markup=markup,
+            ),
         )
+        if sent is not None:
+            self._pictures.remember(screen.picture, sent)
+        return sent
 
     def _remember(self, telegram_id: int, menu: LiveMenu | None) -> LiveMenu | None:
         """Запомнить новое живое меню (`None` — у сообщения нет кнопок, которые нажимают)

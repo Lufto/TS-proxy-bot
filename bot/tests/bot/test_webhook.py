@@ -5,7 +5,7 @@ from collections.abc import AsyncIterator
 import httpx
 import pytest
 from aiogram import Bot, Dispatcher
-from aiogram.methods import SendMessage
+from aiogram.methods import SendPhoto
 from bot_updates import BOT_TOKEN, CLIENT_ID, message, user
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -75,7 +75,7 @@ async def test_update_with_secret_is_processed(
     )
 
     assert response.status_code == httpx.codes.OK
-    assert [m.chat_id for m in telegram.sent(SendMessage)] == [CLIENT_ID]
+    assert [m.chat_id for m in telegram.sent(SendPhoto)] == [CLIENT_ID]  # главное меню
     assert await client_count(session_factory) == 1
 
 

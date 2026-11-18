@@ -15,6 +15,7 @@ from typing import Any
 
 import yaml
 
+from tsproxy.content.pictures import PICTURES_FOLDER, PictureFiles
 from tsproxy.domain.site_banner import SiteBanner
 from tsproxy.integrations.payments_types import PaymentFailure
 from tsproxy.integrations.remnawave_types import RemnawaveFailure
@@ -229,6 +230,7 @@ class Content:
     admin_texts: Texts
     tariffs: tuple[Tariff, ...]
     stars_rub_rate: Decimal  # курс звезды Telegram в рублях (задача 33)
+    pictures: PictureFiles  # картинки экранов (bot-telegram-ui, задача 27)
 
     def tariff(self, tariff_id: str) -> Tariff | None:
         return next((t for t in self.tariffs if t.id == tariff_id), None)
@@ -961,7 +963,11 @@ def load_content(directory: Path, config_dir: Path) -> Content:
         admin_texts=load_admin_texts(directory),
         tariffs=load_tariffs(config_dir / TARIFFS_FILE),
         stars_rub_rate=load_stars_rate(config_dir / TARIFFS_FILE),
+        pictures=PictureFiles(directory / PICTURES_FOLDER),
     )
+    missing = content.pictures.missing()
+    if missing:
+        raise ContentError(f"Нет картинок: {', '.join(str(path) for path in missing)}")
     content.texts.require(REQUIRED_TEXTS)
     content.admin_texts.require(REQUIRED_ADMIN_TEXTS)
     quick_reply_ids(content.admin_texts)

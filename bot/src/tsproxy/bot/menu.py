@@ -9,6 +9,10 @@
 статуса, что в «Мой профиль»). Нет прокси-аккаунта, панель не ответила или думает дольше
 `MENU_STATUS_TIMEOUT_SECONDS` — меню без строки, без ошибки и без тревоги.
 
+Главное меню — фото с подписью (задача 27): картинка по тому же статусу (`menu_picture`:
+на связи, доступ сохранён, нет доступа, не подключено — нет аккаунта или панель молчит),
+подпись — строка статуса и «Выберите, что нужно:». Остальные экраны — текст.
+
 Инструкция платформы (задача 17): шаг «откройте вашу страницу подключения» — личная ссылка
 подписки нажавшего, её тоже даёт только панель (пока ждём — «печатает…»). Нет прокси-аккаунта,
 панель не ответила или думает дольше `INSTRUCTIONS_LINK_TIMEOUT_SECONDS` — шаг «нажмите
@@ -27,9 +31,10 @@
   и «Тарифы»: это действия — ссылка, выдача пробного и покупка, ради них клиент и вернулся.
   Решаем по данным кнопки, а не только по метке сохраняемого текста: у уведомлений,
   отправленных до выкатки метки, её нет, а их «Продлить» и «Тарифы» ведут в тарифы;
-- платформа в инструкциях, тариф в списке тарифов, частый вопрос в поддержке.
+- платформа в инструкциях, тариф в списке тарифов.
 Не трогает действия, где главное меню вместо них потеряло бы намерение клиента: оплату
-(СБП, звёзды, «Проверить оплату»), «Удалить» устройство, «Да, перевыпустить».
+(СБП, звёзды, «Проверить оплату»), «Удалить» устройство, «Да, перевыпустить», частый
+вопрос в поддержке — клиент выбрал вопрос, бот на него отвечает (владелец, 2026-11-18).
 Не трогает и сообщения с сохраняемым текстом (`keeps_text`: уведомления, оплата, ответы
 поддержки): их кнопки — призыв к действию из этого текста («Продлить», «В поддержку»).
 Сообщение, недоступное боту (Telegram прислал его без даты), правило не трогает.
@@ -45,7 +50,6 @@ from aiogram.filters import Command, CommandObject, CommandStart, Filter, or_f
 from aiogram.types import CallbackQuery, Message
 
 from tsproxy.bot.callbacks import (
-    FaqCallback,
     InstructionsCallback,
     MenuCallback,
     ScreenId,
@@ -56,10 +60,11 @@ from tsproxy.bot.context import BotContext, profile_of
 from tsproxy.bot.delivery import keeps_text
 from tsproxy.bot.profile import devices_screen
 from tsproxy.bot.profile_screens import ProfileScreens
-from tsproxy.bot.screens import Screen
+from tsproxy.bot.screens import Screen, menu_picture
 from tsproxy.db.models import Client
 from tsproxy.integrations.remnawave_types import AccountNotFound, RemnawaveError
 from tsproxy.services.clock import utc_now
+from tsproxy.services.profile import SubscriptionStatus
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +87,6 @@ STALE_NAVIGATION = or_f(
     MenuCallback.filter(~F.screen.in_(ACTION_SCREENS)),
     InstructionsCallback.filter(),
     TariffScreenCallback.filter(),
-    FaqCallback.filter(),
 )
 
 
@@ -121,12 +125,14 @@ async def _show(callback: CallbackQuery, ctx: BotContext, screen: Screen) -> Non
     await ctx.delivery.show(callback, screen)
 
 
-async def _status_line(ctx: BotContext, client: Client) -> str | None:
-    """Строка статуса подписки (задача 19). Срок знает только панель — спрашиваем её.
+async def _subscription_status(ctx: BotContext, client: Client) -> SubscriptionStatus | None:
+    """Статус подписки для строки и картинки меню (задачи 19, 27). Срок знает только
+    панель — спрашиваем её.
 
     Нет прокси-аккаунта, панель не ответила или думает дольше
-    `MENU_STATUS_TIMEOUT_SECONDS` — меню без строки: строка не важнее самого меню.
-    Тревогу «панель не отвечает» здесь не шлём — её шлют действия, которым панель нужна.
+    `MENU_STATUS_TIMEOUT_SECONDS` — `None`: меню без строки, картинка «не подключено»;
+    статус не важнее самого меню. Тревогу «панель не отвечает» здесь не шлём — её шлют
+    действия, которым панель нужна.
     """
     try:
         async with asyncio.timeout(MENU_STATUS_TIMEOUT_SECONDS):
@@ -137,9 +143,7 @@ async def _status_line(ctx: BotContext, client: Client) -> str | None:
     except RemnawaveError as error:
         logger.warning("Клиент %s: статус для меню не получен: %s", client.telegram_id, error)
         return None
-    if status is None:
-        return None
-    return ProfileScreens(ctx.texts).menu_status(status)
+    return status
 
 
 async def _subscription_url(ctx: BotContext, telegram_id: int) -> str | None:
@@ -163,14 +167,19 @@ async def _subscription_url(ctx: BotContext, telegram_id: int) -> str | None:
 
 
 async def _main_menu(ctx: BotContext, client: Client) -> Screen:
-    """Главное меню со строкой статуса. «Попробовать бесплатно» — пока пробные включены
-    (задача 28) и клиенту пробный положен. Панель и база спрашиваются одновременно: меню
-    ждёт дольшего из ответов, а не их сумму."""
+    """Главное меню: картинка и строка по статусу подписки. «Попробовать бесплатно» — пока
+    пробные включены (задача 28) и клиенту пробный положен. Панель и база спрашиваются
+    одновременно: меню ждёт дольшего из ответов, а не их сумму."""
     trials_enabled, trial_offered, status = await asyncio.gather(
-        ctx.trial_switch.enabled(), ctx.clients.trial_offered(client), _status_line(ctx, client)
+        ctx.trial_switch.enabled(),
+        ctx.clients.trial_offered(client),
+        _subscription_status(ctx, client),
     )
-    trial_available = trials_enabled and trial_offered
-    return ctx.screens.main_menu(trial_available=trial_available, status=status)
+    return ctx.screens.main_menu(
+        trial_available=trials_enabled and trial_offered,
+        status=None if status is None else ProfileScreens(ctx.texts).menu_status(status),
+        picture=menu_picture(None if status is None else status.status),
+    )
 
 
 async def on_start(message: Message, command: CommandObject, ctx: BotContext) -> None:

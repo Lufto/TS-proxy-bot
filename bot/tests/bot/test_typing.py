@@ -6,7 +6,7 @@ import pytest
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ChatAction
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.methods import SendChatAction, SendMessage
+from aiogram.methods import SendChatAction, SendMessage, SendPhoto
 from bot_updates import CLIENT_ID, callback, message, user
 
 from tsproxy.bot.callbacks import (
@@ -30,7 +30,11 @@ ABOUT = MenuCallback(screen=ScreenId.ABOUT).pack()
 
 def typing_before_answer(telegram: FakeTelegramSession) -> bool:
     """«Печатает…» клиенту ушло раньше ответа (нового экрана)."""
-    kinds = [type(r) for r in telegram.requests if isinstance(r, SendChatAction | SendMessage)]
+    kinds = [
+        type(r)
+        for r in telegram.requests
+        if isinstance(r, SendChatAction | SendMessage | SendPhoto)
+    ]
     return kinds[:1] == [SendChatAction] and len(kinds) > 1
 
 

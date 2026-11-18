@@ -2,7 +2,7 @@
 кнопки «Попробовать бесплатно» нет, пока пробные выключены, старая кнопка — честный экран."""
 
 from aiogram import Bot, Dispatcher
-from aiogram.methods import AnswerCallbackQuery, EditMessageText, SendMessage
+from aiogram.methods import AnswerCallbackQuery, EditMessageText, SendMessage, SendPhoto
 from aiogram.types import Chat, InlineKeyboardMarkup, Update
 from bot_updates import ADMIN_CHAT_ID, ADMIN_ID, CLIENT_ID, callback, message, user
 
@@ -140,7 +140,8 @@ async def test_menu_connect_and_profile_hide_trial_while_off(
     for screen in (ScreenId.MAIN, ScreenId.CONNECT, ScreenId.PROFILE):
         await dispatcher.feed_update(bot, callback(client, MenuCallback(screen=screen).pack()))
 
-    screens = [sent.reply_markup for sent in telegram.sent(SendMessage)]
+    sent = [*telegram.sent(SendPhoto), *telegram.sent(SendMessage)]  # главное меню — фото
+    screens = [screen.reply_markup for screen in sent]
     assert len(screens) == 4  # /start и три нажатия
     trial_button = content.texts.get("buttons.trial")
     assert all(trial_button not in texts_of(markup) for markup in screens)
