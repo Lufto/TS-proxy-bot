@@ -245,6 +245,7 @@ def ctx(
         ),
         site_banner=SiteBannerSwitch(session_factory, events, alerter, content.admin_texts),
         connect_waits=ConnectWaits(session_factory, events, clock),
+        clock=clock,
     )
 
 
