@@ -53,7 +53,6 @@ TEXT_PLACEHOLDERS: dict[str, set[str]] = {
     "connect.active": {"expire_at"},
     "connect.inactive": {"expire_at"},
     "trial.granted": {"expire_at", "traffic_gb", "device_limit"},
-    "support.ticket_created": {"ticket_id"},
     # задача 12: тарифы и оплата
     "buttons.pay": {"price"},
     "tariffs.button": {"title", "price"},

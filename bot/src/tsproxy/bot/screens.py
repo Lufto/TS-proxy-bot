@@ -118,6 +118,14 @@ class Screens:
         rows.append(self._back())
         return Screen(self._texts.get("support.intro"), InlineKeyboardMarkup(inline_keyboard=rows))
 
+    def ticket_accepted(self) -> Screen:
+        """«Обращение принято» после первого сообщения обращения — без номера, с «В меню»."""
+        return Screen(self._texts.get("support.ticket_created"), self.to_menu())
+
+    def to_menu(self) -> InlineKeyboardMarkup:
+        """Одна кнопка «В меню» — под «Обращение принято» и под каждым ответом поддержки."""
+        return InlineKeyboardMarkup(inline_keyboard=[self._back()])
+
     def faq_answer(self, question: FaqQuestion) -> Screen:
         """Ответ на частый вопрос: назад к вопросам или в меню."""
         rows = [[self._button("buttons.faq_back", ScreenId.SUPPORT)], self._back()]

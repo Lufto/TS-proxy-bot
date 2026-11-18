@@ -189,7 +189,12 @@ async def on_quick_reply(
     client_id = ticket.client_telegram_id
     try:
         delivered = await ctx.delivery.call(
-            client_id, bot.send_message(client_id, ctx.texts.get("support.reply_prefix") + text)
+            client_id,
+            bot.send_message(
+                client_id,
+                ctx.texts.get("support.reply_prefix") + text,
+                reply_markup=ctx.screens.to_menu(),
+            ),
         )
     except TelegramBadRequest as error:
         logger.warning("Обращение #%s: заготовка не отправлена: %s", ticket.id, error.message)
