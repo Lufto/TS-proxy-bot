@@ -23,8 +23,10 @@
 нажатого сообщения: Telegram присылает её с нажатием, бот ничего не хранит.
 Правило только для переходов по меню (`STALE_NAVIGATION`), чтобы клиент после перерыва
 начинал с начала, а не с забытого глубокого экрана:
-- кнопки экранов меню (`MenuCallback`), кроме «Подключиться» и «Попробовать бесплатно»:
-  это действия — ссылка и выдача пробного, ради них клиент и вернулся;
+- кнопки экранов меню (`MenuCallback`), кроме «Подключиться», «Попробовать бесплатно»
+  и «Тарифы»: это действия — ссылка, выдача пробного и покупка, ради них клиент и вернулся.
+  Решаем по данным кнопки, а не только по метке сохраняемого текста: у уведомлений,
+  отправленных до выкатки метки, её нет, а их «Продлить» и «Тарифы» ведут в тарифы;
 - платформа в инструкциях, тариф в списке тарифов, частый вопрос в поддержке.
 Не трогает действия, где главное меню вместо них потеряло бы намерение клиента: оплату
 (СБП, звёзды, «Проверить оплату»), «Удалить» устройство, «Да, перевыпустить».
@@ -72,8 +74,9 @@ MENU_STATUS_TIMEOUT_SECONDS = 3.0
 INSTRUCTIONS_LINK_TIMEOUT_SECONDS = 3.0
 # Простой, после которого старая кнопка меню открывает главное меню (задача 26)
 IDLE_RETURN_AFTER = timedelta(days=1)
-# Экраны меню, кнопки которых — действия, а не переходы: правило простоя их не трогает
-ACTION_SCREENS = frozenset({ScreenId.CONNECT, ScreenId.TRIAL})
+# Экраны меню, кнопки которых — действия, а не переходы: правило простоя их не трогает.
+# «Тарифы» — ещё и «Продлить» уведомлений, в том числе старых, без метки сохраняемого текста
+ACTION_SCREENS = frozenset({ScreenId.CONNECT, ScreenId.TRIAL, ScreenId.TARIFFS})
 # Переходы по меню, к которым применяется правило простоя
 STALE_NAVIGATION = or_f(
     MenuCallback.filter(~F.screen.in_(ACTION_SCREENS)),
@@ -98,11 +101,14 @@ def create_menu_router() -> Router:
     router = Router(name="menu")
     router.message.filter(F.chat.type == ChatType.PRIVATE)
     router.callback_query.filter(F.message.chat.type == ChatType.PRIVATE)
-    router.message.register(on_start, CommandStart())
+    # главное меню ждёт статус подписки от панели (до `MENU_STATUS_TIMEOUT_SECONDS`)
+    router.message.register(on_start, CommandStart(), flags=TYPING)
     router.message.register(on_help, Command(HELP_COMMAND))
     # первым: роутер меню подключён раньше остальных экранов, переход сюда не дойдёт до них
-    router.callback_query.register(on_main_menu, STALE_NAVIGATION, SentLongAgo())
-    router.callback_query.register(on_main_menu, MenuCallback.filter(F.screen == ScreenId.MAIN))
+    router.callback_query.register(on_main_menu, STALE_NAVIGATION, SentLongAgo(), flags=TYPING)
+    router.callback_query.register(
+        on_main_menu, MenuCallback.filter(F.screen == ScreenId.MAIN), flags=TYPING
+    )
     router.callback_query.register(on_about, MenuCallback.filter(F.screen == ScreenId.ABOUT))
     router.callback_query.register(
         on_instructions, MenuCallback.filter(F.screen == ScreenId.INSTRUCTIONS)
@@ -158,9 +164,12 @@ async def _subscription_url(ctx: BotContext, telegram_id: int) -> str | None:
 
 async def _main_menu(ctx: BotContext, client: Client) -> Screen:
     """Главное меню со строкой статуса. «Попробовать бесплатно» — пока пробные включены
-    (задача 28) и клиенту пробный положен."""
-    trial_available = await ctx.trial_switch.enabled() and await ctx.clients.trial_offered(client)
-    status = await _status_line(ctx, client)
+    (задача 28) и клиенту пробный положен. Панель и база спрашиваются одновременно: меню
+    ждёт дольшего из ответов, а не их сумму."""
+    trials_enabled, trial_offered, status = await asyncio.gather(
+        ctx.trial_switch.enabled(), ctx.clients.trial_offered(client), _status_line(ctx, client)
+    )
+    trial_available = trials_enabled and trial_offered
     return ctx.screens.main_menu(trial_available=trial_available, status=status)
 
 

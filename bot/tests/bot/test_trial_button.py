@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 
 from aiogram import Bot, Dispatcher
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.methods import (
     AnswerCallbackQuery,
     DeleteMessage,
@@ -85,6 +86,29 @@ async def test_second_press_says_trial_already_used(
     assert (answer.text, answer.show_alert) == (content.texts.get("trial.already_used"), True)
     assert telegram.sent(SendMessage) == []  # нового экрана нет
     assert remnawave.writes == [("create", f"tg_{CLIENT_ID}")]
+
+
+async def test_refusal_comes_as_message_when_alert_is_too_late(
+    dispatcher: Dispatcher,
+    bot: Bot,
+    telegram: FakeTelegramSession,
+    content: Content,
+) -> None:
+    """Панель думала долго, и всплывашку Telegram уже не принял (`query is too old`) —
+    отказ приходит сообщением, а не теряется."""
+    await dispatcher.feed_update(bot, callback(user(CLIENT_ID), TRIAL))
+    telegram.requests.clear()
+    telegram.fail_next(
+        AnswerCallbackQuery,
+        TelegramBadRequest,
+        "Bad Request: query is too old and response timeout expired or query ID is invalid",
+    )
+
+    await dispatcher.feed_update(bot, callback(user(CLIENT_ID), TRIAL))
+
+    [refusal] = telegram.sent(SendMessage)
+    assert refusal.text == content.texts.get("trial.already_used")
+    assert [b.callback_data for b in buttons(refusal)] == [MAIN]
 
 
 async def test_menu_hides_trial_after_it_was_granted(

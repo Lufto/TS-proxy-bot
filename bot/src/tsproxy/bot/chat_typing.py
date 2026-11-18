@@ -1,8 +1,9 @@
 """«Печатает…» в шапке чата клиента, пока бот ждёт панель или платёжку.
 
 Обработчик, который ходит в Remnawave или Platega, помечается флагом `TYPING`
-(`router.callback_query.register(..., flags=TYPING)`). Перед таким обработчиком бот
-отправляет клиенту `sendChatAction typing` и повторяет его, пока обработчик работает:
+(`router.callback_query.register(..., flags=TYPING)`). Вместе с таким обработчиком бот
+отправляет клиенту `sendChatAction typing` (фоновой задачей, параллельно — обработчик его
+не ждёт) и повторяет его, пока обработчик работает:
 Telegram держит «печатает…» около 5 секунд или до первого сообщения бота, а панель
 и платёжка могут думать дольше (до 10–15 секунд).
 
@@ -36,10 +37,11 @@ async def _send_typing(bot: Bot, chat_id: int) -> None:
         logger.warning("Не удалось показать «печатает…» в чате %s: %s", chat_id, error)
 
 
-async def _repeat_typing(bot: Bot, chat_id: int) -> None:
+async def _keep_typing(bot: Bot, chat_id: int) -> None:
+    """Показать «печатает…» сразу и повторять, пока задачу не отменят."""
     while True:
-        await asyncio.sleep(TYPING_REPEAT_SECONDS)
         await _send_typing(bot, chat_id)
+        await asyncio.sleep(TYPING_REPEAT_SECONDS)
 
 
 class TypingMiddleware(BaseMiddleware):
@@ -55,9 +57,10 @@ class TypingMiddleware(BaseMiddleware):
         if not get_flag(data, TYPING_FLAG) or chat is None:
             return await handler(event, data)
         bot: Bot = data["bot"]
-        await _send_typing(bot, chat.id)
-        repeater = asyncio.create_task(_repeat_typing(bot, chat.id))
+        # параллельно с обработчиком: медленный Telegram не задерживает само действие
+        typing = asyncio.create_task(_keep_typing(bot, chat.id))
+        await asyncio.sleep(0)  # дать «печатает…» уйти раньше ответа обработчика
         try:
             return await handler(event, data)
         finally:
-            repeater.cancel()
+            typing.cancel()

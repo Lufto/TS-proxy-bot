@@ -246,6 +246,10 @@ class Screens:
         rows += [[self._button("buttons.instructions", ScreenId.INSTRUCTIONS)], self._back()]
         return Screen(text, InlineKeyboardMarkup(inline_keyboard=rows))
 
+    def refusal(self, key: str) -> Screen:
+        """Отказ экраном, когда всплывашка над кнопкой опоздала (`ClientDelivery.answer`)."""
+        return Screen(self._texts.get(key), InlineKeyboardMarkup(inline_keyboard=[self._back()]))
+
     def trial_pending(self) -> Screen:
         """Панель не ответила: пробный за клиентом, ссылку бот пришлёт сам."""
         return Screen(

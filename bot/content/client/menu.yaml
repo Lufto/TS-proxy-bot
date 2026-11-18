@@ -21,7 +21,7 @@ documents:
   terms_url: https://ts-proxy.com/terms
   privacy_url: https://ts-proxy.com/privacy
 
-# «ℹ️ О сервисе»
+# «О сервисе»
 about:
   text: |-
     <b>TS Proxy — прокси-сервис с шифрованием трафика.</b>
@@ -31,8 +31,6 @@ about:
     • До 3 устройств по одной подписке
     • Приложения для iPhone, Android, Windows и macOS
     • Поддержка прямо в боте
-
-    Используя сервис, вы принимаете <a href="https://ts-proxy.com/terms">пользовательское соглашение</a> и <a href="https://ts-proxy.com/privacy">политику конфиденциальности</a>. За соблюдение законодательства при использовании сервиса вы отвечаете самостоятельно.
 
 # Ограничение частоты нажатий
 throttle:

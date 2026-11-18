@@ -5,7 +5,7 @@ from datetime import timedelta
 
 import pytest
 from aiogram import Bot, Dispatcher
-from aiogram.exceptions import TelegramForbiddenError
+from aiogram.exceptions import TelegramForbiddenError, TelegramNetworkError
 from aiogram.methods import (
     AnswerCallbackQuery,
     CopyMessage,
@@ -508,6 +508,27 @@ async def test_quick_reply_to_client_who_blocked_bot(
     )
     saved = (await transcript(session_factory))[-1]
     assert (saved.author, saved.client_message_id) == (MessageAuthor.SUPPORT, None)
+
+
+async def test_quick_reply_delivered_but_previous_menu_not_taken_down_counts_as_sent(
+    dispatcher: Dispatcher,
+    bot: Bot,
+    telegram: FakeTelegramSession,
+    session_factory: async_sessionmaker[AsyncSession],
+    content: Content,
+) -> None:
+    await open_ticket(dispatcher, bot, session_factory)
+    telegram.fail_next(EditMessageReplyMarkup, TelegramNetworkError, "ServerDisconnectedError")
+    reply_id = quick_reply_ids(content.admin_texts)[0]
+
+    await dispatcher.feed_update(
+        bot, press_quick_reply(await ticket_id_of(session_factory), reply_id)
+    )
+
+    assert alerts(telegram) == []  # не «заготовка не отправлена»
+    saved = (await transcript(session_factory))[-1]
+    assert saved.author == MessageAuthor.SUPPORT
+    assert saved.client_message_id is not None
 
 
 # --- Напоминание о забытом обращении ---

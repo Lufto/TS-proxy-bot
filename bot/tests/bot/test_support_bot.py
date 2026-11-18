@@ -5,7 +5,7 @@ import logging
 
 import pytest
 from aiogram import Bot, Dispatcher
-from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter
 from aiogram.methods import (
     CopyMessage,
     CreateForumTopic,
@@ -647,6 +647,32 @@ async def test_rejected_support_reply_keeps_previous_menu(
     await dispatcher.feed_update(bot, message(user(CLIENT_ID), "/start"))
 
     assert stripped_ids(telegram) == [accepted_id]
+
+
+async def test_reply_delivered_but_previous_menu_not_taken_down_counts_as_sent(
+    dispatcher: Dispatcher,
+    bot: Bot,
+    telegram: FakeTelegramSession,
+    session_factory: async_sessionmaker[AsyncSession],
+    content: Content,
+) -> None:
+    """Ответ дошёл, а погасить кнопки «Обращение принято» Telegram не дал — это не
+    «ответ не отправлен»: ответ в переписке, администратору не о чем сообщать."""
+    topic_id = await open_ticket(dispatcher, bot, session_factory)
+    telegram.fail_next(
+        EditMessageReplyMarkup,
+        TelegramRetryAfter,
+        "Too Many Requests: retry after 5",
+        retry_after=5,
+    )
+
+    await dispatcher.feed_update(bot, topic_text("Переустановите Happ", topic_id))
+
+    to_topic = [m.text for m in telegram.sent(SendMessage) if m.message_thread_id == topic_id]
+    assert not any("retry after" in text for text in to_topic)
+    saved = (await transcript(session_factory))[-1]
+    assert (saved.author, saved.text) == (MessageAuthor.SUPPORT, "Переустановите Happ")
+    assert saved.client_message_id is not None
 
 
 # --- Мелкие правила ---
