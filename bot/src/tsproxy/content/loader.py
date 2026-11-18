@@ -249,6 +249,7 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         "buttons.instructions",
         "buttons.support",
         "buttons.about",
+        "buttons.site",
         "buttons.terms",
         "buttons.privacy",
         "buttons.back",
@@ -272,6 +273,7 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         "trial.has_subscription",
         "trial.disabled",  # задача 28
         "about.text",
+        "documents.site_url",
         "documents.terms_url",
         "documents.privacy_url",
         "instructions.choose",
