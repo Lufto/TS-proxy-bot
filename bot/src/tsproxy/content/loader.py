@@ -315,6 +315,7 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         "buttons.cancel_revoke_link",
         "revoke_link.ask",
         "revoke_link.too_soon",
+        "revoke_link.available_at",  # задача 20 (bot-telegram-ui)
         "revoke_link.done",
         "units.days_one",
         "units.days_few",

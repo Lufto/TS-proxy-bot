@@ -147,7 +147,7 @@ async def test_menu_connect_and_profile_hide_trial_while_off(
     assert all(trial_button not in texts_of(markup) for markup in screens)
 
 
-async def test_old_trial_button_while_off_offers_tariffs(
+async def test_old_trial_button_while_off_says_unavailable(
     dispatcher: Dispatcher,
     bot: Bot,
     telegram: FakeTelegramSession,
@@ -159,9 +159,9 @@ async def test_old_trial_button_while_off_offers_tariffs(
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), TRIAL))
 
-    [edited] = telegram.sent(EditMessageText)
-    assert edited.text == content.texts.get("trial.disabled")
-    assert content.texts.get("buttons.tariffs") in texts_of(edited.reply_markup)
+    [answer] = telegram.sent(AnswerCallbackQuery)
+    assert (answer.text, answer.show_alert) == (content.texts.get("trial.disabled"), True)
+    assert telegram.sent(EditMessageText) == []
     assert remnawave.writes == []
 
 

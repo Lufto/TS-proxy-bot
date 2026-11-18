@@ -213,34 +213,11 @@ class Screens:
         rows += [[self._button("buttons.instructions", ScreenId.INSTRUCTIONS)], self._back()]
         return Screen(text, InlineKeyboardMarkup(inline_keyboard=rows))
 
-    def trial_already_used(self) -> Screen:
-        """Пробный уже был — предложить тарифы."""
-        rows = [
-            [self._button("buttons.connect", ScreenId.CONNECT)],
-            [self._button("buttons.tariffs", ScreenId.TARIFFS)],
-            self._back(),
-        ]
-        return Screen(
-            self._texts.get("trial.already_used"), InlineKeyboardMarkup(inline_keyboard=rows)
-        )
-
     def trial_pending(self) -> Screen:
         """Панель не ответила: пробный за клиентом, ссылку бот пришлёт сам."""
         return Screen(
             self._texts.get("trial.pending"), InlineKeyboardMarkup(inline_keyboard=[self._back()])
         )
-
-    def trial_has_subscription(self) -> Screen:
-        """Подписка уже есть — пробный не нужен."""
-        rows = [[self._button("buttons.connect", ScreenId.CONNECT)], self._back()]
-        return Screen(
-            self._texts.get("trial.has_subscription"), InlineKeyboardMarkup(inline_keyboard=rows)
-        )
-
-    def trial_disabled(self) -> Screen:
-        """Пробные выключены (задача 28): «временно недоступен» и тарифы."""
-        rows = [[self._button("buttons.tariffs", ScreenId.TARIFFS)], self._back()]
-        return Screen(self._texts.get("trial.disabled"), InlineKeyboardMarkup(inline_keyboard=rows))
 
     def unavailable(self) -> Screen:
         """Панель Remnawave не ответила — попросить попробовать позже."""

@@ -24,6 +24,8 @@ MESSAGE_NOT_EDITABLE = (
     "message can't be edited",  # сообщение слишком старое
     "message to edit not found",  # клиент удалил сообщение
 )
+# Ответ на нажатие опоздал (бот долго ждал панель или платёжку) — Telegram его уже не примет
+QUERY_TOO_OLD = "query is too old"
 
 
 @dataclass(frozen=True)
@@ -84,6 +86,19 @@ class ClientDelivery:
                 reply_markup=invoice.markup,
             ),
         )
+
+    async def answer(self, callback: CallbackQuery, *, alert: str | None = None) -> None:
+        """Ответить на нажатие. `alert` — короткий ответ (до 200 символов) всплывашкой над
+        кнопкой вместо отдельного экрана.
+
+        Опоздавший ответ (`query is too old`) не ошибка: экран после него всё равно показываем.
+        """
+        try:
+            await callback.answer(alert, show_alert=alert is not None)
+        except TelegramBadRequest as error:
+            if QUERY_TOO_OLD not in error.message:
+                raise
+            logger.info("Ответ на нажатие клиента %s опоздал: %s", callback.from_user.id, error)
 
     async def show(self, callback: CallbackQuery, screen: Screen) -> None:
         """Показать экран в том же сообщении, где нажата кнопка (меню — одно сообщение).
