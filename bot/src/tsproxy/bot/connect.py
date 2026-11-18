@@ -4,6 +4,8 @@
 
 Панель не ответила — клиенту «пришлём ссылку сюда», и фоновая задача `deliver_pending_connects`
 присылает экран подключения, когда панель ожила (владелец, 2026-11-10; `services.connect_waits`).
+Этот экран — сохраняемый текст (в нём личная ссылка клиента): новое меню гасит только его
+кнопки (задача bot-telegram-ui/25).
 """
 
 import logging
@@ -85,7 +87,8 @@ async def deliver_pending_connects(ctx: BotContext) -> None:
         # Отмечаем до отправки: сбой Telegram не должен слать ссылку каждую минуту
         await ctx.connect_waits.delivered(client.id, DeliveredBy.BOT)
         try:
-            await ctx.delivery.send(telegram_id, screen)
+            # в сообщении личная ссылка клиента — новое меню его не удаляет (задача 25)
+            await ctx.delivery.send(telegram_id, screen.kept())
         except TelegramAPIError:
             logger.exception("Не удалось прислать ссылку клиенту %s", telegram_id)
 
