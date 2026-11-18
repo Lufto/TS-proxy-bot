@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 
 from aiogram import Bot, Dispatcher
-from aiogram.methods import EditMessageText, SendMessage
+from aiogram.methods import SendMessage
 from aiogram.types import InlineKeyboardButton
 from bot_updates import ADMIN_CHAT_ID, CLIENT_ID, callback, user
 from sqlalchemy import select
@@ -37,9 +37,9 @@ def content_granted(ctx: BotContext, expire_at: datetime) -> str:
     )
 
 
-def buttons(edited: EditMessageText) -> list[InlineKeyboardButton]:
-    assert edited.reply_markup is not None
-    return [b for row in edited.reply_markup.inline_keyboard for b in row]  # type: ignore[union-attr]
+def buttons(screen: SendMessage) -> list[InlineKeyboardButton]:
+    assert screen.reply_markup is not None
+    return [b for row in screen.reply_markup.inline_keyboard for b in row]  # type: ignore[union-attr]
 
 
 async def test_trial_button_gives_subscription_link(
@@ -53,14 +53,14 @@ async def test_trial_button_gives_subscription_link(
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), TRIAL))
 
     account = await remnawave.get_account(CLIENT_ID)
-    [edited] = telegram.sent(EditMessageText)
-    assert edited.text == content.texts.get(
+    [screen] = telegram.sent(SendMessage)
+    assert screen.text == content.texts.get(
         "trial.granted",
         expire_at=client_time(clock.now + timedelta(days=TRIAL_DAYS)),
         traffic_gb=TRIAL_TRAFFIC_GB,
         device_limit=TRIAL_DEVICE_LIMIT,
     )
-    assert [b.url for b in buttons(edited) if b.url] == [account.subscription_url]
+    assert [b.url for b in buttons(screen) if b.url] == [account.subscription_url]
 
 
 async def test_second_press_says_trial_already_used(
@@ -75,8 +75,8 @@ async def test_second_press_says_trial_already_used(
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), TRIAL))
 
-    [edited] = telegram.sent(EditMessageText)
-    assert edited.text == content.texts.get("trial.already_used")
+    [screen] = telegram.sent(SendMessage)
+    assert screen.text == content.texts.get("trial.already_used")
     assert remnawave.writes == [("create", f"tg_{CLIENT_ID}")]
 
 
@@ -92,8 +92,8 @@ async def test_menu_hides_trial_after_it_was_granted(
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), MAIN))
 
-    [edited] = telegram.sent(EditMessageText)
-    assert content.texts.get("buttons.trial") not in [b.text for b in buttons(edited)]
+    [screen] = telegram.sent(SendMessage)
+    assert content.texts.get("buttons.trial") not in [b.text for b in buttons(screen)]
     async with session_factory() as session:
         client = await session.scalar(select(Client).where(Client.telegram_id == CLIENT_ID))
     assert client is not None and client.trial_granted_at is not None
@@ -113,8 +113,8 @@ async def test_paying_client_gets_no_trial(
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), TRIAL))
 
-    [edited] = telegram.sent(EditMessageText)
-    assert edited.text == content.texts.get("trial.has_subscription")
+    [screen] = telegram.sent(SendMessage)
+    assert screen.text == content.texts.get("trial.has_subscription")
 
 
 async def test_panel_down_keeps_trial_and_alerts(
@@ -129,8 +129,8 @@ async def test_panel_down_keeps_trial_and_alerts(
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), TRIAL))
 
-    [edited] = telegram.sent(EditMessageText)
-    assert edited.text == content.texts.get("trial.pending")
+    [screen] = telegram.sent(SendMessage)
+    assert screen.text == content.texts.get("trial.pending")
     [alert] = alert_sender.sent
     assert alert.chat_id == ADMIN_CHAT_ID
     assert content.admin_texts.get("alert.remnawave_trial.title") in alert.text
@@ -190,8 +190,8 @@ async def test_menu_hides_trial_from_paying_client(
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), MAIN))
 
-    [edited] = telegram.sent(EditMessageText)
-    assert content.texts.get("buttons.trial") not in [b.text for b in buttons(edited)]
+    [screen] = telegram.sent(SendMessage)
+    assert content.texts.get("buttons.trial") not in [b.text for b in buttons(screen)]
 
 
 async def test_menu_offers_trial_to_client_with_unpaid_order(
@@ -211,5 +211,5 @@ async def test_menu_offers_trial_to_client_with_unpaid_order(
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), MAIN))
 
-    [edited] = telegram.sent(EditMessageText)
-    assert content.texts.get("buttons.trial") in [b.text for b in buttons(edited)]
+    [screen] = telegram.sent(SendMessage)
+    assert content.texts.get("buttons.trial") in [b.text for b in buttons(screen)]

@@ -1,7 +1,7 @@
 """Экраны клиента: текст и кнопки. Только сборка из `content/client/`, без Telegram-вызовов."""
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from aiogram.enums import ButtonStyle
 from aiogram.types import CopyTextButton, InlineKeyboardButton, InlineKeyboardMarkup
@@ -45,10 +45,20 @@ PLATFORM_TEXTS: dict[Platform, tuple[str, str]] = {
 
 @dataclass(frozen=True)
 class Screen:
-    """Что показать клиенту: текст (HTML) и кнопки под ним."""
+    """Что показать клиенту: текст (HTML) и кнопки под ним.
+
+    `keeps_text` — сообщение с текстом, который нужно сохранить (уведомление, сообщение
+    об оплате): когда клиент нажимает его кнопку, бот снимает кнопки, а не удаляет
+    сообщение (`ClientDelivery.show`). Обычный экран меню при нажатии удаляется.
+    """
 
     text: str
     markup: InlineKeyboardMarkup
+    keeps_text: bool = False
+
+    def kept(self) -> "Screen":
+        """Тот же экран как сообщение с сохраняемым текстом."""
+        return replace(self, keeps_text=True)
 
 
 class Screens:

@@ -10,6 +10,7 @@ from aiogram.types import (
     ChatMemberBanned,
     ChatMemberMember,
     ChatMemberUpdated,
+    InlineKeyboardMarkup,
     Message,
     MessageEntity,
     Update,
@@ -56,9 +57,17 @@ def message(from_user: User, text: str, *, chat: Chat | None = None, message_id:
 
 
 def callback(
-    from_user: User, data: str, *, chat_id: int | None = None, message_id: int = MENU_MESSAGE_ID
+    from_user: User,
+    data: str,
+    *,
+    chat_id: int | None = None,
+    message_id: int = MENU_MESSAGE_ID,
+    markup: InlineKeyboardMarkup | None = None,
 ) -> Update:
-    """Нажатие кнопки под сообщением бота `message_id` в чате `chat_id` (по умолчанию — личном)."""
+    """Нажатие кнопки под сообщением бота `message_id` в чате `chat_id` (по умолчанию — личном).
+
+    `markup` — кнопки нажатого сообщения: Telegram присылает их вместе с нажатием.
+    """
     chat = private_chat(from_user.id) if chat_id is None else Chat(id=chat_id, type="supergroup")
     return Update(
         update_id=next(_update_ids),
@@ -67,7 +76,9 @@ def callback(
             from_user=from_user,
             chat_instance="ci",
             data=data,
-            message=Message(message_id=message_id, date=DATE, chat=chat, text="меню"),
+            message=Message(
+                message_id=message_id, date=DATE, chat=chat, text="меню", reply_markup=markup
+            ),
         ),
     )
 

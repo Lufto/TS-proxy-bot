@@ -98,8 +98,8 @@ async def test_support_screen_shows_frequent_questions(
     data = MenuCallback(screen=ScreenId.SUPPORT).pack()
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), data))
 
-    [edited] = telegram.sent(EditMessageText)
-    shown = buttons(edited.reply_markup)  # type: ignore[arg-type]
+    [screen] = telegram.sent(SendMessage)
+    shown = buttons(screen.reply_markup)  # type: ignore[arg-type]
     faq = [(text, data) for text, data in shown if data and data.startswith("faq")]
     assert 3 <= len(faq) - 1 <= 5  # частые вопросы и «Другой вопрос»
     assert faq[0] == (
@@ -123,10 +123,10 @@ async def test_frequent_question_shows_its_answer(
     data = FaqCallback(question=question).pack()
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), data))
 
-    [edited] = telegram.sent(EditMessageText)
-    assert edited.text == content.texts.get(f"faq.{question.value}.answer")
+    [answer] = telegram.sent(SendMessage)
+    assert answer.text == content.texts.get(f"faq.{question.value}.answer")
     back = MenuCallback(screen=ScreenId.SUPPORT).pack()
-    assert (content.texts.get("buttons.faq_back"), back) in buttons(edited.reply_markup)  # type: ignore[arg-type]
+    assert (content.texts.get("buttons.faq_back"), back) in buttons(answer.reply_markup)  # type: ignore[arg-type]
     assert telegram.sent(CreateForumTopic) == []  # частый вопрос — не обращение
 
 

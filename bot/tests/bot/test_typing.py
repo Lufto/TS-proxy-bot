@@ -4,7 +4,7 @@ import pytest
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ChatAction
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.methods import EditMessageText, SendChatAction, SendMessage
+from aiogram.methods import SendChatAction, SendMessage
 from bot_updates import CLIENT_ID, callback, message, user
 
 from tsproxy.bot.callbacks import (
@@ -24,12 +24,8 @@ MAIN_MENU = MenuCallback(screen=ScreenId.MAIN).pack()
 
 
 def typing_before_answer(telegram: FakeTelegramSession) -> bool:
-    """«Печатает…» клиенту ушло раньше ответа (нового сообщения или правки меню)."""
-    kinds = [
-        type(r)
-        for r in telegram.requests
-        if isinstance(r, SendChatAction | EditMessageText | SendMessage)
-    ]
+    """«Печатает…» клиенту ушло раньше ответа (нового экрана)."""
+    kinds = [type(r) for r in telegram.requests if isinstance(r, SendChatAction | SendMessage)]
     return kinds[:1] == [SendChatAction] and len(kinds) > 1
 
 
@@ -69,7 +65,7 @@ async def test_screen_without_panel_has_no_typing(
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), MAIN_MENU))
 
     assert telegram.sent(SendChatAction) == []
-    assert len(telegram.sent(EditMessageText)) == 1
+    assert len(telegram.sent(SendMessage)) == 1
 
 
 async def test_connect_shows_typing_before_answer(
@@ -90,4 +86,4 @@ async def test_typing_failure_does_not_break_action(
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), CONNECT))
 
-    assert len(telegram.sent(EditMessageText)) == 1
+    assert len(telegram.sent(SendMessage)) == 1

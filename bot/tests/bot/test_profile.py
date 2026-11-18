@@ -3,13 +3,12 @@
 from datetime import timedelta
 
 from aiogram import Bot, Dispatcher
-from aiogram.methods import EditMessageText, SendMessage
+from aiogram.methods import SendMessage
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from bot_updates import (
     ADMIN_CHAT_ID,
     ALERTS_THREAD_ID,
     CLIENT_ID,
-    MENU_MESSAGE_ID,
     NOW,
     OTHER_CLIENT_ID,
     callback,
@@ -96,18 +95,18 @@ async def test_profile_shows_status_term_and_devices(
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), PROFILE))
 
-    [edited] = telegram.sent(EditMessageText)
-    assert (edited.chat_id, edited.message_id) == (CLIENT_ID, MENU_MESSAGE_ID)
+    [screen] = telegram.sent(SendMessage)
+    assert screen.chat_id == CLIENT_ID
     status = content.texts.get(
         "profile.status_active", expire_at=client_time(EXPIRE_AT), left="5 дней 3 часа"
     )
-    assert status in edited.text
-    assert content.texts.get("profile.devices", used=1, limit=3) in edited.text
-    assert "ГБ" not in edited.text  # трафик — только в пробном
+    assert status in screen.text
+    assert content.texts.get("profile.devices", used=1, limit=3) in screen.text
+    assert "ГБ" not in screen.text  # трафик — только в пробном
     # Без имени аккаунта в панели, HWID и ссылки подписки
     for code in (account.username, HWID, account.subscription_url):
-        assert code not in edited.text
-    assert content.texts.get("buttons.devices") in [b.text for b in buttons(edited.reply_markup)]
+        assert code not in screen.text
+    assert content.texts.get("buttons.devices") in [b.text for b in buttons(screen.reply_markup)]
 
 
 async def test_trial_profile_shows_traffic(
@@ -124,9 +123,9 @@ async def test_trial_profile_shows_traffic(
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), PROFILE))
 
-    [edited] = telegram.sent(EditMessageText)
-    assert content.texts.get("profile.traffic", used="2,3", limit="7") in edited.text
-    assert "пробный период" in edited.text
+    [screen] = telegram.sent(SendMessage)
+    assert content.texts.get("profile.traffic", used="2,3", limit="7") in screen.text
+    assert "пробный период" in screen.text
 
 
 async def test_profile_command_sends_new_message(
@@ -150,9 +149,9 @@ async def test_profile_without_account_offers_trial(
 ) -> None:
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), PROFILE))
 
-    [edited] = telegram.sent(EditMessageText)
-    assert edited.text == content.texts.get("profile.no_account")
-    assert content.texts.get("buttons.trial") in [b.text for b in buttons(edited.reply_markup)]
+    [screen] = telegram.sent(SendMessage)
+    assert screen.text == content.texts.get("profile.no_account")
+    assert content.texts.get("buttons.trial") in [b.text for b in buttons(screen.reply_markup)]
 
 
 async def test_profile_of_another_client_is_never_shown(
@@ -182,8 +181,8 @@ async def test_panel_unavailable_apologizes_and_alerts(
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), PROFILE))
 
-    [edited] = telegram.sent(EditMessageText)
-    assert edited.text == content.texts.get("connect.unavailable")
+    [screen] = telegram.sent(SendMessage)
+    assert screen.text == content.texts.get("connect.unavailable")
     [alert] = alert_sender.sent
     assert (alert.chat_id, alert.thread_id) == (ADMIN_CHAT_ID, ALERTS_THREAD_ID)
     assert content.admin_texts.get("alert.remnawave_profile.title") in alert.text
@@ -205,8 +204,8 @@ async def test_rejected_token_in_devices_apologizes_and_alerts_with_token_causes
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), DEVICES))
 
-    [edited] = telegram.sent(EditMessageText)
-    assert edited.text == content.texts.get("connect.unavailable")
+    [screen] = telegram.sent(SendMessage)
+    assert screen.text == content.texts.get("connect.unavailable")
     [alert] = alert_sender.sent
     assert "HTTP 403" in alert.text
     assert "tsproxy.bot.profile.devices_screen" in alert.text
@@ -230,16 +229,16 @@ async def test_devices_list_with_delete_buttons(
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), DEVICES))
 
-    [edited] = telegram.sent(EditMessageText)
-    assert content.texts.get("devices.title", used=2, limit=3) in edited.text
-    assert "iPhone 15" in edited.text
-    assert content.texts.get("devices.unknown_model") in edited.text
-    assert format_moscow(NOW) in edited.text
-    assert delete_button_data(edited.reply_markup) == [
+    [screen] = telegram.sent(SendMessage)
+    assert content.texts.get("devices.title", used=2, limit=3) in screen.text
+    assert "iPhone 15" in screen.text
+    assert content.texts.get("devices.unknown_model") in screen.text
+    assert format_moscow(NOW) in screen.text
+    assert delete_button_data(screen.reply_markup) == [
         DeviceCallback(ref=device_ref("a")).pack(),
         DeviceCallback(ref=device_ref("b")).pack(),
     ]
-    deletes = [b for b in buttons(edited.reply_markup) if b.callback_data in DELETES]
+    deletes = [b for b in buttons(screen.reply_markup) if b.callback_data in DELETES]
     assert [b.style for b in deletes] == ["danger", "danger"]  # опасное действие — красное
 
 
@@ -258,9 +257,9 @@ async def test_delete_own_device(
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), data))
 
     assert [d.hwid for d in await remnawave.list_devices(CLIENT_ID)] == ["b"]
-    [edited] = telegram.sent(EditMessageText)
-    assert content.texts.get("devices.deleted") in edited.text
-    assert delete_button_data(edited.reply_markup) == [DeviceCallback(ref=device_ref("b")).pack()]
+    [screen] = telegram.sent(SendMessage)
+    assert content.texts.get("devices.deleted") in screen.text
+    assert delete_button_data(screen.reply_markup) == [DeviceCallback(ref=device_ref("b")).pack()]
 
 
 async def test_forged_button_cannot_delete_device_of_another_client(
@@ -281,8 +280,8 @@ async def test_forged_button_cannot_delete_device_of_another_client(
 
     assert [d.hwid for d in await remnawave.list_devices(CLIENT_ID)] == ["victim"]
     assert remnawave.writes == writes_before
-    [edited] = telegram.sent(EditMessageText)
-    assert content.texts.get("devices.not_found") in edited.text
+    [screen] = telegram.sent(SendMessage)
+    assert content.texts.get("devices.not_found") in screen.text
 
 
 async def test_malformed_delete_button_is_ignored(
@@ -296,7 +295,7 @@ async def test_malformed_delete_button_is_ignored(
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), "device:a"))
 
     assert remnawave.writes == writes_before
-    assert telegram.sent(EditMessageText) == []
+    assert telegram.sent(SendMessage) == []
 
 
 async def test_start_from_subscription_page_opens_devices(
@@ -322,8 +321,8 @@ async def test_devices_without_account(
 ) -> None:
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), DEVICES))
 
-    [edited] = telegram.sent(EditMessageText)
-    assert edited.text == content.texts.get("profile.no_account")
+    [screen] = telegram.sent(SendMessage)
+    assert screen.text == content.texts.get("profile.no_account")
 
 
 async def test_no_devices_yet(
@@ -337,8 +336,8 @@ async def test_no_devices_yet(
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), DEVICES))
 
-    [edited] = telegram.sent(EditMessageText)
-    assert edited.text == content.texts.get("devices.empty")
+    [screen] = telegram.sent(SendMessage)
+    assert screen.text == content.texts.get("devices.empty")
 
 
 def test_device_name_from_app_is_escaped(content: Content) -> None:
