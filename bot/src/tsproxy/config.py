@@ -5,7 +5,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Self
 
-from pydantic import SecretStr, field_validator, model_validator
+from pydantic import SecretStr, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -186,3 +186,16 @@ class Settings(BaseSettings):
 
 def load_settings() -> Settings:
     return Settings()  # type: ignore[call-arg]  # значения приходят из окружения
+
+
+def describe_settings_error(error: ValidationError) -> str:
+    """Какие переменные `.env` с ошибкой — без значений (там могут быть секреты)."""
+    parts = []
+    for item in error.errors():
+        location = item["loc"]
+        if location:
+            parts.append(str(location[0]).upper())
+        else:
+            # проверка нескольких полей сразу (например, вебхук в режиме prod)
+            parts.append(item["msg"].removeprefix("Value error, "))
+    return ", ".join(parts)

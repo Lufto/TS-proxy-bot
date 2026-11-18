@@ -6,15 +6,21 @@
 перезапуска каждая картинка загрузится заново один раз. `file_id` привязан к боту,
 поэтому тестовый и боевой бот загружают картинки каждый сам.
 
-Если Telegram отверг запомненный `file_id` (ошибка про файл: сменили токен бота, Telegram
-забыл файл), бот забывает его и один раз загружает файл заново (`send`). Другой отказ
-(подпись, кнопки) повторной загрузкой не лечится и поднимается как есть.
+Если Telegram отверг запомненный `file_id` (любой отказ: текст ошибки не угадать — сменили
+токен бота, Telegram забыл файл, …), бот забывает его и один раз загружает файл заново
+(`send`): мёртвый `file_id` не остаётся в памяти до перезапуска. Отказ на загрузку самого
+файла (подпись, кнопки) повторной загрузкой не лечится и поднимается как есть.
+
+Первую загрузку картинки делает один запрос: если меню открыли сразу несколько клиентов,
+остальные ждут её и получают картинку по `file_id` (замок на картинку).
 
 Экран с картинкой (`Screen.picture`) отправляет `ClientDelivery`: фото с подписью
 (до 1024 символов) и кнопками; живое меню убирает его так же, как текст.
 """
 
+import asyncio
 import logging
+from collections import defaultdict
 from collections.abc import Awaitable, Callable
 
 from aiogram.exceptions import TelegramBadRequest
@@ -24,9 +30,6 @@ from tsproxy.content.pictures import Picture, PictureFiles
 
 logger = logging.getLogger(__name__)
 
-# Отказ Telegram из-за самого файла, например «wrong file identifier/HTTP URL specified»
-FILE_REJECTED = "file"
-
 
 class TelegramPictures:
     """Что передать Telegram вместо картинки: файл или `file_id` прошлой загрузки."""
@@ -34,37 +37,41 @@ class TelegramPictures:
     def __init__(self, files: PictureFiles) -> None:
         self._files = files
         self._file_ids: dict[Picture, str] = {}
+        # одна загрузка картинки за раз: одновременные первые отправки ждут её `file_id`
+        self._uploads: defaultdict[Picture, asyncio.Lock] = defaultdict(asyncio.Lock)
 
     async def send(
         self, picture: Picture, request: Callable[[InputFile | str], Awaitable[Message]]
     ) -> Message:
         """Отправить фото запросом `request(photo)` и запомнить его `file_id`.
 
-        Запомненный `file_id` отвергнут из-за файла — забыть его и загрузить файл заново,
-        один раз.
+        Запомненный `file_id` отвергнут — забыть его и загрузить файл заново, один раз.
         """
-        photo = self._photo(picture)
-        try:
-            sent = await request(photo)
-        except TelegramBadRequest as error:
-            if not isinstance(photo, str) or FILE_REJECTED not in error.message.lower():
-                raise
-            logger.warning(
-                "Telegram отверг file_id картинки %s (%s), загружаем заново", picture, error
-            )
-            self._file_ids.pop(picture, None)
-            sent = await request(self._photo(picture))
-        self._remember(picture, sent)
-        return sent
-
-    def _photo(self, picture: Picture) -> InputFile | str:
-        """`file_id`, если картинка уже загружена, иначе файл для загрузки."""
         file_id = self._file_ids.get(picture)
         if file_id is not None:
-            return file_id
-        return FSInputFile(self._files.path(picture))
+            try:
+                return self._remember(picture, await request(file_id))
+            except TelegramBadRequest as error:
+                logger.warning(
+                    "Telegram отверг file_id картинки %s (%s), загружаем заново", picture, error
+                )
+                if self._file_ids.get(picture) == file_id:
+                    del self._file_ids[picture]
+        return await self._upload(picture, request)
 
-    def _remember(self, picture: Picture, sent: Message) -> None:
+    async def _upload(
+        self, picture: Picture, request: Callable[[InputFile | str], Awaitable[Message]]
+    ) -> Message:
+        """Загрузить файл. Пока ждали замок, картинку загрузил другой — шлём его `file_id`."""
+        async with self._uploads[picture]:
+            file_id = self._file_ids.get(picture)
+            if file_id is None:
+                photo = FSInputFile(self._files.path(picture))
+                return self._remember(picture, await request(photo))
+        return self._remember(picture, await request(file_id))
+
+    def _remember(self, picture: Picture, sent: Message) -> Message:
         """Запомнить `file_id` из присланного фото: самый крупный размер — последний."""
         if sent.photo:
             self._file_ids[picture] = sent.photo[-1].file_id
+        return sent

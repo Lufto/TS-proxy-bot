@@ -9,9 +9,10 @@
 статуса, что в «Мой профиль»). Нет прокси-аккаунта, панель не ответила или думает дольше
 `MENU_STATUS_TIMEOUT_SECONDS` — меню без строки, без ошибки и без тревоги.
 
-Главное меню — фото с подписью (задача 27): картинка по тому же статусу (`menu_picture`:
-на связи, доступ сохранён, нет доступа, не подключено — нет аккаунта или панель молчит),
-подпись — строка статуса и «Выберите, что нужно:». Остальные экраны — текст.
+Главное меню — фото с подписью (задача 27): картинка по тому же статусу
+(`ProfileScreens.menu_header`: на связи, доступ сохранён, нет доступа, не подключено — нет
+аккаунта; панель молчит — картинка без индикатора, статус неизвестен), подпись — строка
+статуса и «Выберите, что нужно:». Остальные экраны — текст.
 
 Инструкция платформы (задача 17): шаг «откройте вашу страницу подключения» — личная ссылка
 подписки нажавшего, её тоже даёт только панель (пока ждём — «печатает…»). Нет прокси-аккаунта,
@@ -59,12 +60,11 @@ from tsproxy.bot.chat_typing import TYPING
 from tsproxy.bot.context import BotContext, profile_of
 from tsproxy.bot.delivery import keeps_text
 from tsproxy.bot.profile import devices_screen
-from tsproxy.bot.profile_screens import ProfileScreens
-from tsproxy.bot.screens import Screen, menu_picture
+from tsproxy.bot.profile_screens import PANEL_SILENT, MenuSubscription, ProfileScreens
+from tsproxy.bot.screens import Screen
 from tsproxy.db.models import Client
 from tsproxy.integrations.remnawave_types import AccountNotFound, RemnawaveError
 from tsproxy.services.clock import utc_now
-from tsproxy.services.profile import SubscriptionStatus
 
 logger = logging.getLogger(__name__)
 
@@ -125,25 +125,24 @@ async def _show(callback: CallbackQuery, ctx: BotContext, screen: Screen) -> Non
     await ctx.delivery.show(callback, screen)
 
 
-async def _subscription_status(ctx: BotContext, client: Client) -> SubscriptionStatus | None:
+async def _subscription(ctx: BotContext, client: Client) -> MenuSubscription:
     """Статус подписки для строки и картинки меню (задачи 19, 27). Срок знает только
     панель — спрашиваем её.
 
-    Нет прокси-аккаунта, панель не ответила или думает дольше
-    `MENU_STATUS_TIMEOUT_SECONDS` — `None`: меню без строки, картинка «не подключено»;
-    статус не важнее самого меню. Тревогу «панель не отвечает» здесь не шлём — её шлют
-    действия, которым панель нужна.
+    Нет прокси-аккаунта — `None`. Панель не ответила или думает дольше
+    `MENU_STATUS_TIMEOUT_SECONDS` — `PANEL_SILENT`: меню без строки, картинка без
+    индикатора; статус не важнее самого меню. Тревогу «панель не отвечает» здесь не шлём —
+    её шлют действия, которым панель нужна.
     """
     try:
         async with asyncio.timeout(MENU_STATUS_TIMEOUT_SECONDS):
-            status = await ctx.profiles.status(client)
+            return await ctx.profiles.status(client)
     except TimeoutError:
         logger.warning("Клиент %s: панель не дала статус для меню вовремя", client.telegram_id)
-        return None
+        return PANEL_SILENT
     except RemnawaveError as error:
         logger.warning("Клиент %s: статус для меню не получен: %s", client.telegram_id, error)
-        return None
-    return status
+        return PANEL_SILENT
 
 
 async def _subscription_url(ctx: BotContext, telegram_id: int) -> str | None:
@@ -170,15 +169,16 @@ async def _main_menu(ctx: BotContext, client: Client) -> Screen:
     """Главное меню: картинка и строка по статусу подписки. «Попробовать бесплатно» — пока
     пробные включены (задача 28) и клиенту пробный положен. Панель и база спрашиваются
     одновременно: меню ждёт дольшего из ответов, а не их сумму."""
-    trials_enabled, trial_offered, status = await asyncio.gather(
+    trials_enabled, trial_offered, subscription = await asyncio.gather(
         ctx.trial_switch.enabled(),
         ctx.clients.trial_offered(client),
-        _subscription_status(ctx, client),
+        _subscription(ctx, client),
     )
+    header = ProfileScreens(ctx.texts).menu_header(subscription)
     return ctx.screens.main_menu(
         trial_available=trials_enabled and trial_offered,
-        status=None if status is None else ProfileScreens(ctx.texts).menu_status(status),
-        picture=menu_picture(None if status is None else status.status),
+        status=header.status,
+        picture=header.picture,
     )
 
 

@@ -216,7 +216,11 @@ class FakeTelegramSession(BaseSession):
             return BotDescription(description=self.description)
         if isinstance(method, GetMyShortDescription):
             return BotShortDescription(short_description=self.short_description)
-        if isinstance(method, GetUserProfilePhotos) and method.user_id == bot.id:
+        if isinstance(method, GetUserProfilePhotos):
+            if method.user_id != bot.id:
+                raise NotImplementedError(
+                    f"Подделка Telegram знает фото профиля только бота, не {method.user_id}"
+                )
             # сами фото тестам не нужны — только сколько их
             return UserProfilePhotos(total_count=self.profile_photos, photos=[])
         # answerCallbackQuery, leaveChat, setWebhook, deleteWebhook, setMyCommands, …
