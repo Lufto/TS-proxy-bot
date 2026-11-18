@@ -18,7 +18,8 @@ status_url: https://bot.ts-proxy.com/status
 # Приложения для подключения (карта .scratch/app-alternatives, выбор 2026-11-09). Ссылки — только
 # официальные: сайт разработчика, GitHub, магазины. Файлы с GitHub — прямые ссылки «последний выпуск»
 # (releases/latest/download/<файл>): кнопка сразу скачивает; переименуют файл — ссылка сломается.
-# Тот же список — на странице подписки (Lufto/page-subscription, src/apps.ts) и в инструкциях бота: меняете здесь — поменяйте и там.
+# Тот же список — на странице подписки (Lufto/page-subscription, src/apps.ts): меняете здесь — поменяйте и там.
+# В инструкциях бота только Happ, запасные — по ссылке на сайт.
 # Happ нет в российском App Store и в Google Play: на iPhone — американский App Store, на Android — APK.
 # v2RayTun нет в App Store вовсе: только Android и Windows.
 apps:

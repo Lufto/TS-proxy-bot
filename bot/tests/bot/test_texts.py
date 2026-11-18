@@ -48,6 +48,9 @@ QUOTING_FILES = sorted(
         *(REPO_ROOT / "web" / "apiStatic").rglob("*.ts"),
     ]
 )
+# Инструкция — самая короткая выжимка (задача 16): было до ~1300 знаков у iPhone
+INSTRUCTION_MAX_CHARS = 400
+HTML_TAG = re.compile(r"<[^>]+>")
 # Тексты с подстановками; у остальных обязательных текстов подстановок нет
 TEXT_PLACEHOLDERS: dict[str, set[str]] = {
     "connect.active": {"expire_at"},
@@ -149,6 +152,12 @@ def test_client_buttons_have_no_emoji(content: Content) -> None:
 def test_buttons_are_quoted_without_emoji(path: Path) -> None:
     """«нажмите „Подключиться“», а не старое «Подключиться»."""
     assert EMOJI_QUOTE.findall(path.read_text(encoding="utf-8")) == []
+
+
+@pytest.mark.parametrize("platform", list(Platform))
+def test_instructions_are_short(content: Content, platform: Platform) -> None:
+    visible = HTML_TAG.sub("", content.texts.get(f"instructions.{platform.value}"))
+    assert len(visible) <= INSTRUCTION_MAX_CHARS
 
 
 async def test_all_screens_use_only_required_texts(content: Content) -> None:
