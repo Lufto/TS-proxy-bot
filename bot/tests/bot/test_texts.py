@@ -56,6 +56,9 @@ TEXT_PLACEHOLDERS: dict[str, set[str]] = {
     "connect.active": {"expire_at"},
     "connect.inactive": {"expire_at"},
     "trial.granted": {"expire_at", "traffic_gb", "device_limit"},
+    # задача 17: шаг «откройте вашу страницу подключения» в инструкциях
+    **{f"instructions.{platform.value}": {"open_page"} for platform in Platform},
+    "instructions.open_page_link": {"url"},
     # задача 12: тарифы и оплата
     "buttons.pay": {"price"},
     "tariffs.button": {"title", "price"},
@@ -164,9 +167,13 @@ def test_buttons_are_quoted_without_emoji(path: Path) -> None:
 
 
 @pytest.mark.parametrize("platform", list(Platform))
-def test_instructions_are_short(content: Content, platform: Platform) -> None:
-    visible = HTML_TAG.sub("", content.texts.get(f"instructions.{platform.value}"))
-    assert len(visible) <= INSTRUCTION_MAX_CHARS
+@pytest.mark.parametrize("subscription_url", [None, "https://sub.ts-proxy.com/abc"])
+def test_instructions_are_short(
+    content: Content, platform: Platform, subscription_url: str | None
+) -> None:
+    """С личной ссылкой и без неё (задача 17)."""
+    text = Screens(content.texts).instructions(platform, subscription_url).text
+    assert len(HTML_TAG.sub("", text)) <= INSTRUCTION_MAX_CHARS
 
 
 async def test_all_screens_use_only_required_texts(content: Content) -> None:
@@ -185,7 +192,8 @@ async def test_all_screens_use_only_required_texts(content: Content) -> None:
         screens.faq_answer(question)
     screens.instructions_menu()
     for platform in Platform:
-        screens.instructions(platform)
+        screens.instructions(platform, None)
+        screens.instructions(platform, account.subscription_url)
     screens.connect(account)
     screens.no_account(trial_available=True)
     screens.trial_granted(account)

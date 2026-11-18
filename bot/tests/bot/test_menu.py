@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from tsproxy.bot.callbacks import InstructionsCallback, MenuCallback, Platform, ScreenId
 from tsproxy.bot.fakes import FakeTelegramSession
+from tsproxy.bot.screens import Screens
 from tsproxy.content.loader import Content
 from tsproxy.db.models import Client
 from tsproxy.services.fakes import FakeClock
@@ -263,7 +264,7 @@ async def test_instructions_for_each_platform(
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), data))
 
     [sent] = telegram.sent(SendMessage)
-    assert sent.text == content.texts.get(f"instructions.{platform.value}")
+    assert sent.text == Screens(content.texts).instructions(platform, None).text
     # задача 16: только Happ, запасные приложения — на сайте, ссылка ведёт в раздел устройства
     assert "Happ" in sent.text
     assert FALLBACK_APPS.findall(sent.text) == []
