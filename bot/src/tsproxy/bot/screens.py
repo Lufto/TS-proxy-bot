@@ -77,16 +77,14 @@ class Screens:
     def _back(self) -> list[InlineKeyboardButton]:
         return [self._button("buttons.back", ScreenId.MAIN)]
 
+    def _link(self, key: str, url_key: str) -> InlineKeyboardButton:
+        return InlineKeyboardButton(text=self._texts.get(key), url=self._texts.get(url_key))
+
     def _documents(self) -> list[InlineKeyboardButton]:
-        """Соглашение и политика на сайте — всегда под рукой (требование Platega)."""
+        """Соглашение и политика на сайте — ряд кнопок в «О сервисе»."""
         return [
-            InlineKeyboardButton(
-                text=self._texts.get("buttons.terms"), url=self._texts.get("documents.terms_url")
-            ),
-            InlineKeyboardButton(
-                text=self._texts.get("buttons.privacy"),
-                url=self._texts.get("documents.privacy_url"),
-            ),
+            self._link("buttons.terms", "documents.terms_url"),
+            self._link("buttons.privacy", "documents.privacy_url"),
         ]
 
     def main_menu(self, *, trial_available: bool) -> Screen:
@@ -104,15 +102,17 @@ class Screens:
                 self._button("buttons.support", ScreenId.SUPPORT),
             ],
             [self._button("buttons.about", ScreenId.ABOUT)],
-            self._documents(),
         ]
         return Screen(self._texts.get("menu.title"), InlineKeyboardMarkup(inline_keyboard=rows))
 
     def about(self) -> Screen:
-        return Screen(
-            self._texts.get("about.text"),
-            InlineKeyboardMarkup(inline_keyboard=[self._documents(), self._back()]),
-        )
+        """«О сервисе»: сайт, документы и возврат в меню."""
+        rows = [
+            [self._link("buttons.site", "documents.site_url")],
+            self._documents(),
+            self._back(),
+        ]
+        return Screen(self._texts.get("about.text"), InlineKeyboardMarkup(inline_keyboard=rows))
 
     def support(self) -> Screen:
         """«Поддержка»: частые вопросы кнопками, иначе — просто напишите вопрос в чат."""
