@@ -1,9 +1,9 @@
-"""«💳 Тарифы», `/buy` и экран оплаты (задача 12).
+"""«Тарифы», `/buy` и экран оплаты (задача 12).
 
 Кнопка тарифа несёт только его id. Цену, доступность тарифа и «та же ссылка
 или новая» решает `OrderService`; клиент — всегда `from_user.id` нажавшего.
 
-Задача 14: на экране оплаты — «🔄 Проверить оплату» (бот сам спрашивает платёжку).
+Задача 14: на экране оплаты — «Проверить оплату» (бот сам спрашивает платёжку).
 «Купить» сначала ищет оплату прошлых заказов: нашлась — она засчитана, вместо ссылки —
 «Мы нашли вашу оплату», а «✅ Оплачено» приходит отдельным сообщением ниже.
 
@@ -11,7 +11,7 @@
 «платёжный сервис не отвечает», администраторам — тревога с текстом отказа.
 
 Оплата выключена (`PAYMENTS_MODE=off`, задача 29) — вместо кнопок тарифов их список текстом
-и «Оплата скоро появится» (+ «🎁 Попробовать бесплатно», если пробный доступен). Старая
+и «Оплата скоро появится» (+ «Попробовать бесплатно», если пробный доступен). Старая
 кнопка тарифа показывает тот же экран: заказ не создаётся, к платёжке запросов нет.
 
 Задача 33: тариф в списке открывает **экран тарифа** с двумя способами оплаты — «💳 СБП»
@@ -35,6 +35,7 @@ from tsproxy.bot.callbacks import (
     TariffCallback,
     TariffScreenCallback,
 )
+from tsproxy.bot.chat_typing import TYPING
 from tsproxy.bot.context import BotContext, profile_of
 from tsproxy.bot.screens import Screen
 from tsproxy.content.loader import Tariff, Texts
@@ -61,7 +62,7 @@ PAYMENTS_UNAVAILABLE_ALERT = "payments_unavailable"
 PAYMENT_CREATE_REJECTED_ALERT = "payment_create_rejected"
 PAYMENT_CHECK_BUTTON_ALERT = "payment_check_button_unavailable"
 PARAGRAPH = "\n\n"
-# Ответ на «🔄 Проверить оплату» — текст экрана и нужна ли кнопка «проверить ещё раз»
+# Ответ на «Проверить оплату» — текст экрана и нужна ли кнопка «проверить ещё раз»
 CHECK_RESULTS: dict[CheckOutcome, tuple[str, bool]] = {
     CheckOutcome.CREDITED: ("payment.found", False),
     CheckOutcome.ALREADY_CREDITED: ("payment.check_already", False),
@@ -195,7 +196,7 @@ class TariffScreens:
         return Screen(self._texts.get(key), InlineKeyboardMarkup(inline_keyboard=rows))
 
     def check_result(self, outcome: CheckOutcome, order_id: int) -> Screen:
-        """Ответ на «🔄 Проверить оплату»."""
+        """Ответ на «Проверить оплату»."""
         key, check_again = CHECK_RESULTS[outcome]
         return self.notice(key, check_order_id=order_id if check_again else None)
 
@@ -215,8 +216,8 @@ def create_tariffs_router() -> Router:
     router.message.register(on_buy_command, Command(BUY_COMMAND))
     router.callback_query.register(on_tariffs, MenuCallback.filter(F.screen == ScreenId.TARIFFS))
     router.callback_query.register(on_tariff_screen, TariffScreenCallback.filter())
-    router.callback_query.register(on_tariff, TariffCallback.filter())
-    router.callback_query.register(on_payment_check, PaymentCheckCallback.filter())
+    router.callback_query.register(on_tariff, TariffCallback.filter(), flags=TYPING)
+    router.callback_query.register(on_payment_check, PaymentCheckCallback.filter(), flags=TYPING)
     return router
 
 
@@ -327,7 +328,7 @@ async def on_tariff(
 async def on_payment_check(
     callback: CallbackQuery, callback_data: PaymentCheckCallback, ctx: BotContext
 ) -> None:
-    """«🔄 Проверить оплату»: бот спрашивает платёжку о заказе нажавшего (задача 14)."""
+    """«Проверить оплату»: бот спрашивает платёжку о заказе нажавшего (задача 14)."""
     # Отвечаем на нажатие сразу: платёжка может думать несколько секунд
     await callback.answer()
     client = await ctx.clients.resolve(profile_of(callback.from_user))

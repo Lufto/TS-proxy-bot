@@ -54,7 +54,7 @@ class BotContext:
     admin: AdminService  # поиск клиента и действия администратора (задача 18)
     link_revokes: LinkRevokeService  # клиент сам перевыпускает ссылку (задача 31)
     trial_switch: TrialSwitch  # выключатель пробных (задача 28), тот же, что у `trials`
-    payment_checks: PaymentChecks  # «🔄 Проверить оплату» (задача 14), тот же, что у `orders`
+    payment_checks: PaymentChecks  # «Проверить оплату» (задача 14), тот же, что у `orders`
     refunds: RefundService  # «↩️ Вернуть» и случайная вторая оплата (задача 21)
     stars: StarsPayments  # оплата звёздами Telegram (задача 33)
     site_banner: SiteBannerSwitch  # плашка о неполадках на сайте (задачи сайта 13–15)

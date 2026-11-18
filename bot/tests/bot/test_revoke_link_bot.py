@@ -1,4 +1,4 @@
-"""«🔄 Перевыпустить ссылку» (задача 31): только своя ссылка, предупреждение, раз в сутки."""
+"""«Перевыпустить ссылку» (задача 31): только своя ссылка, предупреждение, раз в сутки."""
 
 import asyncio
 import logging
@@ -63,7 +63,8 @@ async def test_profile_and_devices_offer_revoke(
 
     await dispatcher.feed_update(bot, press(user(CLIENT_ID), screen))
 
-    assert ASK in callback_data(last_screen(telegram).reply_markup)
+    [revoke] = [b for b in buttons(last_screen(telegram).reply_markup) if b.callback_data == ASK]
+    assert revoke.style == "danger"  # опасное действие — красное
 
 
 async def test_revoke_asks_for_confirmation_first(
@@ -80,6 +81,7 @@ async def test_revoke_asks_for_confirmation_first(
     screen = last_screen(telegram)
     assert screen.text == content.texts.get("revoke_link.ask")
     assert callback_data(screen.reply_markup) == [YES, PROFILE]
+    assert [b.style for b in buttons(screen.reply_markup)] == ["danger", None]
     assert revoke_writes(remnawave) == 0
 
 

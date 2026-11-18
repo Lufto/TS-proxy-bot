@@ -1,4 +1,4 @@
-"""«🔄 Проверить оплату» и «Купить» после потерянного уведомления (задача 14) — через диспетчер."""
+"""«Проверить оплату» и «Купить» после потерянного уведомления (задача 14) — через диспетчер."""
 
 from datetime import timedelta
 
@@ -56,7 +56,7 @@ async def test_payment_screen_has_check_button(
     order = await only_order(session_factory)
     screen = telegram.sent(SendMessage)[-1]
     assert check(order.id) in callback_data(screen.reply_markup)  # type: ignore[arg-type]
-    assert "🔄 Проверить оплату" in screen.text
+    assert "«Проверить оплату»" in screen.text
 
 
 async def test_check_before_paying_says_not_yet(
