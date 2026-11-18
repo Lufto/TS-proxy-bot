@@ -53,7 +53,7 @@ const data: TBuilderPage = {
           items: [
             { title: 'Open the bot', text: 'Start a free trial or get a subscription in the [Telegram bot](bot).' },
             { title: 'Install the app', text: 'Links for your device and setup steps are in the [guides](/help/).' },
-            { title: 'Connect', text: 'In the bot, tap «🚀 Подключиться» (Connect) — the subscription is added to the app automatically. Then tap the connect button.' },
+            { title: 'Connect', text: 'In the bot, tap «Подключиться» (Connect) — the subscription is added to the app automatically. Then tap the connect button.' },
           ],
         },
       },
@@ -73,7 +73,7 @@ const data: TBuilderPage = {
           notes: [
             { title: 'Payment', text: 'SBP — price in roubles, paid on the payment service’s page. Telegram Stars — the bot shows the price in Stars before you pay.' },
             { title: 'No automatic charges', text: 'The subscription is extended only when you pay for a plan yourself. New days are added to the end of your current subscription — no need to set anything up again.' },
-            { title: 'Free trial', text: '7 days and 7 GB of traffic free, up to 3 devices. Once per Telegram account, with the «🎁 Попробовать бесплатно» button in the bot.' },
+            { title: 'Free trial', text: '7 days and 7 GB of traffic free, up to 3 devices. Once per Telegram account, with the «Попробовать бесплатно» button in the bot.' },
             { title: 'Support', text: 'Can’t connect or something went wrong with a payment? Contact support — we will help sort it out.' },
           ],
         },

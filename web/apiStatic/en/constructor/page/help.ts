@@ -80,11 +80,11 @@ const data: TBuilderPage = {
           title: 'What you can do yourself',
           ordered: true,
           items: [
-            'Check in the bot («👤 Мой профиль», My profile) that your subscription is active.',
+            'Check in the bot («Мой профиль», My profile) that your subscription is active.',
             'In the app, refresh the subscription (the refresh button next to it) and connect again.',
             'Switch from Wi-Fi to mobile data or the other way round.',
             'Restart the app.',
-            'A new device will not connect? Every plan includes up to 3 devices. In the bot, open «👤 Мой профиль» → «📱 Мои устройства» (My devices) and remove one you no longer use.',
+            'A new device will not connect? Every plan includes up to 3 devices. In the bot, open «Мой профиль» → «Мои устройства» (My devices) and remove one you no longer use.',
           ],
           note: 'The subscription link is your personal access. Do not share it with others.',
         },

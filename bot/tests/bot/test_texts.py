@@ -35,6 +35,19 @@ from tsproxy.integrations.fakes import FakeRemnawave
 CALLBACK_ANSWER_MAX = 200
 CALLBACK_DATA_MAX_BYTES = 64
 FORBIDDEN_WORDS = re.compile(r"vpn|впн", re.IGNORECASE)
+# Кнопки клиента — без смайликов (спека «Кнопки»): кнопка начинается с буквы или цифры
+CLIENT_BUTTON = re.compile(r"^buttons\.|^faq\..+\.button$")
+# Цитата кнопки со смайликом в начале: «Подключиться»
+EMOJI_QUOTE = re.compile(r"«[^\w\s«»]+\s+\w[^»]*»")
+REPO_ROOT = REPO_CONTENT.parent.parent
+# Где кнопки бота цитируются клиенту: тексты бота и страницы сайта (старый и новый)
+QUOTING_FILES = sorted(
+    [
+        *(REPO_CONTENT / "client").rglob("*.yaml"),
+        *(REPO_ROOT / "site").rglob("*.html"),
+        *(REPO_ROOT / "web" / "apiStatic").rglob("*.ts"),
+    ]
+)
 # Тексты с подстановками; у остальных обязательных текстов подстановок нет
 TEXT_PLACEHOLDERS: dict[str, set[str]] = {
     "connect.active": {"expire_at"},
@@ -124,6 +137,18 @@ def test_missing_required_text_stops_startup(tmp_path: Path) -> None:
 def test_no_vpn_word_in_texts(path: Path) -> None:
     text = path.read_text(encoding="utf-8")
     assert FORBIDDEN_WORDS.findall(text) == []
+
+
+def test_client_buttons_have_no_emoji(content: Content) -> None:
+    buttons = {key: text for key, text in content.texts._items.items() if CLIENT_BUTTON.search(key)}
+    assert "buttons.connect" in buttons
+    assert {key: text for key, text in buttons.items() if not text[0].isalnum()} == {}
+
+
+@pytest.mark.parametrize("path", QUOTING_FILES, ids=lambda path: str(path.relative_to(REPO_ROOT)))
+def test_buttons_are_quoted_without_emoji(path: Path) -> None:
+    """«нажмите „Подключиться“», а не старое «Подключиться»."""
+    assert EMOJI_QUOTE.findall(path.read_text(encoding="utf-8")) == []
 
 
 async def test_all_screens_use_only_required_texts(content: Content) -> None:

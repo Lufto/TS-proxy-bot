@@ -1,37 +1,37 @@
 # Надписи на кнопках
 buttons:
-  connect: 🚀 Подключиться
-  trial: 🎁 Попробовать бесплатно
-  tariffs: 💳 Тарифы
-  profile: 👤 Мой профиль
-  instructions: 📖 Инструкции
-  support: 💬 Поддержка
+  connect: Подключиться
+  trial: Попробовать бесплатно
+  tariffs: Тарифы
+  profile: Мой профиль
+  instructions: Инструкции
+  support: Поддержка
   about: ℹ️ О сервисе
-  terms: 📄 Соглашение
-  privacy: 🔒 Конфиденциальность
-  back: ⬅️ В меню
-  instructions_back: ⬅️ Другое устройство
-  open_subscription: 🚀 Открыть страницу подключения
-  copy_link: 📋 Скопировать ссылку
-  platform_ios: 📱 iPhone и iPad
-  platform_android: 🤖 Android
-  platform_windows: 🖥 Windows
-  platform_macos: 💻 macOS
-  platform_linux: 🐧 Linux
-  devices: 📱 Мои устройства
-  renew: 💳 Продлить подписку
-  profile_back: ⬅️ В профиль
-  # {number} — номер устройства в списке «📱 Мои устройства»
-  delete_device: 🗑 Удалить {number}
-  revoke_link: 🔄 Перевыпустить ссылку
-  confirm_revoke_link: ✅ Да, перевыпустить
+  terms: Соглашение
+  privacy: Конфиденциальность
+  back: В меню
+  instructions_back: Другое устройство
+  open_subscription: Открыть страницу подключения
+  copy_link: Скопировать ссылку
+  platform_ios: iPhone и iPad
+  platform_android: Android
+  platform_windows: Windows
+  platform_macos: macOS
+  platform_linux: Linux
+  devices: Мои устройства
+  renew: Продлить подписку
+  profile_back: В профиль
+  # {number} — номер устройства в списке «Мои устройства»
+  delete_device: Удалить {number}
+  revoke_link: Перевыпустить ссылку
+  confirm_revoke_link: Да, перевыпустить
   cancel_revoke_link: Отмена
   # {price} — цена тарифа в рублях
-  pay: "💳 Оплатить {price} ₽"
-  tariffs_back: ⬅️ К тарифам
+  pay: "Оплатить {price} ₽"
+  tariffs_back: К тарифам
   # экран оплаты: спросить платёжку, пришла ли оплата
-  check_payment: 🔄 Проверить оплату
-  faq_back: ⬅️ К частым вопросам
+  check_payment: Проверить оплату
+  faq_back: К частым вопросам
   # способ оплаты на экране тарифа; {price} — рубли, {stars} — звёзды
-  pay_sbp: "💳 СБП — {price} ₽"
-  pay_stars: "⭐ Stars — {stars} ⭐"
+  pay_sbp: "СБП — {price} ₽"
+  pay_stars: "Stars — {stars} ⭐"

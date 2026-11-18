@@ -101,7 +101,7 @@ async def test_support_screen_shows_frequent_questions(
     [edited] = telegram.sent(EditMessageText)
     shown = buttons(edited.reply_markup)  # type: ignore[arg-type]
     faq = [(text, data) for text, data in shown if data and data.startswith("faq")]
-    assert 3 <= len(faq) - 1 <= 5  # частые вопросы и «✍️ Другой вопрос»
+    assert 3 <= len(faq) - 1 <= 5  # частые вопросы и «Другой вопрос»
     assert faq[0] == (
         content.texts.get("faq.connect.button"),
         FaqCallback(question=FaqQuestion.CONNECT).pack(),

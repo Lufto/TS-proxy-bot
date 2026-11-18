@@ -1,6 +1,6 @@
-"""«👤 Мой профиль», `/profile`, «📱 Мои устройства» с «🗑 Удалить» и «🔄 Перевыпустить ссылку».
+"""«Мой профиль», `/profile`, «Мои устройства» с «Удалить» и «Перевыпустить ссылку».
 
-Клиент — всегда `from_user.id` нажавшего. Кнопка «🗑 Удалить» несёт только короткую
+Клиент — всегда `from_user.id` нажавшего. Кнопка «Удалить» несёт только короткую
 ссылку на устройство; сервис ищет его среди устройств нажавшего (аудит §4.3).
 Кнопки перевыпуска (задача 31) не несут ничего: перевыпускается только своя ссылка.
 """
@@ -11,6 +11,7 @@ from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
 from tsproxy.bot.callbacks import DeviceCallback, MenuCallback, RevokeLinkCallback, ScreenId
+from tsproxy.bot.chat_typing import TYPING
 from tsproxy.bot.connect import PANEL_DOWN_ERRORS, panel_unavailable_screen
 from tsproxy.bot.context import BotContext, profile_of
 from tsproxy.bot.profile_screens import ProfileScreens
@@ -25,14 +26,18 @@ def create_profile_router() -> Router:
     router = Router(name="profile")
     router.message.filter(F.chat.type == ChatType.PRIVATE)
     router.callback_query.filter(F.message.chat.type == ChatType.PRIVATE)
-    router.message.register(on_profile_command, Command(PROFILE_COMMAND))
-    router.callback_query.register(on_profile, MenuCallback.filter(F.screen == ScreenId.PROFILE))
-    router.callback_query.register(on_devices, MenuCallback.filter(F.screen == ScreenId.DEVICES))
-    router.callback_query.register(on_delete_device, DeviceCallback.filter())
+    router.message.register(on_profile_command, Command(PROFILE_COMMAND), flags=TYPING)
+    router.callback_query.register(
+        on_profile, MenuCallback.filter(F.screen == ScreenId.PROFILE), flags=TYPING
+    )
+    router.callback_query.register(
+        on_devices, MenuCallback.filter(F.screen == ScreenId.DEVICES), flags=TYPING
+    )
+    router.callback_query.register(on_delete_device, DeviceCallback.filter(), flags=TYPING)
     router.callback_query.register(
         on_revoke_ask, MenuCallback.filter(F.screen == ScreenId.REVOKE_LINK)
     )
-    router.callback_query.register(on_revoke, RevokeLinkCallback.filter())
+    router.callback_query.register(on_revoke, RevokeLinkCallback.filter(), flags=TYPING)
     return router
 
 
@@ -69,7 +74,7 @@ async def on_profile(callback: CallbackQuery, ctx: BotContext) -> None:
 
 
 async def devices_screen(ctx: BotContext, client: Client) -> Screen:
-    """Экран «📱 Мои устройства»: список, «подписки нет» или «панель недоступна»."""
+    """Экран «Мои устройства»: список, «подписки нет» или «панель недоступна»."""
     screens = ProfileScreens(ctx.texts)
     try:
         devices = await ctx.profiles.devices(client.telegram_id)
@@ -89,7 +94,7 @@ async def on_devices(callback: CallbackQuery, ctx: BotContext) -> None:
 async def on_delete_device(
     callback: CallbackQuery, callback_data: DeviceCallback, ctx: BotContext
 ) -> None:
-    """«🗑 Удалить»: только устройство из списка нажавшего; итог — над обновлённым списком."""
+    """«Удалить»: только устройство из списка нажавшего; итог — над обновлённым списком."""
     await callback.answer()
     client = await ctx.clients.resolve(profile_of(callback.from_user))
     screens = ProfileScreens(ctx.texts)
@@ -107,7 +112,7 @@ async def on_delete_device(
 
 
 async def on_revoke_ask(callback: CallbackQuery, ctx: BotContext) -> None:
-    """«🔄 Перевыпустить ссылку»: предупреждение или сразу «можно будет …», если раньше суток."""
+    """«Перевыпустить ссылку»: предупреждение или сразу «можно будет …», если раньше суток."""
     await callback.answer()
     client = await ctx.clients.resolve(profile_of(callback.from_user))
     screens = ProfileScreens(ctx.texts)
@@ -117,7 +122,7 @@ async def on_revoke_ask(callback: CallbackQuery, ctx: BotContext) -> None:
 
 
 async def on_revoke(callback: CallbackQuery, ctx: BotContext) -> None:
-    """«✅ Да, перевыпустить»: новая ссылка — экраном как в «🚀 Подключиться»."""
+    """«Да, перевыпустить»: новая ссылка — экраном как в «Подключиться»."""
     await callback.answer()
     client = await ctx.clients.resolve(profile_of(callback.from_user))
     screens = ProfileScreens(ctx.texts)

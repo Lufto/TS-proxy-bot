@@ -1,4 +1,4 @@
-"""«👤 Мой профиль» и «📱 Мои устройства»: только свои данные, без технических кодов."""
+"""«Мой профиль» и «Мои устройства»: только свои данные, без технических кодов."""
 
 from datetime import timedelta
 
@@ -43,6 +43,7 @@ DEVICES = MenuCallback(screen=ScreenId.DEVICES).pack()
 EXPIRE_AT = NOW + timedelta(days=5, hours=3)
 TRIAL_TRAFFIC = 7 * BYTES_PER_GB
 HWID = "f1e2d3c4b5a69788"
+DELETES = {DeviceCallback(ref=device_ref(hwid)).pack() for hwid in ("a", "b")}
 
 
 async def create_account(
@@ -238,6 +239,8 @@ async def test_devices_list_with_delete_buttons(
         DeviceCallback(ref=device_ref("a")).pack(),
         DeviceCallback(ref=device_ref("b")).pack(),
     ]
+    deletes = [b for b in buttons(edited.reply_markup) if b.callback_data in DELETES]
+    assert [b.style for b in deletes] == ["danger", "danger"]  # опасное действие — красное
 
 
 async def test_delete_own_device(

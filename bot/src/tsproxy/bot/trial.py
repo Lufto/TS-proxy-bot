@@ -1,4 +1,4 @@
-"""«🎁 Попробовать бесплатно»: выдача пробного периода и ссылка подписки (задача 07).
+"""«Попробовать бесплатно»: выдача пробного периода и ссылка подписки (задача 07).
 
 Клиент — только по `from_user.id` нажавшего. Повторное нажатие и гонку двух нажатий
 отсекает `TrialService` (атомарная отметка в базе). Панель не ответила или не приняла
@@ -14,6 +14,7 @@ from aiogram.exceptions import TelegramAPIError
 from aiogram.types import CallbackQuery
 
 from tsproxy.bot.callbacks import MenuCallback, ScreenId
+from tsproxy.bot.chat_typing import TYPING
 from tsproxy.bot.connect import REMNAWAVE_UNAVAILABLE_ALERT
 from tsproxy.bot.context import BotContext, profile_of
 from tsproxy.bot.screens import Screen, Screens
@@ -27,7 +28,9 @@ REMNAWAVE_TRIAL_ALERT = "remnawave_trial"
 def create_trial_router() -> Router:
     router = Router(name="trial")
     router.callback_query.filter(F.message.chat.type == ChatType.PRIVATE)
-    router.callback_query.register(on_trial, MenuCallback.filter(F.screen == ScreenId.TRIAL))
+    router.callback_query.register(
+        on_trial, MenuCallback.filter(F.screen == ScreenId.TRIAL), flags=TYPING
+    )
     return router
 
 
@@ -73,7 +76,7 @@ async def deliver_pending_trials(ctx: BotContext) -> None:
             await ctx.delivery.send(
                 delivered.telegram_id, ctx.screens.trial_granted(delivered.account)
             )
-        # Пробный уже выдан: ссылка есть в «🚀 Подключиться». Один сбой Telegram не должен
+        # Пробный уже выдан: ссылка есть в «Подключиться». Один сбой Telegram не должен
         # оставить без сообщения остальных клиентов из этого прохода.
         except TelegramAPIError:
             logger.exception(

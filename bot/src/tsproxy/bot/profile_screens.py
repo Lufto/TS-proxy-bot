@@ -1,4 +1,4 @@
-"""Экраны «👤 Мой профиль» и «📱 Мои устройства»: текст и кнопки из `content/client/`.
+"""Экраны «Мой профиль» и «Мои устройства»: текст и кнопки из `content/client/`.
 
 Без UUID, HWID, имени аккаунта в панели и других технических кодов (задача 10).
 """
@@ -8,7 +8,7 @@ from datetime import datetime
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from tsproxy.bot.callbacks import DeviceCallback, MenuCallback, RevokeLinkCallback, ScreenId
-from tsproxy.bot.screens import Screen
+from tsproxy.bot.screens import BUTTON_STYLES, Screen
 from tsproxy.content.dates import client_time
 from tsproxy.content.loader import Texts
 from tsproxy.domain.profile import ProfileStatus, TimeLeft, format_gigabytes, plural_form
@@ -48,7 +48,9 @@ class ProfileScreens:
 
     def _button(self, key: str, screen: ScreenId) -> InlineKeyboardButton:
         return InlineKeyboardButton(
-            text=self._texts.get(key), callback_data=MenuCallback(screen=screen).pack()
+            text=self._texts.get(key),
+            callback_data=MenuCallback(screen=screen).pack(),
+            style=BUTTON_STYLES.get(key),
         )
 
     def _back(self) -> list[InlineKeyboardButton]:
@@ -67,7 +69,7 @@ class ProfileScreens:
         return " ".join(parts) or self._texts.get("units.less_than_hour")
 
     def profile(self, profile: Profile) -> Screen:
-        """«👤 Мой профиль»: статус, срок и остаток, устройства, трафик в пробном."""
+        """«Мой профиль»: статус, срок и остаток, устройства, трафик в пробном."""
         status = self._texts.get(
             STATUS_TEXTS[profile.status],
             expire_at=client_time(profile.expire_at),
@@ -100,7 +102,7 @@ class ProfileScreens:
     def no_account(self, *, trial_available: bool) -> Screen:
         """Профиль, когда подписки ещё нет: предложить пробный и тарифы.
 
-        Пробный — пока пробные включены, как в «🚀 Подключиться» (`Screens.no_account`):
+        Пробный — пока пробные включены, как в «Подключиться» (`Screens.no_account`):
         без аккаунта доступа клиент не получал, даже если пробный отмечен.
         """
         rows = [[self._button("buttons.trial", ScreenId.TRIAL)]] if trial_available else []
@@ -128,7 +130,7 @@ class ProfileScreens:
         )
 
     def devices(self, devices: DeviceList, *, notice_key: str | None = None) -> Screen:
-        """«📱 Мои устройства»: список и «🗑 Удалить» у каждого.
+        """«Мои устройства»: список и «Удалить» у каждого.
 
         `notice_key` — итог удаления («удалено» или «уже нет») над списком.
         """
@@ -155,6 +157,7 @@ class ProfileScreens:
                 InlineKeyboardButton(
                     text=self._texts.get("buttons.delete_device", number=number),
                     callback_data=DeviceCallback(ref=device_ref(device.hwid)).pack(),
+                    style=BUTTON_STYLES["buttons.delete_device"],
                 )
             ]
             for number, device in enumerate(devices.devices, start=1)
@@ -174,6 +177,7 @@ class ProfileScreens:
                 InlineKeyboardButton(
                     text=self._texts.get("buttons.confirm_revoke_link"),
                     callback_data=RevokeLinkCallback().pack(),
+                    style=BUTTON_STYLES["buttons.confirm_revoke_link"],
                 )
             ],
             [self._button("buttons.cancel_revoke_link", ScreenId.PROFILE)],
@@ -185,7 +189,7 @@ class ProfileScreens:
     def revoke_too_soon(self, available_at: datetime) -> Screen:
         """Раньше суток с прошлого перевыпуска: когда можно снова.
 
-        Нынешняя ссылка — в «🚀 Подключиться»: туда же попадёт и второе из двух «Да».
+        Нынешняя ссылка — в «Подключиться»: туда же попадёт и второе из двух «Да».
         """
         rows = [
             [self._button("buttons.connect", ScreenId.CONNECT)],
