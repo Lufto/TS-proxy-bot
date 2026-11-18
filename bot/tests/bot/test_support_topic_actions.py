@@ -424,8 +424,10 @@ async def test_to_menu_under_support_reply_opens_main_menu_and_keeps_reply(
     menu = [m for m in telegram.sent(SendMessage) if m.chat_id == CLIENT_ID][-1]
     assert menu.text == content.texts.get("menu.title")
     assert telegram.sent(DeleteMessage) == []  # текст ответа поддержки не удаляем
-    [stripped] = telegram.sent(EditMessageReplyMarkup)
-    assert (stripped.message_id, stripped.reply_markup) == (REPLY_MESSAGE_ID, None)
+    # гаснут кнопки нажатого ответа и прошлого живого меню — «Обращение принято» (задача 24)
+    pressed, accepted = telegram.sent(EditMessageReplyMarkup)
+    assert (pressed.message_id, pressed.reply_markup) == (REPLY_MESSAGE_ID, None)
+    assert accepted.message_id != REPLY_MESSAGE_ID and accepted.reply_markup is None
 
 
 async def test_quick_reply_menu_can_be_hidden(
