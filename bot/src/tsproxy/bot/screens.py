@@ -79,8 +79,11 @@ class Screens:
             ),
         ]
 
-    def main_menu(self, *, trial_available: bool) -> Screen:
-        """Главное меню. «Попробовать бесплатно» — только если пробный ещё не брал."""
+    def main_menu(self, *, trial_available: bool, status: str | None = None) -> Screen:
+        """Главное меню. «Попробовать бесплатно» — только если пробный ещё не брал.
+
+        `status` — строка статуса подписки над меню (задача 19), `None` — без неё.
+        """
         rows = [[self._button("buttons.connect", ScreenId.CONNECT)]]
         if trial_available:
             rows.append([self._button("buttons.trial", ScreenId.TRIAL)])
@@ -96,7 +99,9 @@ class Screens:
             [self._button("buttons.about", ScreenId.ABOUT)],
             self._documents(),
         ]
-        return Screen(self._texts.get("menu.title"), InlineKeyboardMarkup(inline_keyboard=rows))
+        title = self._texts.get("menu.title")
+        text = title if status is None else f"{status}\n\n{title}"
+        return Screen(text, InlineKeyboardMarkup(inline_keyboard=rows))
 
     def about(self) -> Screen:
         return Screen(
