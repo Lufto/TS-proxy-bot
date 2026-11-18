@@ -11,8 +11,8 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from tsproxy.bot.callbacks import MenuCallback, ScreenId
 from tsproxy.bot.delivery import ClientDelivery
 from tsproxy.bot.screens import Screen
+from tsproxy.content.dates import client_time
 from tsproxy.content.loader import Texts
-from tsproxy.domain.dates import format_moscow
 from tsproxy.domain.grace import GraceStage
 
 GRACE_TEXTS: dict[GraceStage, str] = {
@@ -30,7 +30,7 @@ def grace_screen(texts: Texts, stage: GraceStage, access_until: datetime) -> Scr
         callback_data=MenuCallback(screen=ScreenId.TARIFFS).pack(),
     )
     return Screen(
-        texts.get(GRACE_TEXTS[stage], until=format_moscow(access_until)),
+        texts.get(GRACE_TEXTS[stage], until=client_time(access_until)),
         InlineKeyboardMarkup(inline_keyboard=[[renew]]),
     )
 
@@ -46,4 +46,4 @@ class TelegramGraceMessenger:
         self, telegram_id: int, stage: GraceStage, access_until: datetime
     ) -> bool:
         screen = grace_screen(self._texts, stage, access_until)
-        return await self._delivery.send(telegram_id, screen) is not None
+        return await self._delivery.send(telegram_id, screen.kept()) is not None

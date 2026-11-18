@@ -7,7 +7,7 @@ from datetime import timedelta
 import pytest
 from aiogram import Bot, Dispatcher
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.methods import AnswerCallbackQuery, EditMessageText
+from aiogram.methods import AnswerCallbackQuery, SendMessage
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from bot_updates import ADMIN_CHAT_ID, ALERTS_THREAD_ID, CLIENT_ID, NOW, OTHER_CLIENT_ID, user
 from bot_updates import callback as press
@@ -15,6 +15,7 @@ from bot_updates import callback as press
 from tsproxy.bot.callbacks import MenuCallback, RevokeLinkCallback, ScreenId
 from tsproxy.bot.fakes import FakeTelegramSession
 from tsproxy.bot.profile_screens import ProfileScreens
+from tsproxy.content.dates import client_time
 from tsproxy.content.loader import REQUIRED_TEXTS, Content, Texts
 from tsproxy.domain.dates import format_moscow
 from tsproxy.integrations.fakes import FakeRemnawave
@@ -51,8 +52,8 @@ def revoke_writes(remnawave: FakeRemnawave) -> int:
     return sum(1 for operation, _ in remnawave.writes if operation == "revoke")
 
 
-def last_screen(telegram: FakeTelegramSession) -> EditMessageText:
-    return telegram.sent(EditMessageText)[-1]
+def last_screen(telegram: FakeTelegramSession) -> SendMessage:
+    return telegram.sent(SendMessage)[-1]
 
 
 @pytest.mark.parametrize("screen", [PROFILE, DEVICES])
@@ -93,7 +94,7 @@ async def test_revoke_button_is_grey_within_a_day(
     [revoke] = [b for b in buttons(edited.reply_markup) if b.text == label]
     assert revoke.disabled is not None
     assert (revoke.callback_data, revoke.style) == (None, None)  # серая и ничего не делает
-    when = format_moscow(NOW + timedelta(days=1))
+    when = client_time(NOW + timedelta(days=1))
     assert content.texts.get("revoke_link.available_at", available_at=when) in edited.text
 
 
@@ -108,10 +109,10 @@ async def test_revoke_asks_for_confirmation_first(
 
     await dispatcher.feed_update(bot, press(user(CLIENT_ID), ASK))
 
-    edited = last_screen(telegram)
-    assert edited.text == content.texts.get("revoke_link.ask")
-    assert callback_data(edited.reply_markup) == [YES, PROFILE]
-    assert [b.style for b in buttons(edited.reply_markup)] == ["danger", None]
+    screen = last_screen(telegram)
+    assert screen.text == content.texts.get("revoke_link.ask")
+    assert callback_data(screen.reply_markup) == [YES, PROFILE]
+    assert [b.style for b in buttons(screen.reply_markup)] == ["danger", None]
     assert revoke_writes(remnawave) == 0
 
 
@@ -128,12 +129,12 @@ async def test_yes_revokes_and_shows_new_link(
 
     new_url = (await remnawave.get_account(CLIENT_ID)).subscription_url
     assert new_url != old_url
-    edited = last_screen(telegram)
-    assert edited.text == content.texts.get("revoke_link.done")
-    links = buttons(edited.reply_markup)
+    screen = last_screen(telegram)
+    assert screen.text == content.texts.get("revoke_link.done")
+    links = buttons(screen.reply_markup)
     assert [b.url for b in links if b.url] == [new_url]
     assert [b.copy_text.text for b in links if b.copy_text] == [new_url]
-    assert old_url not in edited.model_dump_json(fallback=repr)
+    assert old_url not in screen.model_dump_json(fallback=repr)
 
 
 async def test_second_revoke_within_a_day_is_refused_with_popup(
@@ -156,7 +157,7 @@ async def test_second_revoke_within_a_day_is_refused_with_popup(
     refusal = content.texts.get("revoke_link.too_soon", available_at=when)
     answers = telegram.sent(AnswerCallbackQuery)
     assert [(a.text, a.show_alert) for a in answers] == [(refusal, True)] * 2
-    assert telegram.sent(EditMessageText) == []
+    assert telegram.sent(SendMessage) == []  # нового экрана нет
     assert revoke_writes(remnawave) == 1
 
 

@@ -109,7 +109,7 @@ async def test_stranger_in_admin_group_cannot_use_trials(
     await dispatcher.feed_update(bot, admin_press(DISABLE, sender_id=STRANGER_ID))
 
     assert telegram.sent(SendMessage) == []
-    assert telegram.sent(EditMessageText) == []
+    assert telegram.sent(SendMessage) == []  # нового экрана нет
     [answer] = telegram.sent(AnswerCallbackQuery)
     assert answer.text == content.admin_texts.get("admin.not_admin")
     assert await ctx.trial_switch.enabled()
@@ -123,7 +123,7 @@ async def test_admin_outside_admin_group_cannot_switch(
     await dispatcher.feed_update(bot, callback(admin, DISABLE))
 
     assert await ctx.trial_switch.enabled()
-    assert telegram.sent(EditMessageText) == []
+    assert telegram.sent(SendMessage) == []  # нового экрана нет
 
 
 async def test_menu_connect_and_profile_hide_trial_while_off(
@@ -140,9 +140,8 @@ async def test_menu_connect_and_profile_hide_trial_while_off(
     for screen in (ScreenId.MAIN, ScreenId.CONNECT, ScreenId.PROFILE):
         await dispatcher.feed_update(bot, callback(client, MenuCallback(screen=screen).pack()))
 
-    [menu] = telegram.sent(SendMessage)
-    screens = [menu.reply_markup, *(e.reply_markup for e in telegram.sent(EditMessageText))]
-    assert len(screens) == 4
+    screens = [sent.reply_markup for sent in telegram.sent(SendMessage)]
+    assert len(screens) == 4  # /start и три нажатия
     trial_button = content.texts.get("buttons.trial")
     assert all(trial_button not in texts_of(markup) for markup in screens)
 
@@ -161,7 +160,7 @@ async def test_old_trial_button_while_off_says_unavailable(
 
     [answer] = telegram.sent(AnswerCallbackQuery)
     assert (answer.text, answer.show_alert) == (content.texts.get("trial.disabled"), True)
-    assert telegram.sent(EditMessageText) == []
+    assert telegram.sent(SendMessage) == []  # нового экрана нет
     assert remnawave.writes == []
 
 

@@ -1,7 +1,7 @@
 """Экраны клиента: текст и кнопки. Только сборка из `content/client/`, без Telegram-вызовов."""
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from aiogram.enums import ButtonStyle
 from aiogram.types import CopyTextButton, InlineKeyboardButton, InlineKeyboardMarkup
@@ -14,9 +14,9 @@ from tsproxy.bot.callbacks import (
     Platform,
     ScreenId,
 )
+from tsproxy.content.dates import client_time
 from tsproxy.content.loader import Texts
 from tsproxy.domain.constants import TRIAL_DEVICE_LIMIT, TRIAL_TRAFFIC_GB
-from tsproxy.domain.dates import format_moscow
 from tsproxy.integrations.remnawave_types import AccountStatus, ProxyAccount
 
 logger = logging.getLogger(__name__)
@@ -45,10 +45,20 @@ PLATFORM_TEXTS: dict[Platform, tuple[str, str]] = {
 
 @dataclass(frozen=True)
 class Screen:
-    """Что показать клиенту: текст (HTML) и кнопки под ним."""
+    """Что показать клиенту: текст (HTML) и кнопки под ним.
+
+    `keeps_text` — сообщение с текстом, который нужно сохранить (уведомление, сообщение
+    об оплате): когда клиент нажимает его кнопку, бот снимает кнопки, а не удаляет
+    сообщение (`ClientDelivery.show`). Обычный экран меню при нажатии удаляется.
+    """
 
     text: str
     markup: InlineKeyboardMarkup
+    keeps_text: bool = False
+
+    def kept(self) -> "Screen":
+        """Тот же экран как сообщение с сохраняемым текстом."""
+        return replace(self, keeps_text=True)
 
 
 class Screens:
@@ -172,7 +182,7 @@ class Screens:
     def connect(self, account: ProxyAccount) -> Screen:
         """«Подключиться»: страница подписки и копирование ссылки."""
         rows = self._link_rows(account)
-        expire_at = format_moscow(account.expire_at)
+        expire_at = client_time(account.expire_at)
         if account.status is AccountStatus.ACTIVE:
             text = self._texts.get("connect.active", expire_at=expire_at)
         else:
@@ -201,7 +211,7 @@ class Screens:
         rows += [[self._button("buttons.instructions", ScreenId.INSTRUCTIONS)], self._back()]
         text = self._texts.get(
             "trial.granted",
-            expire_at=format_moscow(account.expire_at),
+            expire_at=client_time(account.expire_at),
             traffic_gb=TRIAL_TRAFFIC_GB,
             device_limit=TRIAL_DEVICE_LIMIT,
         )

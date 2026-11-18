@@ -23,9 +23,9 @@ from tsproxy.bot.callbacks import (
 )
 from tsproxy.bot.delivery import ClientDelivery
 from tsproxy.bot.screens import Screen, Screens
+from tsproxy.content.dates import client_time
 from tsproxy.content.loader import Texts
 from tsproxy.domain.constants import PAID_DEVICE_LIMIT
-from tsproxy.domain.dates import format_moscow
 from tsproxy.domain.money import format_rubles
 from tsproxy.services.crediting import GrantedAccess
 
@@ -43,7 +43,7 @@ class PaymentScreens:
         """Оплачено: срок, ссылка подписки; при сумме не по тарифу — с извинением."""
         account = granted.account
         values: dict[str, object] = {
-            "expire_at": format_moscow(account.expire_at),
+            "expire_at": client_time(account.expire_at),
             "device_limit": PAID_DEVICE_LIMIT,
         }
         if granted.prorated:
@@ -72,7 +72,7 @@ class PaymentScreens:
         if access_ended:
             text = self._texts.get("payment.disputed_ended")
         elif expire_at is not None:
-            text = self._texts.get("payment.disputed", expire_at=format_moscow(expire_at))
+            text = self._texts.get("payment.disputed", expire_at=client_time(expire_at))
         else:
             text = self._texts.get("payment.disputed_pending")
         support = InlineKeyboardButton(
@@ -125,7 +125,7 @@ class TelegramPaymentMessages:
 
     async def _send(self, telegram_id: int, screen: Screen) -> None:
         try:
-            await self._delivery.send(telegram_id, screen)
+            await self._delivery.send(telegram_id, screen.kept())
         # Оплата засчитана и доступ выдан (или выдаётся): ссылка есть в «Подключиться».
         # Сбой Telegram не должен ронять зачёт или фоновую задачу повторов.
         except TelegramAPIError:
