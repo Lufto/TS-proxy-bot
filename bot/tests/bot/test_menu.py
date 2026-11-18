@@ -1,5 +1,7 @@
 """`/start`, живое меню, команды, инструкции, заглушки."""
 
+import re
+
 import pytest
 from aiogram import Bot, Dispatcher
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
@@ -20,6 +22,9 @@ from tsproxy.bot.fakes import FakeTelegramSession
 from tsproxy.content.loader import Content
 from tsproxy.db.models import Client
 from tsproxy.services.fakes import FakeClock
+
+# Запасные приложения (config/site.yaml): в боте их нет, они на сайте
+FALLBACK_APPS = re.compile(r"v2RayTun|OneXray|Hiddify|v2rayN|Throne", re.IGNORECASE)
 
 
 async def stored_client(
@@ -232,7 +237,10 @@ async def test_instructions_for_each_platform(
 
     [sent] = telegram.sent(SendMessage)
     assert sent.text == content.texts.get(f"instructions.{platform.value}")
-    assert "Happ" in sent.text and "v2RayTun" in sent.text
+    # задача 16: только Happ, запасные приложения — на сайте, ссылка ведёт в раздел устройства
+    assert "Happ" in sent.text
+    assert FALLBACK_APPS.findall(sent.text) == []
+    assert f'<a href="https://ts-proxy.com/help/{platform.value}/">' in sent.text
 
 
 @pytest.mark.parametrize(
