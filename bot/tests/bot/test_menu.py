@@ -142,8 +142,8 @@ async def test_about_has_site_documents_and_back(
 ) -> None:
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), menu_data(ScreenId.ABOUT)))
 
-    [edited] = telegram.sent(EditMessageText)
-    markup = edited.reply_markup
+    [sent] = telegram.sent(SendMessage)
+    markup = sent.reply_markup
     assert isinstance(markup, InlineKeyboardMarkup)
     buttons = [(b.text, b.url, b.callback_data) for row in markup.inline_keyboard for b in row]
     assert buttons == [
