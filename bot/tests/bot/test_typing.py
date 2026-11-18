@@ -9,8 +9,10 @@ from bot_updates import CLIENT_ID, callback, message, user
 
 from tsproxy.bot.callbacks import (
     DeviceCallback,
+    InstructionsCallback,
     MenuCallback,
     PaymentCheckCallback,
+    Platform,
     RevokeLinkCallback,
     ScreenId,
     StarsCallback,
@@ -39,6 +41,7 @@ PANEL_OR_PAYMENT_BUTTONS = {
     "pay_sbp": TariffCallback(tariff_id="m1").pack(),
     "pay_stars": StarsCallback(tariff_id="m1").pack(),
     "check_payment": PaymentCheckCallback(order_id=1).pack(),
+    "instructions": InstructionsCallback(platform=Platform.IOS).pack(),  # ссылка подписки
 }
 
 

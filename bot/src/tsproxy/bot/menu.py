@@ -9,6 +9,11 @@
 статуса, что в «Мой профиль»). Нет прокси-аккаунта, панель не ответила или думает дольше
 `MENU_STATUS_TIMEOUT_SECONDS` — меню без строки, без ошибки и без тревоги.
 
+Инструкция платформы (задача 17): шаг «откройте вашу страницу подключения» — личная ссылка
+подписки нажавшего, её тоже даёт только панель (пока ждём — «печатает…»). Нет прокси-аккаунта,
+панель не ответила или думает дольше `INSTRUCTIONS_LINK_TIMEOUT_SECONDS` — шаг «нажмите
+„Подключиться“», ссылка на сайт остаётся; ошибки и тревоги нет.
+
 Обработчики работают только в личном чате с ботом. Клиент всегда определяется по
 `from_user.id` нажавшего, данные кнопки говорят только «какой экран открыть».
 
@@ -44,13 +49,14 @@ from tsproxy.bot.callbacks import (
     ScreenId,
     TariffScreenCallback,
 )
+from tsproxy.bot.chat_typing import TYPING
 from tsproxy.bot.context import BotContext, profile_of
 from tsproxy.bot.delivery import keeps_text
 from tsproxy.bot.profile import devices_screen
 from tsproxy.bot.profile_screens import ProfileScreens
 from tsproxy.bot.screens import Screen
 from tsproxy.db.models import Client
-from tsproxy.integrations.remnawave_types import RemnawaveError
+from tsproxy.integrations.remnawave_types import AccountNotFound, RemnawaveError
 from tsproxy.services.clock import utc_now
 
 logger = logging.getLogger(__name__)
@@ -62,6 +68,8 @@ START_DEVICES = "devices"
 HELP_COMMAND = "help"
 # Сколько меню ждёт статус от панели: дольше — меню без строки статуса (задача 19)
 MENU_STATUS_TIMEOUT_SECONDS = 3.0
+# Сколько инструкция ждёт ссылку подписки от панели: дольше — шаг через «Подключиться» (задача 17)
+INSTRUCTIONS_LINK_TIMEOUT_SECONDS = 3.0
 # Простой, после которого старая кнопка меню открывает главное меню (задача 26)
 IDLE_RETURN_AFTER = timedelta(days=1)
 # Экраны меню, кнопки которых — действия, а не переходы: правило простоя их не трогает
@@ -99,7 +107,7 @@ def create_menu_router() -> Router:
     router.callback_query.register(
         on_instructions, MenuCallback.filter(F.screen == ScreenId.INSTRUCTIONS)
     )
-    router.callback_query.register(on_platform, InstructionsCallback.filter())
+    router.callback_query.register(on_platform, InstructionsCallback.filter(), flags=TYPING)
     return router
 
 
@@ -126,6 +134,26 @@ async def _status_line(ctx: BotContext, client: Client) -> str | None:
     if status is None:
         return None
     return ProfileScreens(ctx.texts).menu_status(status)
+
+
+async def _subscription_url(ctx: BotContext, telegram_id: int) -> str | None:
+    """Личная ссылка подписки для инструкции (задача 17); `None` — шаг через «Подключиться».
+
+    Нет прокси-аккаунта — обычная ситуация. Панель не ответила или не успела — тоже не ошибка:
+    инструкция работает и без ссылки, тревогу шлют действия, которым панель нужна.
+    """
+    try:
+        async with asyncio.timeout(INSTRUCTIONS_LINK_TIMEOUT_SECONDS):
+            account = await ctx.remnawave.get_account(telegram_id)
+    except AccountNotFound:
+        return None
+    except TimeoutError:
+        logger.warning("Клиент %s: панель не дала ссылку для инструкции вовремя", telegram_id)
+        return None
+    except RemnawaveError as error:
+        logger.warning("Клиент %s: ссылка для инструкции не получена: %s", telegram_id, error)
+        return None
+    return account.subscription_url
 
 
 async def _main_menu(ctx: BotContext, client: Client) -> Screen:
@@ -181,4 +209,5 @@ async def on_platform(
     callback: CallbackQuery, callback_data: InstructionsCallback, ctx: BotContext
 ) -> None:
     await callback.answer()
-    await _show(callback, ctx, ctx.screens.instructions(callback_data.platform))
+    url = await _subscription_url(ctx, callback.from_user.id)
+    await _show(callback, ctx, ctx.screens.instructions(callback_data.platform, url))

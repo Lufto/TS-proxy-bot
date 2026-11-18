@@ -15,7 +15,7 @@ from tsproxy.bot.callbacks import (
     ScreenId,
 )
 from tsproxy.content.dates import client_time
-from tsproxy.content.loader import Texts
+from tsproxy.content.loader import Html, Texts
 from tsproxy.domain.constants import TRIAL_DEVICE_LIMIT, TRIAL_TRAFFIC_GB
 from tsproxy.integrations.remnawave_types import AccountStatus, ProxyAccount
 
@@ -166,15 +166,24 @@ class Screens:
             self._texts.get("instructions.choose"), InlineKeyboardMarkup(inline_keyboard=rows)
         )
 
-    def instructions(self, platform: Platform) -> Screen:
-        """Три шага для одной платформы."""
+    def instructions(self, platform: Platform, subscription_url: str | None) -> Screen:
+        """Три шага для одной платформы.
+
+        `subscription_url` — личная ссылка подписки клиента (задача 17): шаг «откройте вашу
+        страницу подключения» ведёт прямо на неё; `None` — шаг через «Подключиться».
+        """
         _, text_key = PLATFORM_TEXTS[platform]
+        if subscription_url is None:
+            open_page = self._texts.get("instructions.open_page_connect")
+        else:
+            open_page = self._texts.get("instructions.open_page_link", url=subscription_url)
+        text = self._texts.get(text_key, open_page=Html(open_page))
         rows = [
             [self._button("buttons.connect", ScreenId.CONNECT)],
             [self._button("buttons.instructions_back", ScreenId.INSTRUCTIONS)],
             self._back(),
         ]
-        return Screen(self._texts.get(text_key), InlineKeyboardMarkup(inline_keyboard=rows))
+        return Screen(text, InlineKeyboardMarkup(inline_keyboard=rows))
 
     def _link_rows(self, account: ProxyAccount) -> list[list[InlineKeyboardButton]]:
         """Кнопки «Открыть страницу подключения» и «Скопировать ссылку»."""
