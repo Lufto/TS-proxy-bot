@@ -222,7 +222,7 @@ async def _tell_client(ctx: BotContext, telegram_id: int, days: int, expire_at: 
         InlineKeyboardMarkup(inline_keyboard=[[connect]]),
     )
     try:
-        await ctx.delivery.send(telegram_id, screen)
+        await ctx.delivery.send(telegram_id, screen.kept())
     except TelegramAPIError:
         logger.exception("Ручная выдача: не удалось сообщить клиенту %s", telegram_id)
 

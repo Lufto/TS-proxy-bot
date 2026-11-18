@@ -63,6 +63,6 @@ class TelegramRefundMessages:
     ) -> None:
         screen = self._screens.completed(amount, expire_at, stars)
         try:
-            await self._delivery.send(telegram_id, screen)
+            await self._delivery.send(telegram_id, screen.kept())
         except TelegramAPIError:
             logger.exception("Не удалось сообщить клиенту %s о возврате", telegram_id)

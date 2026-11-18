@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from tsproxy.bot.callbacks import MenuCallback, ScreenId
 from tsproxy.bot.context import BotContext
+from tsproxy.bot.delivery import KEPT_TEXT_MARK
 from tsproxy.bot.fakes import FakeTelegramSession
 from tsproxy.bot.payments import PaymentScreens, TelegramPaymentMessages
 from tsproxy.bot.screens import Screens
@@ -99,7 +100,8 @@ async def test_double_payment_message_points_to_support(
     assert "две оплаты" in sent.text
     assert isinstance(sent.reply_markup, InlineKeyboardMarkup)
     data = [b.callback_data for row in sent.reply_markup.inline_keyboard for b in row]
-    assert data == [MenuCallback(screen=ScreenId.SUPPORT).pack()]
+    # сообщение об оплате не удаляется при нажатии: кнопки с меткой сохраняемого текста
+    assert data == [KEPT_TEXT_MARK + MenuCallback(screen=ScreenId.SUPPORT).pack()]
 
 
 async def test_client_who_blocked_bot_is_marked_and_nothing_breaks(

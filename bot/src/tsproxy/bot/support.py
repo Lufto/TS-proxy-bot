@@ -133,7 +133,7 @@ async def on_support_screen(callback: CallbackQuery, ctx: BotContext) -> None:
 
 
 async def on_faq(callback: CallbackQuery, callback_data: FaqCallback, ctx: BotContext) -> None:
-    """Ответ на частый вопрос — в том же сообщении меню."""
+    """Ответ на частый вопрос — новым экраном (живое меню)."""
     await callback.answer()
     await ctx.delivery.show(callback, ctx.screens.faq_answer(callback_data.question))
 

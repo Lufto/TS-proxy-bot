@@ -140,9 +140,8 @@ async def test_menu_connect_and_profile_hide_trial_while_off(
     for screen in (ScreenId.MAIN, ScreenId.CONNECT, ScreenId.PROFILE):
         await dispatcher.feed_update(bot, callback(client, MenuCallback(screen=screen).pack()))
 
-    [menu] = telegram.sent(SendMessage)
-    screens = [menu.reply_markup, *(e.reply_markup for e in telegram.sent(EditMessageText))]
-    assert len(screens) == 4
+    screens = [sent.reply_markup for sent in telegram.sent(SendMessage)]
+    assert len(screens) == 4  # /start и три нажатия
     trial_button = content.texts.get("buttons.trial")
     assert all(trial_button not in texts_of(markup) for markup in screens)
 
@@ -159,9 +158,9 @@ async def test_old_trial_button_while_off_offers_tariffs(
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), TRIAL))
 
-    [edited] = telegram.sent(EditMessageText)
-    assert edited.text == content.texts.get("trial.disabled")
-    assert content.texts.get("buttons.tariffs") in texts_of(edited.reply_markup)
+    [shown] = telegram.sent(SendMessage)
+    assert shown.text == content.texts.get("trial.disabled")
+    assert content.texts.get("buttons.tariffs") in texts_of(shown.reply_markup)
     assert remnawave.writes == []
 
 

@@ -17,7 +17,7 @@ from tsproxy.services.profile import DEVICE_REF_LENGTH
 
 
 class ScreenId(StrEnum):
-    """Экраны меню, которые меняются в одном сообщении."""
+    """Экраны меню: нажатие присылает экран новым сообщением (живое меню)."""
 
     MAIN = "main"
     CONNECT = "connect"  # «🚀 Подключиться»

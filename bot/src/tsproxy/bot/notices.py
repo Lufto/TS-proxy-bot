@@ -1,8 +1,8 @@
 """Уведомления клиенту по инициативе бота (задача 10): напоминания, продления пробного,
 прощание, пробный трафик. Текст и кнопки — из `content/client/notices.yaml` (группа `notices`).
 
-Приходят новым сообщением. Кнопка «Продлить» или «Тарифы» открывает тарифы прямо
-в этом сообщении, как любая кнопка меню.
+Приходят новым сообщением с сохраняемым текстом (`Screen.kept`): кнопка «Продлить» или
+«Тарифы» присылает тарифы новым экраном, а у уведомления гаснут только кнопки.
 """
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
@@ -107,4 +107,4 @@ class TelegramNotifier:
         self._delivery = delivery
 
     async def notify(self, telegram_id: int, notice: ClientNotice) -> None:
-        await self._delivery.send(telegram_id, self._screens.notice(notice))
+        await self._delivery.send(telegram_id, self._screens.notice(notice).kept())

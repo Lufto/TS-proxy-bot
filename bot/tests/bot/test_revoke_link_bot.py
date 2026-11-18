@@ -6,7 +6,7 @@ from datetime import timedelta
 
 import pytest
 from aiogram import Bot, Dispatcher
-from aiogram.methods import EditMessageText
+from aiogram.methods import SendMessage
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from bot_updates import ADMIN_CHAT_ID, ALERTS_THREAD_ID, CLIENT_ID, NOW, OTHER_CLIENT_ID, user
 from bot_updates import callback as press
@@ -47,8 +47,8 @@ def revoke_writes(remnawave: FakeRemnawave) -> int:
     return sum(1 for operation, _ in remnawave.writes if operation == "revoke")
 
 
-def last_screen(telegram: FakeTelegramSession) -> EditMessageText:
-    return telegram.sent(EditMessageText)[-1]
+def last_screen(telegram: FakeTelegramSession) -> SendMessage:
+    return telegram.sent(SendMessage)[-1]
 
 
 @pytest.mark.parametrize("screen", [PROFILE, DEVICES])
@@ -77,9 +77,9 @@ async def test_revoke_asks_for_confirmation_first(
 
     await dispatcher.feed_update(bot, press(user(CLIENT_ID), ASK))
 
-    edited = last_screen(telegram)
-    assert edited.text == content.texts.get("revoke_link.ask")
-    assert callback_data(edited.reply_markup) == [YES, PROFILE]
+    screen = last_screen(telegram)
+    assert screen.text == content.texts.get("revoke_link.ask")
+    assert callback_data(screen.reply_markup) == [YES, PROFILE]
     assert revoke_writes(remnawave) == 0
 
 
@@ -96,12 +96,12 @@ async def test_yes_revokes_and_shows_new_link(
 
     new_url = (await remnawave.get_account(CLIENT_ID)).subscription_url
     assert new_url != old_url
-    edited = last_screen(telegram)
-    assert edited.text == content.texts.get("revoke_link.done")
-    links = buttons(edited.reply_markup)
+    screen = last_screen(telegram)
+    assert screen.text == content.texts.get("revoke_link.done")
+    links = buttons(screen.reply_markup)
     assert [b.url for b in links if b.url] == [new_url]
     assert [b.copy_text.text for b in links if b.copy_text] == [new_url]
-    assert old_url not in edited.model_dump_json(fallback=repr)
+    assert old_url not in screen.model_dump_json(fallback=repr)
 
 
 async def test_second_revoke_within_a_day_shows_when_possible(
@@ -119,10 +119,10 @@ async def test_second_revoke_within_a_day_shows_when_possible(
     # И сама кнопка, и подделанное «Да» без предупреждения — отказ с датой
     for data in (ASK, YES):
         await dispatcher.feed_update(bot, press(user(CLIENT_ID), data))
-        edited = last_screen(telegram)
+        screen = last_screen(telegram)
         when = format_moscow(NOW + timedelta(days=1))
-        assert edited.text == content.texts.get("revoke_link.too_soon", available_at=when)
-        assert MenuCallback(screen=ScreenId.CONNECT).pack() in callback_data(edited.reply_markup)
+        assert screen.text == content.texts.get("revoke_link.too_soon", available_at=when)
+        assert MenuCallback(screen=ScreenId.CONNECT).pack() in callback_data(screen.reply_markup)
     assert revoke_writes(remnawave) == 1
 
 

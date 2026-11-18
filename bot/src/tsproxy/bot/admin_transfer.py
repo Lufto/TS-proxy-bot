@@ -193,6 +193,6 @@ async def _tell_new_account(ctx: BotContext, to_id: int, done: TransferDone) -> 
         InlineKeyboardMarkup(inline_keyboard=[[connect]]),
     )
     try:
-        await ctx.delivery.send(to_id, screen)
+        await ctx.delivery.send(to_id, screen.kept())
     except TelegramAPIError:
         logger.exception("Перенос: не удалось сообщить новому аккаунту %s", to_id)

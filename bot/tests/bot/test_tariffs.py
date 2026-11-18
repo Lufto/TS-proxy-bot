@@ -3,7 +3,7 @@
 from decimal import Decimal
 
 from aiogram import Bot, Dispatcher
-from aiogram.methods import AnswerCallbackQuery, EditMessageText, SendMessage
+from aiogram.methods import AnswerCallbackQuery, SendMessage
 from aiogram.types import InlineKeyboardMarkup
 from bot_updates import ADMIN_ID, BOT_TOKEN, CLIENT_ID, NOW, callback, message, user
 from sqlalchemy import select
@@ -45,8 +45,8 @@ def tariff_screen(tariff_id: str) -> str:
     return TariffScreenCallback(tariff_id=tariff_id).pack()
 
 
-def last_edit(telegram: FakeTelegramSession) -> EditMessageText:
-    return telegram.sent(EditMessageText)[-1]
+def last_screen(telegram: FakeTelegramSession) -> SendMessage:
+    return telegram.sent(SendMessage)[-1]
 
 
 async def orders_in_db(session_factory: async_sessionmaker[AsyncSession]) -> list[Order]:
@@ -60,7 +60,7 @@ async def test_client_sees_tariffs_with_discount(
     data = MenuCallback(screen=ScreenId.TARIFFS).pack()
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), data))
 
-    edited = last_edit(telegram)
+    edited = last_screen(telegram)
     assert edited.text == content.texts.get("tariffs.title")
     shown = buttons(edited.reply_markup)  # type: ignore[arg-type]
     assert [d for _, d, _ in shown] == [
@@ -112,13 +112,12 @@ async def test_tariff_press_shows_payment_link(
 
     [order] = await orders_in_db(session_factory)
     assert (order.tariff_id, order.price) == ("m3", Decimal("405"))
-    edited = last_edit(telegram)
+    edited = last_screen(telegram)
     assert "405 ₽" in edited.text
     assert "24.10.2026, 16:00 МСК" in edited.text  # 12:00 UTC + час = 16:00 по Москве
     [pay, *_] = buttons(edited.reply_markup)  # type: ignore[arg-type]
     assert pay[2] == order.payment_url
     assert len(payments.ledger.all()) == 1
-    assert telegram.sent(SendMessage) == []  # экран меняется в том же сообщении
 
 
 async def test_double_press_gives_one_payment_other_tariff_new_one(
@@ -129,9 +128,9 @@ async def test_double_press_gives_one_payment_other_tariff_new_one(
 ) -> None:
     """«Готово, когда» задачи 12."""
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), buy("m1")))
-    first = last_edit(telegram).reply_markup
+    first = last_screen(telegram).reply_markup
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), buy("m1")))
-    second = last_edit(telegram).reply_markup
+    second = last_screen(telegram).reply_markup
 
     assert buttons(first)[0] == buttons(second)[0]  # type: ignore[arg-type]
     assert len(payments.ledger.all()) == 1
@@ -152,7 +151,7 @@ async def test_old_test_tariff_button_is_refused(
 
     [answer] = telegram.sent(AnswerCallbackQuery)
     assert answer.text == content.texts.get("tariffs.not_available")
-    assert last_edit(telegram).text == content.texts.get("tariffs.title")
+    assert last_screen(telegram).text == content.texts.get("tariffs.title")
     assert payments.ledger.all() == []
     assert await orders_in_db(session_factory) == []
 
@@ -175,7 +174,7 @@ async def test_rejected_keys_alert_shows_platega_answer_masked(
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), buy("m1")))
 
-    assert last_edit(telegram).text == content.texts.get("payment.unavailable")
+    assert last_screen(telegram).text == content.texts.get("payment.unavailable")
     [alert] = alert_sender.sent
     texts = content.admin_texts
     assert texts.get("alert.payment_create_rejected.title") in alert.text
@@ -196,7 +195,7 @@ async def test_payments_down_apologizes_and_alerts(
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), buy("m1")))
 
-    assert last_edit(telegram).text == content.texts.get("payment.unavailable")
+    assert last_screen(telegram).text == content.texts.get("payment.unavailable")
     [alert] = alert_sender.sent
     texts = content.admin_texts
     assert texts.get("alert.payments_unavailable.title") in alert.text
@@ -219,7 +218,7 @@ async def test_payment_refused_alerts_with_provider_text(
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), buy("m1")))
 
-    assert last_edit(telegram).text == content.texts.get("payment.unavailable")
+    assert last_screen(telegram).text == content.texts.get("payment.unavailable")
     [alert] = alert_sender.sent
     assert "metadata.user_email required" in alert.text
 
@@ -244,7 +243,7 @@ async def test_too_many_new_payments(
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), buy("m1")))
 
-    assert last_edit(telegram).text == content.texts.get("payment.too_many")
+    assert last_screen(telegram).text == content.texts.get("payment.too_many")
     assert payments.ledger.all() == []
 
 

@@ -125,7 +125,7 @@ class TelegramPaymentMessages:
 
     async def _send(self, telegram_id: int, screen: Screen) -> None:
         try:
-            await self._delivery.send(telegram_id, screen)
+            await self._delivery.send(telegram_id, screen.kept())
         # Оплата засчитана и доступ выдан (или выдаётся): ссылка есть в «🚀 Подключиться».
         # Сбой Telegram не должен ронять зачёт или фоновую задачу повторов.
         except TelegramAPIError:

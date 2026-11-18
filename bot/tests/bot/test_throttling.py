@@ -1,7 +1,7 @@
 """Ограничение частоты: флуд кнопками и сообщениями не доходит до обработчиков."""
 
 from aiogram import Bot, Dispatcher
-from aiogram.methods import AnswerCallbackQuery, EditMessageText, SendMessage
+from aiogram.methods import AnswerCallbackQuery, SendMessage
 from bot_updates import ADMIN_ID, CLIENT_ID, OTHER_CLIENT_ID, callback, message, user
 from conftest import ManualMonotonic
 
@@ -59,7 +59,7 @@ async def test_button_flood_is_not_processed(
     for _ in range(flood):
         await dispatcher.feed_update(bot, callback(user(CLIENT_ID), ABOUT))
 
-    assert len(telegram.sent(EditMessageText)) == RATE_LIMIT_BURST
+    assert len(telegram.sent(SendMessage)) == RATE_LIMIT_BURST
     throttled = [
         a
         for a in telegram.sent(AnswerCallbackQuery)
@@ -86,4 +86,4 @@ async def test_admins_are_not_limited(
     for _ in range(RATE_LIMIT_BURST + 5):
         await dispatcher.feed_update(bot, callback(user(ADMIN_ID), ABOUT))
 
-    assert len(telegram.sent(EditMessageText)) == RATE_LIMIT_BURST + 5
+    assert len(telegram.sent(SendMessage)) == RATE_LIMIT_BURST + 5

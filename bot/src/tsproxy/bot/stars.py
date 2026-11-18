@@ -163,13 +163,15 @@ async def on_successful_payment(message: Message, ctx: BotContext) -> None:
             charge_id=paid.telegram_payment_charge_id,
         )
         await ctx.delivery.send(
-            telegram_id, _notice(ctx.texts, "stars.unrecorded", paid.total_amount)
+            telegram_id, _notice(ctx.texts, "stars.unrecorded", paid.total_amount).kept()
         )
         return
     logger.info("Оплата звёздами от %s: %s", client.telegram_id, outcome)
     key = PAID_NOTICES.get(outcome)
     if key is not None:
-        await ctx.delivery.send(client.telegram_id, _notice(ctx.texts, key, paid.total_amount))
+        await ctx.delivery.send(
+            client.telegram_id, _notice(ctx.texts, key, paid.total_amount).kept()
+        )
 
 
 def _notice(texts: Texts, key: str, stars: int) -> Screen:

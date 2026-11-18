@@ -5,7 +5,7 @@ from pathlib import Path
 
 import httpx
 import pytest
-from aiogram.methods import EditMessageText, SendMessage
+from aiogram.methods import SendMessage
 from bot_updates import ADMIN_CHAT_ID, CLIENT_ID, callback, user
 from sqlalchemy import select
 from test_app import make_settings, prod_settings
@@ -38,8 +38,8 @@ async def test_prod_with_payments_off_starts_and_sells_nothing(
             assert list(await session.scalars(select(Order))) == []
     finally:
         await close_application(app)
-    edited = telegram.sent(EditMessageText)[-1]
-    assert edited.text.startswith(content.texts.get("tariffs.off_title"))
+    screen = telegram.sent(SendMessage)[-1]
+    assert screen.text.startswith(content.texts.get("tariffs.off_title"))
     # уже оплаченные заказы (если оплата была включена раньше) доделываются и без платёжки
     assert "payment_grants" in [job.name for job in app.jobs._jobs]
     # уведомлений платёжки не принимаем: перепроверить их не у кого (задача 14)

@@ -322,7 +322,7 @@ class TelegramApologyMessenger:
         self._texts = texts
 
     async def send_apology(self, telegram_id: int, apology: Apology) -> bool:
-        return await self._delivery.send(telegram_id, self.screen(apology)) is not None
+        return await self._delivery.send(telegram_id, self.screen(apology).kept()) is not None
 
     def screen(self, apology: Apology) -> Screen:
         values = {
