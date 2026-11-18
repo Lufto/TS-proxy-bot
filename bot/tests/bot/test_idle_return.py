@@ -4,7 +4,7 @@ from datetime import timedelta
 
 import pytest
 from aiogram import Bot, Dispatcher
-from aiogram.methods import AnswerCallbackQuery, DeleteMessage, SendMessage
+from aiogram.methods import AnswerCallbackQuery, DeleteMessage, SendMessage, SendPhoto
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from bot_updates import CLIENT_ID, MENU_MESSAGE_ID, callback, user
 
@@ -46,8 +46,8 @@ async def test_button_on_menu_older_than_a_day_opens_main_menu(
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), menu_data(ScreenId.ABOUT)))
 
-    [sent] = telegram.sent(SendMessage)
-    assert sent.text == content.texts.get("menu.title")
+    [sent] = telegram.sent(SendPhoto)
+    assert sent.caption == content.texts.get("menu.title")
     [deleted] = telegram.sent(DeleteMessage)
     assert deleted.message_id == MENU_MESSAGE_ID  # старое убирается как обычно
     assert len(telegram.sent(AnswerCallbackQuery)) == 1
@@ -78,7 +78,6 @@ async def test_button_on_menu_younger_than_a_day_opens_pressed_screen(
         menu_data(ScreenId.SUPPORT),
         menu_data(ScreenId.REVOKE_LINK),
         InstructionsCallback(platform=Platform.IOS).pack(),
-        FaqCallback(question=FaqQuestion.CONNECT).pack(),
         TariffScreenCallback(tariff_id="m1").pack(),
     ],
 )
@@ -94,8 +93,8 @@ async def test_deep_screens_after_a_day_open_main_menu(
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), data))
 
-    [sent] = telegram.sent(SendMessage)
-    assert sent.text == content.texts.get("menu.title")
+    [sent] = telegram.sent(SendPhoto)
+    assert sent.caption == content.texts.get("menu.title")
 
 
 @pytest.mark.parametrize(
@@ -108,6 +107,7 @@ async def test_deep_screens_after_a_day_open_main_menu(
         PaymentCheckCallback(order_id=1).pack(),
         DeviceCallback(ref="0" * DEVICE_REF_LENGTH).pack(),
         RevokeLinkCallback().pack(),
+        FaqCallback(question=FaqQuestion.CONNECT).pack(),
     ],
 )
 async def test_actions_after_a_day_are_not_replaced_by_main_menu(
@@ -118,12 +118,13 @@ async def test_actions_after_a_day_are_not_replaced_by_main_menu(
     clock: FakeClock,
     data: str,
 ) -> None:
-    """Подключение, пробный, оплата, удаление устройства, перевыпуск — намерение клиента."""
+    """Подключение, пробный, оплата, удаление устройства, перевыпуск, частый вопрос
+    в поддержке — намерение клиента."""
     clock.advance(MORE_THAN_A_DAY)
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), data))
 
-    assert content.texts.get("menu.title") not in [m.text for m in telegram.sent(SendMessage)]
+    assert telegram.sent(SendPhoto) == []  # главное меню — фото
 
 
 async def test_notice_button_after_a_day_opens_its_screen(

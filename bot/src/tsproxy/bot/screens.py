@@ -16,7 +16,9 @@ from tsproxy.bot.callbacks import (
 )
 from tsproxy.content.dates import client_time
 from tsproxy.content.loader import Html, Texts
+from tsproxy.content.pictures import Picture
 from tsproxy.domain.constants import TRIAL_DEVICE_LIMIT, TRIAL_TRAFFIC_GB
+from tsproxy.domain.profile import ProfileStatus
 from tsproxy.integrations.remnawave_types import AccountStatus, ProxyAccount
 
 logger = logging.getLogger(__name__)
@@ -33,6 +35,18 @@ BUTTON_STYLES: dict[str, ButtonStyle] = {
 # Telegram копирует кнопкой «Скопировать ссылку» не больше 256 символов
 COPY_TEXT_MAX_LENGTH = 256
 
+# Статус подписки → картинка главного меню (задача 04): зелёный «на связи», жёлтый «доступ
+# сохранён», красный «нет доступа» (в том числе кончился пробный трафик и выключенный доступ)
+MENU_PICTURES: dict[ProfileStatus, Picture] = {
+    ProfileStatus.NO_SUBSCRIPTION: Picture.MENU_NEW,
+    ProfileStatus.TRIAL: Picture.MENU_ACTIVE,
+    ProfileStatus.ACTIVE: Picture.MENU_ACTIVE,
+    ProfileStatus.GRACE: Picture.MENU_GRACE,
+    ProfileStatus.TRIAL_TRAFFIC_USED_UP: Picture.MENU_EXPIRED,
+    ProfileStatus.EXPIRED: Picture.MENU_EXPIRED,
+    ProfileStatus.SUSPENDED: Picture.MENU_EXPIRED,
+}
+
 PLATFORM_TEXTS: dict[Platform, tuple[str, str]] = {
     # платформа → (текст кнопки, текст инструкции)
     Platform.IOS: ("buttons.platform_ios", "instructions.ios"),
@@ -43,6 +57,14 @@ PLATFORM_TEXTS: dict[Platform, tuple[str, str]] = {
 }
 
 
+def menu_picture(status: ProfileStatus | None) -> Picture:
+    """Картинка главного меню по статусу подписки (задача 04): тот же статус, что в строке
+    над меню. `None` — нет прокси-аккаунта или панель не ответила: «не подключено»."""
+    if status is None:
+        return Picture.MENU_NEW
+    return MENU_PICTURES[status]
+
+
 @dataclass(frozen=True)
 class Screen:
     """Что показать клиенту: текст (HTML) и кнопки под ним.
@@ -50,11 +72,15 @@ class Screen:
     `keeps_text` — сообщение с текстом, который нужно сохранить (уведомление, сообщение
     об оплате): когда клиент нажимает его кнопку, бот снимает кнопки, а не удаляет
     сообщение (`ClientDelivery.show`). Обычный экран меню при нажатии удаляется.
+
+    `picture` — экран приходит фото с подписью `text` (до 1024 символов): главное меню
+    (задача 27); `None` — обычный текст.
     """
 
     text: str
     markup: InlineKeyboardMarkup
     keeps_text: bool = False
+    picture: Picture | None = None
 
     def kept(self) -> "Screen":
         """Тот же экран как сообщение с сохраняемым текстом."""
@@ -87,10 +113,18 @@ class Screens:
             self._link("buttons.privacy", "documents.privacy_url"),
         ]
 
-    def main_menu(self, *, trial_available: bool, status: str | None = None) -> Screen:
-        """Главное меню. «Попробовать бесплатно» — только если пробный ещё не брал.
+    def main_menu(
+        self,
+        *,
+        trial_available: bool,
+        status: str | None,
+        picture: Picture,
+    ) -> Screen:
+        """Главное меню — фото с подписью (задача 27). «Попробовать бесплатно» — только если
+        пробный ещё не брал.
 
-        `status` — строка статуса подписки над меню (задача 19), `None` — без неё.
+        `status` — строка статуса подписки над меню (задача 19), `None` — без неё;
+        `picture` — картинка по статусу подписки (`menu_picture`).
         """
         rows = [[self._button("buttons.connect", ScreenId.CONNECT)]]
         if trial_available:
@@ -108,7 +142,7 @@ class Screens:
         ]
         title = self._texts.get("menu.title")
         text = title if status is None else f"{status}\n\n{title}"
-        return Screen(text, InlineKeyboardMarkup(inline_keyboard=rows))
+        return Screen(text, InlineKeyboardMarkup(inline_keyboard=rows), picture=picture)
 
     def about(self) -> Screen:
         """«О сервисе»: сайт, документы и возврат в меню."""

@@ -16,6 +16,7 @@ from tsproxy.bot.delivery import ClientDelivery
 from tsproxy.bot.dispatcher import create_dispatcher
 from tsproxy.bot.fakes import FakeTelegramSession
 from tsproxy.bot.payments import PaymentScreens, TelegramPaymentMessages
+from tsproxy.bot.pictures import TelegramPictures
 from tsproxy.bot.refunds import RefundScreens, TelegramRefundMessages
 from tsproxy.bot.screens import Screens
 from tsproxy.bot.support_guard import SupportGuard, support_rate_limiter
@@ -147,7 +148,7 @@ def ctx(
     )
     trial_switch = TrialSwitch(session_factory, events, alerter, clock)
     screens = Screens(content.texts)
-    delivery = ClientDelivery(bot, clients)
+    delivery = ClientDelivery(bot, clients, TelegramPictures(content.pictures))
     payment_messages = TelegramPaymentMessages(delivery, PaymentScreens(content.texts, screens))
     crediting = CreditingService(
         session_factory,

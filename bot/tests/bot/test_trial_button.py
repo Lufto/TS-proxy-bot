@@ -10,6 +10,7 @@ from aiogram.methods import (
     DeleteMessage,
     EditMessageReplyMarkup,
     SendMessage,
+    SendPhoto,
 )
 from aiogram.types import InlineKeyboardButton
 from bot_updates import ADMIN_CHAT_ID, CLIENT_ID, callback, message, user
@@ -43,7 +44,7 @@ def content_granted(ctx: BotContext, expire_at: datetime) -> str:
     )
 
 
-def buttons(screen: SendMessage) -> list[InlineKeyboardButton]:
+def buttons(screen: SendMessage | SendPhoto) -> list[InlineKeyboardButton]:
     assert screen.reply_markup is not None
     return [b for row in screen.reply_markup.inline_keyboard for b in row]  # type: ignore[union-attr]
 
@@ -123,7 +124,7 @@ async def test_menu_hides_trial_after_it_was_granted(
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), MAIN))
 
-    [screen] = telegram.sent(SendMessage)
+    [screen] = telegram.sent(SendPhoto)
     assert content.texts.get("buttons.trial") not in [b.text for b in buttons(screen)]
     async with session_factory() as session:
         client = await session.scalar(select(Client).where(Client.telegram_id == CLIENT_ID))
@@ -246,7 +247,7 @@ async def test_menu_hides_trial_from_paying_client(
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), MAIN))
 
-    [screen] = telegram.sent(SendMessage)
+    [screen] = telegram.sent(SendPhoto)
     assert content.texts.get("buttons.trial") not in [b.text for b in buttons(screen)]
 
 
@@ -267,5 +268,5 @@ async def test_menu_offers_trial_to_client_with_unpaid_order(
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), MAIN))
 
-    [screen] = telegram.sent(SendMessage)
+    [screen] = telegram.sent(SendPhoto)
     assert content.texts.get("buttons.trial") in [b.text for b in buttons(screen)]

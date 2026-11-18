@@ -14,6 +14,7 @@ from aiogram.methods import (
     EditMessageReplyMarkup,
     EditMessageText,
     SendMessage,
+    SendPhoto,
 )
 from aiogram.types import InlineKeyboardMarkup, Update
 from bot_updates import ADMIN_CHAT_ID, ADMIN_ID, CLIENT_ID, NOW, callback, message, user
@@ -448,8 +449,8 @@ async def test_to_menu_under_support_reply_opens_main_menu_and_keeps_reply(
         ),
     )
 
-    menu = [m for m in telegram.sent(SendMessage) if m.chat_id == CLIENT_ID][-1]
-    assert menu.text == content.texts.get("menu.title")
+    [menu] = telegram.sent(SendPhoto)  # главное меню — фото
+    assert (menu.chat_id, menu.caption) == (CLIENT_ID, content.texts.get("menu.title"))
     assert telegram.sent(DeleteMessage) == []  # текст ответа поддержки не удаляем
     # ответ погасил кнопки «Обращение принято» (задача 25), нажатие — кнопки самого ответа
     accepted, pressed = telegram.sent(EditMessageReplyMarkup)

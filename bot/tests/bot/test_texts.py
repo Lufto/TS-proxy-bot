@@ -30,6 +30,7 @@ from tsproxy.content.loader import (
     load_content,
     quick_reply_ids,
 )
+from tsproxy.content.pictures import Picture
 from tsproxy.integrations.fakes import FakeRemnawave
 
 # Telegram: текст всплывающего ответа на кнопку — до 200 символов, данные кнопки — до 64 байт
@@ -147,6 +148,14 @@ def test_missing_required_text_stops_startup(tmp_path: Path) -> None:
         load_content(tmp_path, REPO_CONFIG)
 
 
+def test_missing_picture_stops_startup(tmp_path: Path) -> None:
+    shutil.copytree(REPO_CONTENT, tmp_path, dirs_exist_ok=True)
+    (tmp_path / "images" / "menu-grace.png").unlink()
+
+    with pytest.raises(ContentError, match=r"menu-grace\.png"):
+        load_content(tmp_path, REPO_CONFIG)
+
+
 @pytest.mark.parametrize(
     "path", sorted(REPO_CONTENT.rglob("*.yaml")), ids=lambda path: f"{path.parent.name}/{path.name}"
 )
@@ -212,7 +221,7 @@ async def test_all_screens_use_only_required_texts(content: Content) -> None:
     account = await remnawave.get_or_create_account(
         1, expire_at=remnawave._now(), device_limit=3, traffic_limit_bytes=0
     )
-    screens.main_menu(trial_available=True)
+    screens.main_menu(trial_available=True, status=None, picture=Picture.MENU_NEW)
     screens.about()
     screens.support()
     for question in FaqQuestion:
