@@ -124,7 +124,10 @@ async def on_delete_device(
 async def _refuse_too_soon(
     callback: CallbackQuery, ctx: BotContext, available_at: datetime
 ) -> None:
-    """Раньше суток: всплывашка «можно будет …» над кнопкой, экран не меняется."""
+    """Раньше суток: всплывашка «можно будет …» над кнопкой, экран не меняется.
+
+    Всплывашка — простой текст без `<tg-time>`, поэтому дата в ней по Москве.
+    """
     text = ctx.texts.get("revoke_link.too_soon", available_at=format_moscow(available_at))
     await ctx.delivery.answer(callback, alert=text)
 
