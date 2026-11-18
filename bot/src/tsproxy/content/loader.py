@@ -289,6 +289,8 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         "instructions.windows",
         "instructions.macos",
         "instructions.linux",
+        "instructions.open_page_link",  # задача 17
+        "instructions.open_page_connect",
         "throttle.callback",
         "throttle.message",
         "errors.generic",
