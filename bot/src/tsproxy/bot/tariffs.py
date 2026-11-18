@@ -35,6 +35,7 @@ from tsproxy.bot.callbacks import (
     TariffCallback,
     TariffScreenCallback,
 )
+from tsproxy.bot.chat_typing import TYPING
 from tsproxy.bot.context import BotContext, profile_of
 from tsproxy.bot.screens import Screen
 from tsproxy.content.loader import Tariff, Texts
@@ -215,8 +216,8 @@ def create_tariffs_router() -> Router:
     router.message.register(on_buy_command, Command(BUY_COMMAND))
     router.callback_query.register(on_tariffs, MenuCallback.filter(F.screen == ScreenId.TARIFFS))
     router.callback_query.register(on_tariff_screen, TariffScreenCallback.filter())
-    router.callback_query.register(on_tariff, TariffCallback.filter())
-    router.callback_query.register(on_payment_check, PaymentCheckCallback.filter())
+    router.callback_query.register(on_tariff, TariffCallback.filter(), flags=TYPING)
+    router.callback_query.register(on_payment_check, PaymentCheckCallback.filter(), flags=TYPING)
     return router
 
 
