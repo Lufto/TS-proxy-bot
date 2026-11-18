@@ -38,9 +38,9 @@ from tsproxy.bot.callbacks import (
 from tsproxy.bot.chat_typing import TYPING
 from tsproxy.bot.context import BotContext, profile_of
 from tsproxy.bot.screens import Screen
+from tsproxy.content.dates import client_time
 from tsproxy.content.loader import Tariff, Texts
 from tsproxy.db.models import Client
-from tsproxy.domain.dates import format_moscow
 from tsproxy.domain.money import format_rubles
 from tsproxy.integrations.payments_types import PaymentRejected, PaymentUnavailable
 from tsproxy.services.orders import (
@@ -173,7 +173,7 @@ class TariffScreens:
             "payment.screen",
             title=checkout.tariff.title,
             price=price,
-            expires_at=format_moscow(checkout.expires_at),
+            expires_at=client_time(checkout.expires_at),
         )
         rows = [
             [

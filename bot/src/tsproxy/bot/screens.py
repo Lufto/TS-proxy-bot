@@ -14,9 +14,9 @@ from tsproxy.bot.callbacks import (
     Platform,
     ScreenId,
 )
+from tsproxy.content.dates import client_time
 from tsproxy.content.loader import Texts
 from tsproxy.domain.constants import TRIAL_DEVICE_LIMIT, TRIAL_TRAFFIC_GB
-from tsproxy.domain.dates import format_moscow
 from tsproxy.integrations.remnawave_types import AccountStatus, ProxyAccount
 
 logger = logging.getLogger(__name__)
@@ -180,7 +180,7 @@ class Screens:
     def connect(self, account: ProxyAccount) -> Screen:
         """«Подключиться»: страница подписки и копирование ссылки."""
         rows = self._link_rows(account)
-        expire_at = format_moscow(account.expire_at)
+        expire_at = client_time(account.expire_at)
         if account.status is AccountStatus.ACTIVE:
             text = self._texts.get("connect.active", expire_at=expire_at)
         else:
@@ -209,7 +209,7 @@ class Screens:
         rows += [[self._button("buttons.instructions", ScreenId.INSTRUCTIONS)], self._back()]
         text = self._texts.get(
             "trial.granted",
-            expire_at=format_moscow(account.expire_at),
+            expire_at=client_time(account.expire_at),
             traffic_gb=TRIAL_TRAFFIC_GB,
             device_limit=TRIAL_DEVICE_LIMIT,
         )
