@@ -30,6 +30,7 @@ from tsproxy.bot.callbacks import MenuCallback, ScreenId
 from tsproxy.bot.connect import PANEL_DOWN_ERRORS
 from tsproxy.bot.context import BotContext
 from tsproxy.bot.screens import Screen
+from tsproxy.content.dates import client_time
 from tsproxy.content.loader import Html, Texts
 from tsproxy.domain.admin import parse_client_query
 from tsproxy.domain.constants import ONE_DAY
@@ -189,7 +190,7 @@ async def _tell_new_account(ctx: BotContext, to_id: int, done: TransferDone) -> 
         callback_data=MenuCallback(screen=ScreenId.CONNECT).pack(),
     )
     screen = Screen(
-        ctx.texts.get("transfer.received", expire_at=format_moscow(done.to_expire_at)),
+        ctx.texts.get("transfer.received", expire_at=client_time(done.to_expire_at)),
         InlineKeyboardMarkup(inline_keyboard=[[connect]]),
     )
     try:

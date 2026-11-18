@@ -9,8 +9,8 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from tsproxy.bot.callbacks import DeviceCallback, MenuCallback, RevokeLinkCallback, ScreenId
 from tsproxy.bot.screens import BUTTON_STYLES, Screen
+from tsproxy.content.dates import client_time
 from tsproxy.content.loader import Texts
-from tsproxy.domain.dates import format_moscow
 from tsproxy.domain.profile import ProfileStatus, TimeLeft, format_gigabytes, plural_form
 from tsproxy.integrations.remnawave_types import Device
 from tsproxy.services.profile import DeviceList, Profile, device_ref
@@ -72,7 +72,7 @@ class ProfileScreens:
         """«Мой профиль»: статус, срок и остаток, устройства, трафик в пробном."""
         status = self._texts.get(
             STATUS_TEXTS[profile.status],
-            expire_at=format_moscow(profile.expire_at),
+            expire_at=client_time(profile.expire_at),
             left=self._left(profile.time_left),
         )
         slots = profile.devices
@@ -116,7 +116,7 @@ class ProfileScreens:
             :DEVICE_NAME_MAX_LENGTH
         ]
         system = " ".join(part for part in (device.platform, device.os_version) if part)
-        connected_at = format_moscow(device.created_at)
+        connected_at = client_time(device.created_at)
         if not system:
             return self._texts.get(
                 "devices.item_no_system", number=number, name=name, connected_at=connected_at
@@ -196,5 +196,5 @@ class ProfileScreens:
             [self._button("buttons.profile_back", ScreenId.PROFILE)],
             self._back(),
         ]
-        text = self._texts.get("revoke_link.too_soon", available_at=format_moscow(available_at))
+        text = self._texts.get("revoke_link.too_soon", available_at=client_time(available_at))
         return Screen(text, InlineKeyboardMarkup(inline_keyboard=rows))
