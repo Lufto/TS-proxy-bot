@@ -6,7 +6,13 @@ import logging
 import pytest
 from aiogram import Bot, Dispatcher
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
-from aiogram.methods import CopyMessage, CreateForumTopic, SendMessage
+from aiogram.methods import (
+    CopyMessage,
+    CreateForumTopic,
+    DeleteMessage,
+    EditMessageReplyMarkup,
+    SendMessage,
+)
 from aiogram.types import (
     Chat,
     InlineKeyboardMarkup,
@@ -23,6 +29,7 @@ from bot_updates import (
     CLIENT_ID,
     DATE,
     OTHER_CLIENT_ID,
+    message,
     private_chat,
     user,
 )
@@ -551,6 +558,95 @@ async def test_admin_photo_goes_to_client_with_signature(
         "admin-photo",
         "photo",
     )
+
+
+# --- Живое меню (задача bot-telegram-ui/25) ---
+
+
+def stripped_ids(telegram: FakeTelegramSession) -> list[int | None]:
+    """Сообщения клиента, у которых бот снял кнопки."""
+    edits = telegram.sent(EditMessageReplyMarkup)
+    assert all(edit.reply_markup is None for edit in edits)
+    return [edit.message_id for edit in edits if edit.chat_id == CLIENT_ID]
+
+
+async def test_ticket_accepted_loses_only_buttons_under_new_menu(
+    dispatcher: Dispatcher,
+    bot: Bot,
+    telegram: FakeTelegramSession,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    await open_ticket(dispatcher, bot, session_factory)
+    accepted_id = telegram.last_message_id
+
+    await dispatcher.feed_update(bot, message(user(CLIENT_ID), "/start"))
+
+    assert telegram.sent(DeleteMessage) == []  # переписку и «Обращение принято» не удаляем
+    assert stripped_ids(telegram) == [accepted_id]
+
+
+async def test_support_reply_replaces_previous_menu_and_keeps_its_text(
+    dispatcher: Dispatcher,
+    bot: Bot,
+    telegram: FakeTelegramSession,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Ответ поддержки — живое меню: гасит кнопки «Обращение принято», а при новом меню
+    сам теряет только кнопки."""
+    topic_id = await open_ticket(dispatcher, bot, session_factory)
+    accepted_id = telegram.last_message_id
+    await dispatcher.feed_update(bot, topic_text("Переустановите Happ", topic_id))
+    reply_id = telegram.last_message_id
+
+    assert stripped_ids(telegram) == [accepted_id]
+
+    await dispatcher.feed_update(bot, message(user(CLIENT_ID), "/start"))
+
+    assert telegram.sent(DeleteMessage) == []
+    assert stripped_ids(telegram) == [accepted_id, reply_id]
+
+
+async def test_support_photo_reply_is_live_menu_too(
+    dispatcher: Dispatcher,
+    bot: Bot,
+    telegram: FakeTelegramSession,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Ответ с фото уходит копией (`copyMessage`) — его тоже помним."""
+    topic_id = await open_ticket(dispatcher, bot, session_factory)
+    photo = Message(
+        message_id=next(_ids),
+        date=DATE,
+        chat=ADMIN_GROUP,
+        from_user=user(ADMIN_ID, first_name="Админ", username=None),
+        photo=[PhotoSize(file_id="admin-photo", file_unique_id="a", width=800, height=600)],
+        message_thread_id=topic_id,
+        is_topic_message=True,
+    )
+    await dispatcher.feed_update(bot, _update(photo))
+    reply_id = telegram.last_message_id
+
+    await dispatcher.feed_update(bot, message(user(CLIENT_ID), "/start"))
+
+    assert telegram.sent(DeleteMessage) == []
+    assert stripped_ids(telegram)[-1] == reply_id
+
+
+async def test_rejected_support_reply_keeps_previous_menu(
+    dispatcher: Dispatcher,
+    bot: Bot,
+    telegram: FakeTelegramSession,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    topic_id = await open_ticket(dispatcher, bot, session_factory)
+    accepted_id = telegram.last_message_id
+    telegram.fail_next(SendMessage, TelegramBadRequest, "Bad Request: message is too long")
+    await dispatcher.feed_update(bot, topic_text("Очень длинный ответ", topic_id))
+    assert stripped_ids(telegram) == []
+
+    await dispatcher.feed_update(bot, message(user(CLIENT_ID), "/start"))
+
+    assert stripped_ids(telegram) == [accepted_id]
 
 
 # --- Мелкие правила ---

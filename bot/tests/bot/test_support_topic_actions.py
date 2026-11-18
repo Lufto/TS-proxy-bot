@@ -16,7 +16,7 @@ from aiogram.methods import (
     SendMessage,
 )
 from aiogram.types import InlineKeyboardMarkup, Update
-from bot_updates import ADMIN_CHAT_ID, ADMIN_ID, CLIENT_ID, NOW, callback, user
+from bot_updates import ADMIN_CHAT_ID, ADMIN_ID, CLIENT_ID, NOW, callback, message, user
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from test_support_bot import (
@@ -53,7 +53,6 @@ from tsproxy.services.fakes import FakeClock
 
 STRANGER_ID = 555  # не администратор, но состоит в группе
 CARD_MESSAGE_ID = 3001  # сообщение бота с кнопками в теме
-REPLY_MESSAGE_ID = 3002  # ответ поддержки в чате клиента
 
 
 def buttons(markup: InlineKeyboardMarkup | None) -> list[tuple[str, str | None]]:
@@ -399,6 +398,32 @@ async def test_quick_reply_goes_to_client_and_is_shown_in_topic(
     assert await journal(session_factory) == []  # ответы в журнал не пишем
 
 
+async def test_quick_reply_is_live_menu_with_kept_text(
+    dispatcher: Dispatcher,
+    bot: Bot,
+    telegram: FakeTelegramSession,
+    session_factory: async_sessionmaker[AsyncSession],
+    content: Content,
+) -> None:
+    """Заготовка — как ответ поддержки (задача 25): гасит кнопки «Обращение принято»,
+    при новом меню сама теряет только кнопки."""
+    await open_ticket(dispatcher, bot, session_factory)
+    accepted_id = telegram.last_message_id
+    reply_id = quick_reply_ids(content.admin_texts)[0]
+    await dispatcher.feed_update(
+        bot, press_quick_reply(await ticket_id_of(session_factory), reply_id)
+    )
+    sent_id = (await transcript(session_factory))[-1].client_message_id
+
+    await dispatcher.feed_update(bot, message(user(CLIENT_ID), "/start"))
+
+    stripped = [
+        e.message_id for e in telegram.sent(EditMessageReplyMarkup) if e.chat_id == CLIENT_ID
+    ]
+    assert stripped == [accepted_id, sent_id]
+    assert [d for d in telegram.sent(DeleteMessage) if d.chat_id == CLIENT_ID] == []
+
+
 async def test_to_menu_under_support_reply_opens_main_menu_and_keeps_reply(
     dispatcher: Dispatcher,
     bot: Bot,
@@ -407,8 +432,10 @@ async def test_to_menu_under_support_reply_opens_main_menu_and_keeps_reply(
     content: Content,
 ) -> None:
     topic_id = await open_ticket(dispatcher, bot, session_factory)
+    accepted_id = telegram.last_message_id
     await dispatcher.feed_update(bot, topic_text("Переустановите Happ", topic_id))
     reply = [m for m in telegram.sent(SendMessage) if m.chat_id == CLIENT_ID][-1]
+    reply_id = telegram.last_message_id
     [(_, data)] = buttons(reply.reply_markup)  # type: ignore[arg-type]
 
     await dispatcher.feed_update(
@@ -416,7 +443,7 @@ async def test_to_menu_under_support_reply_opens_main_menu_and_keeps_reply(
         callback(
             user(CLIENT_ID),
             data or "",
-            message_id=REPLY_MESSAGE_ID,
+            message_id=reply_id,
             markup=reply.reply_markup,  # type: ignore[arg-type]
         ),
     )
@@ -424,10 +451,10 @@ async def test_to_menu_under_support_reply_opens_main_menu_and_keeps_reply(
     menu = [m for m in telegram.sent(SendMessage) if m.chat_id == CLIENT_ID][-1]
     assert menu.text == content.texts.get("menu.title")
     assert telegram.sent(DeleteMessage) == []  # текст ответа поддержки не удаляем
-    # гаснут кнопки нажатого ответа и прошлого живого меню — «Обращение принято» (задача 24)
-    pressed, accepted = telegram.sent(EditMessageReplyMarkup)
-    assert (pressed.message_id, pressed.reply_markup) == (REPLY_MESSAGE_ID, None)
-    assert accepted.message_id != REPLY_MESSAGE_ID and accepted.reply_markup is None
+    # ответ погасил кнопки «Обращение принято» (задача 25), нажатие — кнопки самого ответа
+    accepted, pressed = telegram.sent(EditMessageReplyMarkup)
+    assert (accepted.message_id, accepted.reply_markup) == (accepted_id, None)
+    assert (pressed.message_id, pressed.reply_markup) == (reply_id, None)
 
 
 async def test_quick_reply_menu_can_be_hidden(

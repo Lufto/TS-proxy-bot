@@ -45,6 +45,7 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     LabeledPrice,
     Message,
+    MessageId,
     TelegramObject,
 )
 
@@ -173,7 +174,21 @@ class ClientDelivery:
         меню, которое бот помнит, убрать. `None` — клиент заблокировал бота."""
         sent = await self._send(telegram_id, screen)
         if sent is not None:
-            previous = self._remember(telegram_id, sent, screen)
+            previous = self._remember_screen(telegram_id, sent, screen)
+            if previous is not None:
+                await self._take_down(telegram_id, previous)
+        return sent
+
+    async def send_kept[T: Message | MessageId](
+        self, telegram_id: int, request: Awaitable[T]
+    ) -> T | None:
+        """Сообщение с сохраняемым текстом и кнопками, которое уходит мимо `send` (ответ
+        поддержки: копия с подписью, ответ на сообщение клиента). Кнопки размечает
+        вызывающий (`kept_markup`). Как `send`: становится живым меню, прошлое убирается.
+        `None` — клиент заблокировал бота."""
+        sent = await self.call(telegram_id, request)
+        if sent is not None:
+            previous = self._remember(telegram_id, LiveMenu(sent.message_id, keeps_text=True))
             if previous is not None:
                 await self._take_down(telegram_id, previous)
         return sent
@@ -184,13 +199,20 @@ class ClientDelivery:
             telegram_id, self._bot.send_message(telegram_id, screen.text, reply_markup=markup)
         )
 
-    def _remember(self, telegram_id: int, sent: Message, screen: Screen) -> LiveMenu | None:
-        """Запомнить новое живое меню (если у него есть кнопки, которые нажимают) и вернуть
-        прошлое. Без ожиданий внутри: два экрана подряд не запомнят одно прошлое дважды."""
+    def _remember(self, telegram_id: int, menu: LiveMenu | None) -> LiveMenu | None:
+        """Запомнить новое живое меню (`None` — у сообщения нет кнопок, которые нажимают)
+        и вернуть прошлое. Без ожиданий внутри: два экрана подряд не запомнят одно прошлое
+        дважды."""
         previous = self._live_menus.pop(telegram_id, None)
-        if has_pressable_buttons(screen.markup):
-            self._live_menus[telegram_id] = LiveMenu(sent.message_id, screen.keeps_text)
+        if menu is not None:
+            self._live_menus[telegram_id] = menu
         return previous
+
+    def _remember_screen(self, telegram_id: int, sent: Message, screen: Screen) -> LiveMenu | None:
+        menu = None
+        if has_pressable_buttons(screen.markup):
+            menu = LiveMenu(sent.message_id, screen.keeps_text)
+        return self._remember(telegram_id, menu)
 
     async def _take_down(self, telegram_id: int, menu: LiveMenu) -> None:
         """Убрать прошлое живое меню: сохраняемый текст теряет только кнопки."""
@@ -243,7 +265,7 @@ class ClientDelivery:
         sent = await self._send(telegram_id, screen)
         if sent is None:
             return  # клиент заблокировал бота — убирать нечего
-        previous = self._remember(telegram_id, sent, screen)
+        previous = self._remember_screen(telegram_id, sent, screen)
         pressed = callback.message
         pressed_id = None
         if isinstance(pressed, Message):  # иначе Telegram не прислал: сообщение недоступно

@@ -303,7 +303,7 @@ async def _reply_to_client(
             ticket.id, message.reply_to_message.message_id
         )
     try:
-        delivered = await ctx.delivery.call(
+        delivered = await ctx.delivery.send_kept(
             ticket.client_telegram_id, _send_reply(message, ticket, reply_to, bot, ctx)
         )
     except TelegramBadRequest as error:
