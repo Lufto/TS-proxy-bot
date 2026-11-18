@@ -51,6 +51,8 @@ MESSAGE_NOT_DELETABLE = (
     "message can't be deleted",  # старше 48 часов («… for everyone») или служебное
     "message to delete not found",  # клиент уже удалил
 )
+# Ответ на нажатие опоздал (бот долго ждал панель или платёжку) — Telegram его уже не примет
+QUERY_TOO_OLD = "query is too old"
 MESSAGE_NOT_MODIFIED = "message is not modified"  # правка ничего не меняет
 # Ответы Telegram на «снять кнопки», которые не ошибка бота
 BUTTONS_ALREADY_GONE = (
@@ -169,6 +171,19 @@ class ClientDelivery:
                 reply_markup=invoice.markup,
             ),
         )
+
+    async def answer(self, callback: CallbackQuery, *, alert: str | None = None) -> None:
+        """Ответить на нажатие. `alert` — короткий ответ (до 200 символов) всплывашкой над
+        кнопкой вместо отдельного экрана.
+
+        Опоздавший ответ (`query is too old`) не ошибка: экран после него всё равно показываем.
+        """
+        try:
+            await callback.answer(alert, show_alert=alert is not None)
+        except TelegramBadRequest as error:
+            if QUERY_TOO_OLD not in error.message:
+                raise
+            logger.info("Ответ на нажатие клиента %s опоздал: %s", callback.from_user.id, error)
 
     async def show(self, callback: CallbackQuery, screen: Screen) -> None:
         """Живое меню: экран — новым сообщением, нажатое сообщение убрать (`remove`).

@@ -3,7 +3,11 @@
 Клиент — всегда `from_user.id` нажавшего. Кнопка «Удалить» несёт только короткую
 ссылку на устройство; сервис ищет его среди устройств нажавшего (аудит §4.3).
 Кнопки перевыпуска (задача 31) не несут ничего: перевыпускается только своя ссылка.
+Раньше суток кнопка на профиле и устройствах серая (Bot API `disabled`), рядом — когда
+снова можно; старая или подделанная кнопка получает отказ всплывашкой, экран не меняется.
 """
+
+from datetime import datetime
 
 from aiogram import F, Router
 from aiogram.enums import ChatType
@@ -17,6 +21,7 @@ from tsproxy.bot.context import BotContext, profile_of
 from tsproxy.bot.profile_screens import ProfileScreens
 from tsproxy.bot.screens import Screen
 from tsproxy.db.models import Client
+from tsproxy.domain.dates import format_moscow
 from tsproxy.services.link_revoke import LinkRevoked, LinkRevokeNoAccount, LinkRevokeTooSoon
 
 PROFILE_COMMAND = "profile"
@@ -50,7 +55,8 @@ async def profile_screen(ctx: BotContext, client: Client) -> Screen:
         return await panel_unavailable_screen(ctx, client.telegram_id, error, profile_screen)
     if profile is None:
         return await _no_account(ctx, screens)
-    return screens.profile(profile)
+    available_at = await ctx.link_revokes.available_at(client)
+    return screens.profile(profile, revoke_available_at=available_at)
 
 
 async def _no_account(ctx: BotContext, screens: ProfileScreens) -> Screen:
@@ -82,7 +88,8 @@ async def devices_screen(ctx: BotContext, client: Client) -> Screen:
         return await panel_unavailable_screen(ctx, client.telegram_id, error, devices_screen)
     if devices is None:
         return await _no_account(ctx, screens)
-    return screens.devices(devices)
+    available_at = await ctx.link_revokes.available_at(client)
+    return screens.devices(devices, revoke_available_at=available_at)
 
 
 async def on_devices(callback: CallbackQuery, ctx: BotContext) -> None:
@@ -107,23 +114,40 @@ async def on_delete_device(
             screen = await _no_account(ctx, screens)
         else:
             notice = "devices.deleted" if result.deleted else "devices.not_found"
-            screen = screens.devices(result.devices, notice_key=notice)
+            available_at = await ctx.link_revokes.available_at(client)
+            screen = screens.devices(
+                result.devices, notice_key=notice, revoke_available_at=available_at
+            )
     await ctx.delivery.show(callback, screen)
+
+
+async def _refuse_too_soon(
+    callback: CallbackQuery, ctx: BotContext, available_at: datetime
+) -> None:
+    """Раньше суток: всплывашка «можно будет …» над кнопкой, экран не меняется.
+
+    Всплывашка — простой текст без `<tg-time>`, поэтому дата в ней по Москве.
+    """
+    text = ctx.texts.get("revoke_link.too_soon", available_at=format_moscow(available_at))
+    await ctx.delivery.answer(callback, alert=text)
 
 
 async def on_revoke_ask(callback: CallbackQuery, ctx: BotContext) -> None:
-    """«Перевыпустить ссылку»: предупреждение или сразу «можно будет …», если раньше суток."""
-    await callback.answer()
+    """«Перевыпустить ссылку»: предупреждение; раньше суток (старая кнопка) — всплывашка."""
     client = await ctx.clients.resolve(profile_of(callback.from_user))
-    screens = ProfileScreens(ctx.texts)
     available_at = await ctx.link_revokes.available_at(client)
-    screen = screens.revoke_ask() if available_at is None else screens.revoke_too_soon(available_at)
-    await ctx.delivery.show(callback, screen)
+    if available_at is not None:
+        await _refuse_too_soon(callback, ctx, available_at)
+        return
+    await ctx.delivery.answer(callback)
+    await ctx.delivery.show(callback, ProfileScreens(ctx.texts).revoke_ask())
 
 
 async def on_revoke(callback: CallbackQuery, ctx: BotContext) -> None:
-    """«Да, перевыпустить»: новая ссылка — экраном как в «Подключиться»."""
-    await callback.answer()
+    """«Да, перевыпустить»: новая ссылка — экраном как в «Подключиться».
+
+    На нажатие отвечаем после итога: отказ «раньше суток» — всплывашкой над кнопкой.
+    """
     client = await ctx.clients.resolve(profile_of(callback.from_user))
     screens = ProfileScreens(ctx.texts)
     try:
@@ -135,7 +159,9 @@ async def on_revoke(callback: CallbackQuery, ctx: BotContext) -> None:
             case LinkRevoked(account):
                 screen = ctx.screens.access_granted(ctx.texts.get("revoke_link.done"), account)
             case LinkRevokeTooSoon(available_at):
-                screen = screens.revoke_too_soon(available_at)
+                await _refuse_too_soon(callback, ctx, available_at)
+                return
             case LinkRevokeNoAccount():
                 screen = screens.no_account(trial_available=await ctx.trial_switch.enabled())
+    await ctx.delivery.answer(callback)
     await ctx.delivery.show(callback, screen)

@@ -4,6 +4,9 @@
 отсекает `TrialService` (атомарная отметка в базе). Панель не ответила или не приняла
 токен — пробный за клиентом: фоновая задача `deliver_pending_trials` выдаст его и пришлёт
 ссылку сама. Вид сбоя («токен не принят») тревога берёт из ошибки.
+
+Отказы («уже использовали», «уже есть подписка», «временно недоступен») — всплывашкой
+над кнопкой (`REFUSALS`), экран не меняется: на нажатие отвечаем после итога.
 """
 
 import logging
@@ -34,29 +37,35 @@ def create_trial_router() -> Router:
     return router
 
 
+# Отказы — всплывашкой над кнопкой, экран не меняется (задача 20, bot-telegram-ui)
+REFUSALS: dict[TrialOutcome, str] = {
+    TrialOutcome.ALREADY_USED: "trial.already_used",
+    TrialOutcome.HAS_SUBSCRIPTION: "trial.has_subscription",
+    TrialOutcome.DISABLED: "trial.disabled",
+}
+
+
 def trial_screen(screens: Screens, result: TrialResult) -> Screen | None:
     """Экран по итогу нажатия. `None` — сообщение не трогаем: его обновит другое нажатие."""
     match result.outcome:
         case TrialOutcome.GRANTED if result.account is not None:
             return screens.trial_granted(result.account)
-        case TrialOutcome.ALREADY_USED:
-            return screens.trial_already_used()
-        case TrialOutcome.HAS_SUBSCRIPTION:
-            return screens.trial_has_subscription()
         case TrialOutcome.PENDING:
             return screens.trial_pending()
-        case TrialOutcome.DISABLED:
-            return screens.trial_disabled()
         case TrialOutcome.IN_PROGRESS:
             return None
     raise ValueError(f"Неожиданный результат пробного: {result.outcome}")
 
 
 async def on_trial(callback: CallbackQuery, ctx: BotContext) -> None:
-    # Отвечаем на нажатие сразу: панель может думать до нескольких секунд
-    await callback.answer()
+    """На нажатие отвечаем после итога: отказ — всплывашкой, пока клиент ждёт — «печатает…»."""
     client = await ctx.clients.resolve(profile_of(callback.from_user))
     result = await ctx.trials.start(client.id, callback.from_user.id)
+    refusal = REFUSALS.get(result.outcome)
+    if refusal is not None:
+        await ctx.delivery.answer(callback, alert=ctx.texts.get(refusal))
+        return
+    await ctx.delivery.answer(callback)
     if result.outcome is TrialOutcome.PENDING:
         await ctx.alerter.alert(
             REMNAWAVE_TRIAL_ALERT,

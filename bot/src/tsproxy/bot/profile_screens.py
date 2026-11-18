@@ -5,7 +5,7 @@
 
 from datetime import datetime
 
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import DisabledButton, InlineKeyboardButton, InlineKeyboardMarkup
 
 from tsproxy.bot.callbacks import DeviceCallback, MenuCallback, RevokeLinkCallback, ScreenId
 from tsproxy.bot.screens import BUTTON_STYLES, Screen
@@ -78,8 +78,11 @@ class ProfileScreens:
             parts.append(self._count("hours", left.hours))
         return " ".join(parts) or self._texts.get("units.less_than_hour")
 
-    def profile(self, profile: Profile) -> Screen:
-        """«Мой профиль»: статус, срок и остаток, устройства, трафик в пробном."""
+    def profile(self, profile: Profile, *, revoke_available_at: datetime | None = None) -> Screen:
+        """«Мой профиль»: статус, срок и остаток, устройства, трафик в пробном.
+
+        `revoke_available_at` — когда снова можно перевыпустить ссылку (`None` — можно сейчас).
+        """
         status = self._texts.get(
             STATUS_TEXTS[profile.status],
             expire_at=client_time(profile.expire_at),
@@ -98,13 +101,20 @@ class ProfileScreens:
                     limit=format_gigabytes(profile.traffic.limit_bytes),
                 )
             )
-        text = PARAGRAPH.join([self._texts.get("profile.title"), status, "\n".join(details)])
+        text = PARAGRAPH.join(
+            [
+                self._texts.get("profile.title"),
+                status,
+                "\n".join(details),
+                *self._revoke_note(revoke_available_at),
+            ]
+        )
         action_key, action_screen = STATUS_ACTIONS[profile.status]
         rows = [
             [self._button("buttons.devices", ScreenId.DEVICES)],
             [self._button(action_key, action_screen)],
             [self._button("buttons.connect", ScreenId.CONNECT)],
-            self._revoke_row(),
+            self._revoke_row(revoke_available_at),
             self._back(),
         ]
         return Screen(text, InlineKeyboardMarkup(inline_keyboard=rows))
@@ -146,20 +156,28 @@ class ProfileScreens:
             connected_at=connected_at,
         )
 
-    def devices(self, devices: DeviceList, *, notice_key: str | None = None) -> Screen:
+    def devices(
+        self,
+        devices: DeviceList,
+        *,
+        notice_key: str | None = None,
+        revoke_available_at: datetime | None = None,
+    ) -> Screen:
         """«Мои устройства»: список и «Удалить» у каждого.
 
         `notice_key` — итог удаления («удалено» или «уже нет») над списком.
+        `revoke_available_at` — когда снова можно перевыпустить ссылку (`None` — можно сейчас).
         """
         notice = [] if notice_key is None else [self._texts.get(notice_key)]
+        revoke_note = self._revoke_note(revoke_available_at)
         # Удаление только освобождает место — выгнать чужое устройство может лишь перевыпуск
         back_rows = [
-            self._revoke_row(),
+            self._revoke_row(revoke_available_at),
             [self._button("buttons.profile_back", ScreenId.PROFILE)],
             self._back(),
         ]
         if not devices.devices:
-            text = PARAGRAPH.join([self._texts.get("devices.empty"), *notice])
+            text = PARAGRAPH.join([self._texts.get("devices.empty"), *notice, *revoke_note])
             rows = [[self._button("buttons.connect", ScreenId.CONNECT)], *back_rows]
             return Screen(text, InlineKeyboardMarkup(inline_keyboard=rows))
         used = len(devices.devices)
@@ -168,7 +186,8 @@ class ProfileScreens:
         else:
             title = self._texts.get("devices.title", used=used, limit=devices.limit)
         items = [self._device(number, d) for number, d in enumerate(devices.devices, start=1)]
-        text = PARAGRAPH.join([title, *notice, *items, self._texts.get("devices.hint")])
+        hint = self._texts.get("devices.hint")
+        text = PARAGRAPH.join([title, *notice, *items, hint, *revoke_note])
         rows = [
             [
                 InlineKeyboardButton(
@@ -184,8 +203,19 @@ class ProfileScreens:
 
     # --- Перевыпуск ссылки (задача 31) ---
 
-    def _revoke_row(self) -> list[InlineKeyboardButton]:
-        return [self._button("buttons.revoke_link", ScreenId.REVOKE_LINK)]
+    def _revoke_row(self, available_at: datetime | None) -> list[InlineKeyboardButton]:
+        """«Перевыпустить ссылку»; раньше суток — серая неактивная (Bot API `disabled`)."""
+        if available_at is None:
+            return [self._button("buttons.revoke_link", ScreenId.REVOKE_LINK)]
+        text = self._texts.get("buttons.revoke_link")
+        return [InlineKeyboardButton(text=text, disabled=DisabledButton())]
+
+    def _revoke_note(self, available_at: datetime | None) -> list[str]:
+        """Рядом с серой кнопкой — когда перевыпуск снова можно."""
+        if available_at is None:
+            return []
+        when = client_time(available_at)
+        return [self._texts.get("revoke_link.available_at", available_at=when)]
 
     def revoke_ask(self) -> Screen:
         """Предупреждение: старая ссылка перестанет работать на всех устройствах."""
@@ -202,16 +232,3 @@ class ProfileScreens:
         return Screen(
             self._texts.get("revoke_link.ask"), InlineKeyboardMarkup(inline_keyboard=rows)
         )
-
-    def revoke_too_soon(self, available_at: datetime) -> Screen:
-        """Раньше суток с прошлого перевыпуска: когда можно снова.
-
-        Нынешняя ссылка — в «Подключиться»: туда же попадёт и второе из двух «Да».
-        """
-        rows = [
-            [self._button("buttons.connect", ScreenId.CONNECT)],
-            [self._button("buttons.profile_back", ScreenId.PROFILE)],
-            self._back(),
-        ]
-        text = self._texts.get("revoke_link.too_soon", available_at=client_time(available_at))
-        return Screen(text, InlineKeyboardMarkup(inline_keyboard=rows))

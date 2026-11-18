@@ -103,6 +103,7 @@ TEXT_PLACEHOLDERS: dict[str, set[str]] = {
     "devices.item": {"number", "name", "system", "connected_at"},
     "devices.item_no_system": {"number", "name", "connected_at"},
     "revoke_link.too_soon": {"available_at"},
+    "revoke_link.available_at": {"available_at"},
     # задача 11: льготный период
     "grace.started": {"until"},
     "grace.reminder": {"until"},
@@ -188,10 +189,7 @@ async def test_all_screens_use_only_required_texts(content: Content) -> None:
     screens.connect(account)
     screens.no_account(trial_available=True)
     screens.trial_granted(account)
-    screens.trial_already_used()
     screens.trial_pending()
-    screens.trial_has_subscription()
-    screens.trial_disabled()
     screens.unavailable()
     screens.error()
     screens.unknown_command()
@@ -203,9 +201,21 @@ def test_texts_placeholders_are_expected(content: Content) -> None:
         assert content.texts.placeholders(key) == expected, key
 
 
-@pytest.mark.parametrize("key", ["throttle.callback", "errors.stale_button"])
+@pytest.mark.parametrize(
+    "key",
+    [
+        "throttle.callback",
+        "errors.stale_button",
+        # задача 20 (bot-telegram-ui): отказы пробного — всплывашкой
+        "trial.already_used",
+        "trial.has_subscription",
+        "trial.disabled",
+    ],
+)
 def test_callback_answers_fit_telegram_limit(content: Content, key: str) -> None:
-    assert len(content.texts.get(key)) <= CALLBACK_ANSWER_MAX
+    text = content.texts.get(key)
+    assert len(text) <= CALLBACK_ANSWER_MAX
+    assert "<" not in text  # всплывашка показывает текст как есть, без разметки
 
 
 def test_callback_data_fits_telegram_limit(content: Content) -> None:

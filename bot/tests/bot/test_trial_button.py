@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 
 from aiogram import Bot, Dispatcher
-from aiogram.methods import SendMessage
+from aiogram.methods import AnswerCallbackQuery, SendMessage
 from aiogram.types import InlineKeyboardButton
 from bot_updates import ADMIN_CHAT_ID, CLIENT_ID, callback, user
 from sqlalchemy import select
@@ -75,8 +75,10 @@ async def test_second_press_says_trial_already_used(
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), TRIAL))
 
-    [screen] = telegram.sent(SendMessage)
-    assert screen.text == content.texts.get("trial.already_used")
+    # Отказ — всплывашкой над кнопкой, экран не меняется
+    [answer] = telegram.sent(AnswerCallbackQuery)
+    assert (answer.text, answer.show_alert) == (content.texts.get("trial.already_used"), True)
+    assert telegram.sent(SendMessage) == []  # нового экрана нет
     assert remnawave.writes == [("create", f"tg_{CLIENT_ID}")]
 
 
@@ -113,8 +115,9 @@ async def test_paying_client_gets_no_trial(
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), TRIAL))
 
-    [screen] = telegram.sent(SendMessage)
-    assert screen.text == content.texts.get("trial.has_subscription")
+    [answer] = telegram.sent(AnswerCallbackQuery)
+    assert (answer.text, answer.show_alert) == (content.texts.get("trial.has_subscription"), True)
+    assert telegram.sent(SendMessage) == []  # нового экрана нет
 
 
 async def test_panel_down_keeps_trial_and_alerts(
