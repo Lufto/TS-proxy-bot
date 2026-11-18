@@ -11,6 +11,7 @@ from aiogram.exceptions import TelegramAPIError
 from aiogram.types import Chat, ErrorEvent, Update, User
 
 from tsproxy.bot.context import BotContext
+from tsproxy.bot.delivery import KEPT_TEXT_MARK
 from tsproxy.content.loader import Texts
 from tsproxy.services.bot_errors import alert_bot_error
 
@@ -59,7 +60,9 @@ def _handled(update: Update, texts: Texts) -> str:
     """Что обрабатывалось: вид кнопки, команда без аргументов или «сообщение»."""
     if update.callback_query is not None:
         query = update.callback_query
-        button = (query.data or "").split(CALLBACK_SEPARATOR, 1)[0]
+        # метку сохраняемого текста снимает промежуточный слой, а сюда апдейт приходит как есть
+        data = (query.data or "").removeprefix(KEPT_TEXT_MARK)
+        button = data.split(CALLBACK_SEPARATOR, 1)[0]
         chat = query.message.chat if query.message is not None else None
         return texts.get("bot_error_action.button", button=button, chat=_chat(chat, texts))
     if update.message is not None:

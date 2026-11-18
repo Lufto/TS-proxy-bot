@@ -75,7 +75,6 @@ async def test_button_on_menu_younger_than_a_day_opens_pressed_screen(
     [
         menu_data(ScreenId.PROFILE),
         menu_data(ScreenId.DEVICES),
-        menu_data(ScreenId.TARIFFS),
         menu_data(ScreenId.SUPPORT),
         menu_data(ScreenId.REVOKE_LINK),
         InstructionsCallback(platform=Platform.IOS).pack(),
@@ -146,3 +145,24 @@ async def test_notice_button_after_a_day_opens_its_screen(
     [sent] = telegram.sent(SendMessage)
     assert sent.text == content.texts.get("tariffs.title")
     assert telegram.sent(DeleteMessage) == []  # уведомление не удаляется
+
+
+async def test_renew_button_of_notice_without_mark_opens_tariffs(
+    dispatcher: Dispatcher,
+    bot: Bot,
+    telegram: FakeTelegramSession,
+    content: Content,
+    clock: FakeClock,
+) -> None:
+    """Уведомление, отправленное до выкатки метки сохраняемого текста: «Продлить» на нём
+    через неделю всё равно открывает тарифы — намерение клиента видно по кнопке."""
+    data = menu_data(ScreenId.TARIFFS)
+    markup = InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="Продлить", callback_data=data)]]
+    )
+    clock.advance(timedelta(days=7))
+
+    await dispatcher.feed_update(bot, callback(user(CLIENT_ID), data, markup=markup))
+
+    [sent] = telegram.sent(SendMessage)
+    assert sent.text == content.texts.get("tariffs.title")

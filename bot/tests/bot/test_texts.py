@@ -2,6 +2,7 @@
 
 import re
 import shutil
+import unicodedata
 from pathlib import Path
 
 import pytest
@@ -38,6 +39,12 @@ FORBIDDEN_WORDS = re.compile(r"vpn|впн", re.IGNORECASE)
 # Кнопки клиента — без смайликов (спека «Кнопки»): кнопка начинается с буквы или цифры
 CLIENT_BUTTON = re.compile(r"^buttons\.|^faq\..+\.button$")
 # Цитата кнопки со смайликом в начале: «Подключиться»
+# Знаки, которые делают символ эмодзи: VS16 («ℹ️») и склейка (ZWJ)
+EMOJI_MODIFIERS = frozenset("\ufe0f\u200d")
+# Эмодзи, которые Unicode считает буквами
+EMOJI_LETTERS = frozenset("\u2139")  # ℹ
+# ⭐ после суммы — знак валюты (звёзды Telegram), а не иконка кнопки
+CURRENCY_SIGNS = frozenset("⭐")
 EMOJI_QUOTE = re.compile(r"«[^\w\s«»]+\s+\w[^»]*»")
 REPO_ROOT = REPO_CONTENT.parent.parent
 # Где кнопки бота цитируются клиенту: тексты бота и страницы сайта (старый и новый)
@@ -148,10 +155,30 @@ def test_no_vpn_word_in_texts(path: Path) -> None:
     assert FORBIDDEN_WORDS.findall(text) == []
 
 
+def has_emoji(text: str) -> bool:
+    """Эмодзи — символ-картинка (`So`), знак «показать как эмодзи» (VS16) или склейка (ZWJ).
+    «ℹ» Unicode считает буквой, поэтому `isalnum` его пропускает."""
+    return any(
+        (unicodedata.category(char) == "So" and char not in CURRENCY_SIGNS)
+        or char in EMOJI_MODIFIERS
+        or char in EMOJI_LETTERS
+        for char in text
+    )
+
+
+def test_emoji_detection_catches_letter_like_emoji() -> None:
+    assert has_emoji("ℹ️ О сервисе")
+    assert has_emoji("ℹ О сервисе")
+    assert has_emoji("🚀 Подключиться")
+    assert not has_emoji("Подключиться")
+    assert not has_emoji("« Назад")
+    assert not has_emoji("Stars — 270 ⭐")
+
+
 def test_client_buttons_have_no_emoji(content: Content) -> None:
     buttons = {key: text for key, text in content.texts._items.items() if CLIENT_BUTTON.search(key)}
     assert "buttons.connect" in buttons
-    assert {key: text for key, text in buttons.items() if not text[0].isalnum()} == {}
+    assert {key: text for key, text in buttons.items() if has_emoji(text)} == {}
 
 
 def test_do_not_forward_warning_only_on_connect_screen(content: Content) -> None:

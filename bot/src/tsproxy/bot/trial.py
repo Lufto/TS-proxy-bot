@@ -7,7 +7,9 @@
 кнопки (задача bot-telegram-ui/25). Вид сбоя («токен не принят») тревога берёт из ошибки.
 
 Отказы («уже использовали», «уже есть подписка», «временно недоступен») — всплывашкой
-над кнопкой (`REFUSALS`), экран не меняется: на нажатие отвечаем после итога.
+над кнопкой (`REFUSALS`), экран не меняется: на нажатие отвечаем после итога. Если
+панель думала так долго, что Telegram ответ уже не принял (`query is too old`), отказ
+приходит экраном с «В меню».
 """
 
 import logging
@@ -64,7 +66,10 @@ async def on_trial(callback: CallbackQuery, ctx: BotContext) -> None:
     result = await ctx.trials.start(client.id, callback.from_user.id)
     refusal = REFUSALS.get(result.outcome)
     if refusal is not None:
-        await ctx.delivery.answer(callback, alert=ctx.texts.get(refusal))
+        # панель могла думать дольше, чем Telegram ждёт ответа на нажатие: тогда отказ —
+        # экраном, иначе клиент не увидит ничего
+        if not await ctx.delivery.answer(callback, alert=ctx.texts.get(refusal)):
+            await ctx.delivery.show(callback, ctx.screens.refusal(refusal))
         return
     await ctx.delivery.answer(callback)
     if result.outcome is TrialOutcome.PENDING:

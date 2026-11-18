@@ -8,6 +8,7 @@ from aiogram.methods import SendMessage
 from bot_updates import BOT_TOKEN, CLIENT_ID, callback, message, user
 
 from tsproxy.bot.callbacks import MenuCallback, ScreenId
+from tsproxy.bot.delivery import KEPT_TEXT_MARK
 from tsproxy.bot.fakes import FakeTelegramSession
 from tsproxy.content.loader import Content
 from tsproxy.integrations.fakes import FakeRemnawave
@@ -54,6 +55,24 @@ async def test_handler_error_is_logged_alerted_and_apologized(
     assert texts.get("alert.bot_error.causes.1.cause") in alert.text
     [apology] = telegram.sent(SendMessage)
     assert (apology.chat_id, apology.text) == (CLIENT_ID, content.texts.get("errors.generic"))
+
+
+async def test_button_of_kept_text_is_named_without_mark(
+    dispatcher: Dispatcher,
+    bot: Bot,
+    remnawave: FakeRemnawave,
+    alert_sender: FakeAlertSender,
+    content: Content,
+) -> None:
+    """Кнопка уведомления несёт метку сохраняемого текста — в тревоге вид кнопки без неё."""
+    remnawave.fail_next(rejected_with_secret())
+
+    await dispatcher.feed_update(bot, callback(user(CLIENT_ID), KEPT_TEXT_MARK + CONNECT))
+
+    [alert] = alert_sender.sent
+    texts = content.admin_texts
+    private = texts.get("bot_error_action.chat.private")
+    assert texts.get("bot_error_action.button", button="menu", chat=private) in alert.text
 
 
 async def test_command_is_named(

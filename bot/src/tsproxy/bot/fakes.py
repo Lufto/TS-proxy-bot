@@ -2,7 +2,8 @@
 
 `Bot(token, session=FakeTelegramSession())` ведёт себя как настоящий, но ничего не шлёт:
 запросы копятся в `session.requests`, ответы собираются из самого запроса. Ошибку Telegram
-на следующий запрос нужного вида задаёт `fail_next(SendMessage, TelegramForbiddenError, "…")`.
+на следующий запрос нужного вида задаёт `fail_next(SendMessage, TelegramForbiddenError, "…")`,
+медленный Telegram — `hold(SendChatAction)`: запросы этого вида ждут, пока тест не отпустит.
 """
 
 import asyncio
@@ -43,6 +44,7 @@ class FakeTelegramSession(BaseSession):
             type[TelegramMethod[Any]], tuple[type[TelegramAPIError], str, dict[str, Any]]
         ] = {}
         self._next_message_id = FIRST_MESSAGE_ID
+        self._holds: dict[type[TelegramMethod[Any]], asyncio.Event] = {}
 
     # --- Помощники для тестов ---
 
@@ -58,6 +60,13 @@ class FakeTelegramSession(BaseSession):
         `extra` — дополнительные поля ошибки, например `retry_after=5` у `TelegramRetryAfter`.
         """
         self._failures[method_type] = (error_type, message, extra)
+
+    def hold(self, method_type: type[TelegramMethod[Any]]) -> asyncio.Event:
+        """Запросы вида `method_type` повиснут (Telegram думает), пока тест не вызовет
+        `set()` у возвращённого события."""
+        release = asyncio.Event()
+        self._holds[method_type] = release
+        return release
 
     @property
     def last_message_id(self) -> int:
@@ -79,6 +88,9 @@ class FakeTelegramSession(BaseSession):
         self.requests.append(method)
         if isinstance(method, GetUpdates):
             await asyncio.sleep(FAKE_POLL_DELAY_SECONDS)
+        release = self._holds.get(type(method))
+        if release is not None:
+            await release.wait()
         failure = self._failures.pop(type(method), None)
         if failure is not None:
             error_type, message, extra = failure
