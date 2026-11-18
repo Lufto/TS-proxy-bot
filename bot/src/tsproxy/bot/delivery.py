@@ -76,8 +76,9 @@ def _mark_button(button: InlineKeyboardButton) -> InlineKeyboardButton:
     return button.model_copy(update={"callback_data": data})
 
 
-def _kept_markup(markup: InlineKeyboardMarkup) -> InlineKeyboardMarkup:
-    """Кнопки сообщения с сохраняемым текстом — с меткой в данных."""
+def kept_markup(markup: InlineKeyboardMarkup) -> InlineKeyboardMarkup:
+    """Кнопки сообщения с сохраняемым текстом — с меткой в данных. Для сообщений, которые
+    уходят мимо `send` (ответы поддержки: копия с подписью), метку ставят сами."""
     rows = [[_mark_button(button) for button in row] for row in markup.inline_keyboard]
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -144,7 +145,7 @@ class ClientDelivery:
 
     async def send(self, telegram_id: int, screen: Screen) -> Message | None:
         """Новое сообщение клиенту. `None` — клиент заблокировал бота."""
-        markup = _kept_markup(screen.markup) if screen.keeps_text else screen.markup
+        markup = kept_markup(screen.markup) if screen.keeps_text else screen.markup
         return await self.call(
             telegram_id, self._bot.send_message(telegram_id, screen.text, reply_markup=markup)
         )

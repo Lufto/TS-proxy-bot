@@ -7,7 +7,15 @@ import pytest
 from aiogram import Bot, Dispatcher
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.methods import CopyMessage, CreateForumTopic, SendMessage
-from aiogram.types import Chat, Message, PhotoSize, Sticker, Update, User
+from aiogram.types import (
+    Chat,
+    InlineKeyboardMarkup,
+    Message,
+    PhotoSize,
+    Sticker,
+    Update,
+    User,
+)
 from bot_updates import (
     ADMIN_CHAT_ID,
     ADMIN_ID,
@@ -22,6 +30,8 @@ from conftest import ManualMonotonic
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from tsproxy.bot.callbacks import MenuCallback, ScreenId
+from tsproxy.bot.delivery import KEPT_TEXT_MARK
 from tsproxy.bot.fakes import FakeTelegramSession
 from tsproxy.bot.support_guard import KeyedLock
 from tsproxy.bot.throttling import is_command
@@ -145,6 +155,16 @@ async def open_ticket(
     return ticket.topic_id
 
 
+# Кнопка «В меню» под «Обращение принято» и под ответами поддержки. Данные кнопки несут
+# метку сохраняемого текста (`delivery.KEPT_TEXT_MARK`): при нажатии гаснут только кнопки
+TO_MENU = [("В меню", KEPT_TEXT_MARK + MenuCallback(screen=ScreenId.MAIN).pack())]
+
+
+def menu_buttons(markup: object) -> list[tuple[str, str | None]]:
+    assert isinstance(markup, InlineKeyboardMarkup)
+    return [(b.text, b.callback_data) for row in markup.inline_keyboard for b in row]
+
+
 def texts_to(telegram: FakeTelegramSession, chat_id: int) -> list[str]:
     return [m.text for m in telegram.sent(SendMessage) if m.chat_id == chat_id]
 
@@ -172,9 +192,13 @@ async def test_first_message_opens_ticket_with_topic(
         ticket.topic_id,
         CLIENT_ID,
     )
-    assert texts_to(telegram, CLIENT_ID) == [
-        content.texts.get("support.ticket_created", ticket_id=ticket.id)
-    ]
+    [accepted] = [m for m in telegram.sent(SendMessage) if m.chat_id == CLIENT_ID]
+    assert accepted.text == (
+        "Спасибо! Обращение принято — мы рассмотрим его в ближайшее время "
+        "и ответим здесь, в этом чате."
+    )
+    assert str(ticket.id) not in accepted.text  # номер обращения клиенту не показываем
+    assert menu_buttons(accepted.reply_markup) == TO_MENU
     [saved] = await transcript(session_factory)
     assert (saved.ticket_id, saved.author, saved.text) == (
         ticket.id,
@@ -367,6 +391,8 @@ async def test_admin_reply_goes_to_client_from_support(
 
     reply = texts_to(telegram, CLIENT_ID)[-1]
     assert reply == content.texts.get("support.reply_prefix") + "Переустановите Happ"
+    sent = [m for m in telegram.sent(SendMessage) if m.chat_id == CLIENT_ID][-1]
+    assert menu_buttons(sent.reply_markup) == TO_MENU
     saved = (await transcript(session_factory))[-1]
     assert (saved.author, saved.text) == (MessageAuthor.SUPPORT, "Переустановите Happ")
     assert saved.client_message_id is not None
@@ -518,6 +544,7 @@ async def test_admin_photo_goes_to_client_with_signature(
         photo.message_id,
     )
     assert copy.caption == content.texts.get("support.reply_prefix") + "Нажмите сюда"
+    assert menu_buttons(copy.reply_markup) == TO_MENU
     saved = (await transcript(session_factory))[-1]
     assert (saved.author, saved.file_id, saved.file_kind) == (
         MessageAuthor.SUPPORT,

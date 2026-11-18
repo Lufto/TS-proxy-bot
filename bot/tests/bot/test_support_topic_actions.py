@@ -11,6 +11,7 @@ from aiogram.methods import (
     CopyMessage,
     CreateForumTopic,
     DeleteMessage,
+    EditMessageReplyMarkup,
     EditMessageText,
     SendMessage,
 )
@@ -18,7 +19,14 @@ from aiogram.types import InlineKeyboardMarkup, Update
 from bot_updates import ADMIN_CHAT_ID, ADMIN_ID, CLIENT_ID, NOW, callback, user
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-from test_support_bot import client_text, open_ticket, tickets, topic_text, transcript
+from test_support_bot import (
+    TO_MENU,
+    client_text,
+    open_ticket,
+    tickets,
+    topic_text,
+    transcript,
+)
 
 from tsproxy.bot.admin_callbacks import AdminExtendCallback
 from tsproxy.bot.callbacks import (
@@ -45,6 +53,7 @@ from tsproxy.services.fakes import FakeClock
 
 STRANGER_ID = 555  # не администратор, но состоит в группе
 CARD_MESSAGE_ID = 3001  # сообщение бота с кнопками в теме
+REPLY_MESSAGE_ID = 3002  # ответ поддержки в чате клиента
 
 
 def buttons(markup: InlineKeyboardMarkup | None) -> list[tuple[str, str | None]]:
@@ -320,7 +329,7 @@ async def test_message_25_hours_after_closing_opens_new_ticket_and_topic(
     assert second.topic_id not in (None, first_topic)
     assert len(telegram.sent(CreateForumTopic)) == 2
     client_texts = [m.text for m in telegram.sent(SendMessage) if m.chat_id == CLIENT_ID]
-    assert client_texts[-1] == content.texts.get("support.ticket_created", ticket_id=second.id)
+    assert client_texts[-1] == content.texts.get("support.ticket_created")
 
 
 async def test_card_buttons_open_admin_actions_for_ticket_client(
@@ -375,6 +384,7 @@ async def test_quick_reply_goes_to_client_and_is_shown_in_topic(
 
     to_client = [m for m in telegram.sent(SendMessage) if m.chat_id == CLIENT_ID][-1]
     assert to_client.text == content.texts.get("support.reply_prefix") + reply_text
+    assert buttons(to_client.reply_markup) == TO_MENU  # type: ignore[arg-type]
     [edited] = telegram.sent(EditMessageText)
     assert edited.message_id == CARD_MESSAGE_ID
     assert edited.text.endswith(reply_text) and "Админ" in edited.text
@@ -387,6 +397,35 @@ async def test_quick_reply_goes_to_client_and_is_shown_in_topic(
     [ticket] = await tickets(session_factory)
     assert ticket.first_response_at is not None
     assert await journal(session_factory) == []  # ответы в журнал не пишем
+
+
+async def test_to_menu_under_support_reply_opens_main_menu_and_keeps_reply(
+    dispatcher: Dispatcher,
+    bot: Bot,
+    telegram: FakeTelegramSession,
+    session_factory: async_sessionmaker[AsyncSession],
+    content: Content,
+) -> None:
+    topic_id = await open_ticket(dispatcher, bot, session_factory)
+    await dispatcher.feed_update(bot, topic_text("Переустановите Happ", topic_id))
+    reply = [m for m in telegram.sent(SendMessage) if m.chat_id == CLIENT_ID][-1]
+    [(_, data)] = buttons(reply.reply_markup)  # type: ignore[arg-type]
+
+    await dispatcher.feed_update(
+        bot,
+        callback(
+            user(CLIENT_ID),
+            data or "",
+            message_id=REPLY_MESSAGE_ID,
+            markup=reply.reply_markup,  # type: ignore[arg-type]
+        ),
+    )
+
+    menu = [m for m in telegram.sent(SendMessage) if m.chat_id == CLIENT_ID][-1]
+    assert menu.text == content.texts.get("menu.title")
+    assert telegram.sent(DeleteMessage) == []  # текст ответа поддержки не удаляем
+    [stripped] = telegram.sent(EditMessageReplyMarkup)
+    assert (stripped.message_id, stripped.reply_markup) == (REPLY_MESSAGE_ID, None)
 
 
 async def test_quick_reply_menu_can_be_hidden(

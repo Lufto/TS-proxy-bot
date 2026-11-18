@@ -1,11 +1,14 @@
 """Поддержка через бота (задача 16): обращение = тема в группе администраторов.
 
 - Любое обычное сообщение клиента (не команда) — сообщение в поддержку. Первое открывает
-  обращение: бот создаёт тему в группе и подтверждает клиенту «Обращение #N создано».
+  обращение: бот создаёт тему в группе и отвечает клиенту «Обращение принято» — без номера,
+  с кнопкой «В меню» (задача bot-telegram-ui/14).
   Сообщение копируется в тему как есть (текст, фото, файлы, голосовые, видео); стикеры,
   контакты, геолокацию и т. п. не передаём. Больше 10 сообщений в минуту — просим подождать.
-- Сообщение администратора в теме обращения уходит клиенту от «Поддержки». Начинается
-  с `//` — внутренняя заметка, клиенту не уходит. Команды (`/…`) клиенту не уходят.
+- Сообщение администратора в теме обращения уходит клиенту от «Поддержки», под ним —
+  кнопка «В меню» (как и под быстрым ответом). Ответ и «Обращение принято» — сообщения
+  с сохраняемым текстом: при нажатии «В меню» у них гаснут только кнопки (`bot.delivery`).
+  Начинается с `//` — внутренняя заметка, клиенту не уходит. Команды (`/…`) клиенту не уходят.
 - Ответ на конкретное сообщение (reply) с одной стороны приходит ответом и с другой.
 - Переписка — в базе (`services.support`). Тексты сообщений в лог не пишем.
 - Задача 17: экран «Поддержка» сначала показывает частые вопросы; в начале темы — карточка
@@ -29,6 +32,7 @@ from aiogram.types import CallbackQuery, Message, MessageId, ReplyParameters, Us
 from tsproxy.bot.admin import AdminAccess, AdminFilter
 from tsproxy.bot.callbacks import FaqCallback, MenuCallback, ScreenId
 from tsproxy.bot.context import BotContext, profile_of
+from tsproxy.bot.delivery import kept_markup
 from tsproxy.bot.support_actions import (
     CardClientActions,
     register_ticket_actions,
@@ -185,8 +189,7 @@ async def _forward_to_topic(
     )
     logger.info("Обращение #%s: сообщение клиента %s", ticket.id, sender.id)
     if first_in_topic:
-        text = ctx.texts.get("support.ticket_created", ticket_id=ticket.id)
-        await _tell_client(ctx, message, text)
+        await ctx.delivery.send(sender.id, ctx.screens.ticket_accepted())
 
 
 async def _open_topic(bot: Bot, ctx: BotContext, ticket: TicketRef, sender: User) -> int | None:
@@ -327,9 +330,13 @@ async def _send_reply(
     """Отправить ответ клиенту с подписью «Поддержка:» (разметка администратора сохраняется)."""
     client_id = ticket.client_telegram_id
     prefix = ctx.texts.get("support.reply_prefix")
+    to_menu = kept_markup(ctx.screens.to_menu())  # текст ответа при нажатии не удаляется
     if message.content_type == ContentType.TEXT:
         return await bot.send_message(
-            client_id, prefix + message.html_text, reply_parameters=_reply(reply_to)
+            client_id,
+            prefix + message.html_text,
+            reply_parameters=_reply(reply_to),
+            reply_markup=to_menu,
         )
     caption = None if message.content_type in CAPTIONLESS_KINDS else prefix + message.html_text
     return await bot.copy_message(
@@ -338,6 +345,7 @@ async def _send_reply(
         message_id=message.message_id,
         caption=caption,
         reply_parameters=_reply(reply_to),
+        reply_markup=to_menu,
     )
 
 
