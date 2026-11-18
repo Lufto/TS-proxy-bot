@@ -429,6 +429,9 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         "stars.returned",
         "stars.return_failed",
         "stars.unrecorded",
+        # задача 29 (bot-telegram-ui): профиль бота, ставит scripts/set_bot_profile.py
+        "bot_profile.description",
+        "bot_profile.short_description",
     }
 )
 REQUIRED_ADMIN_TEXTS: frozenset[str] = frozenset(
