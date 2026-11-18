@@ -114,7 +114,7 @@ class ProfileScreens:
         key = MENU_STATUS_TEXTS.get(status.status)
         if key is None:
             return None
-        return self._texts.get(key, expire_at=format_moscow(status.expire_at))
+        return self._texts.get(key, expire_at=client_time(status.expire_at))
 
     def no_account(self, *, trial_available: bool) -> Screen:
         """Профиль, когда подписки ещё нет: предложить пробный и тарифы.

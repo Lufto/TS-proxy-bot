@@ -54,8 +54,8 @@ async def test_active_subscription_shows_until_date(
 
     text = await start_menu_text(dispatcher, bot, telegram)
 
-    assert text.startswith("✅ Активна до ")
-    assert EXPIRE_AT_TEXT in text.splitlines()[0]
+    assert text.startswith("✅ Активна до <tg-time")  # по часам клиента (задача 22)
+    assert EXPIRE_AT_TEXT in text.splitlines()[0]  # запасной текст по Москве
     assert content.texts.get("menu.title") in text
 
 
