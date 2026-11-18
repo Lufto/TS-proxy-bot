@@ -1,5 +1,7 @@
 """`/start`, живое меню, команды, инструкции, заглушки."""
 
+import re
+
 import pytest
 from aiogram import Bot, Dispatcher
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
@@ -20,6 +22,9 @@ from tsproxy.bot.fakes import FakeTelegramSession
 from tsproxy.content.loader import Content
 from tsproxy.db.models import Client
 from tsproxy.services.fakes import FakeClock
+
+# Запасные приложения (config/site.yaml): в боте их нет, они на сайте
+FALLBACK_APPS = re.compile(r"v2RayTun|OneXray|Hiddify|v2rayN|Throne", re.IGNORECASE)
 
 
 async def stored_client(
@@ -120,6 +125,33 @@ async def test_menu_hides_trial_button_after_trial(
     buttons = button_texts(sent.reply_markup)  # type: ignore[arg-type]
     assert content.texts.get("buttons.trial") not in buttons
     assert content.texts.get("buttons.connect") in buttons
+
+
+async def test_main_menu_has_no_documents(
+    dispatcher: Dispatcher, bot: Bot, telegram: FakeTelegramSession
+) -> None:
+    await dispatcher.feed_update(bot, message(user(CLIENT_ID), "/start"))
+
+    [sent] = telegram.sent(SendMessage)
+    buttons = button_texts(sent.reply_markup)  # type: ignore[arg-type]
+    assert "Соглашение" not in buttons and "Конфиденциальность" not in buttons
+
+
+async def test_about_has_site_documents_and_back(
+    dispatcher: Dispatcher, bot: Bot, telegram: FakeTelegramSession
+) -> None:
+    await dispatcher.feed_update(bot, callback(user(CLIENT_ID), menu_data(ScreenId.ABOUT)))
+
+    [sent] = telegram.sent(SendMessage)
+    markup = sent.reply_markup
+    assert isinstance(markup, InlineKeyboardMarkup)
+    buttons = [(b.text, b.url, b.callback_data) for row in markup.inline_keyboard for b in row]
+    assert buttons == [
+        ("Сайт", "https://ts-proxy.com", None),
+        ("Соглашение", "https://ts-proxy.com/terms", None),
+        ("Конфиденциальность", "https://ts-proxy.com/privacy", None),
+        ("В меню", None, menu_data(ScreenId.MAIN)),
+    ]
 
 
 @pytest.mark.parametrize(
@@ -232,7 +264,10 @@ async def test_instructions_for_each_platform(
 
     [sent] = telegram.sent(SendMessage)
     assert sent.text == content.texts.get(f"instructions.{platform.value}")
-    assert "Happ" in sent.text and "v2RayTun" in sent.text
+    # задача 16: только Happ, запасные приложения — на сайте, ссылка ведёт в раздел устройства
+    assert "Happ" in sent.text
+    assert FALLBACK_APPS.findall(sent.text) == []
+    assert f'<a href="https://ts-proxy.com/help/{platform.value}/">' in sent.text
 
 
 @pytest.mark.parametrize(
