@@ -2,7 +2,7 @@
 
 Ссылка `t.me/<бот>?start=support` (кнопки «Написать в поддержку» на сайте) открывает
 сразу экран поддержки вместо меню (задача сайта 07), `?start=devices` (кнопка «Устройства»
-на странице подписки) — «📱 Мои устройства».
+на странице подписки) — «Мои устройства».
 
 Обработчики работают только в личном чате с ботом. Клиент всегда определяется по
 `from_user.id` нажавшего, данные кнопки говорят только «какой экран открыть».
@@ -47,7 +47,7 @@ async def _show(callback: CallbackQuery, ctx: BotContext, screen: Screen) -> Non
 
 
 async def _main_menu(ctx: BotContext, client: Client) -> Screen:
-    """Главное меню. «🎁 Попробовать бесплатно» — пока пробные включены (задача 28)
+    """Главное меню. «Попробовать бесплатно» — пока пробные включены (задача 28)
     и клиенту пробный положен."""
     trial_available = await ctx.trial_switch.enabled() and await ctx.clients.trial_offered(client)
     return ctx.screens.main_menu(trial_available=trial_available)

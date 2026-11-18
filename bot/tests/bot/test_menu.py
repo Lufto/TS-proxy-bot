@@ -226,3 +226,16 @@ async def test_help_lists_client_commands(
 
     [sent] = telegram.sent(SendMessage)
     assert sent.text == content.texts.get("help.text")
+
+
+async def test_connect_is_the_green_main_button(
+    dispatcher: Dispatcher, bot: Bot, telegram: FakeTelegramSession, content: Content
+) -> None:
+    """Главная кнопка экрана — зелёная, остальные — обычного цвета (спека «Кнопки»)."""
+    await dispatcher.feed_update(bot, message(user(CLIENT_ID), "/start"))
+
+    [sent] = telegram.sent(SendMessage)
+    assert isinstance(sent.reply_markup, InlineKeyboardMarkup)
+    styles = {b.text: b.style for row in sent.reply_markup.inline_keyboard for b in row}
+    assert styles.pop(content.texts.get("buttons.connect")) == "success"
+    assert set(styles.values()) == {None}

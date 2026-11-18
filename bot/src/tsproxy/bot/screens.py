@@ -3,6 +3,7 @@
 import logging
 from dataclasses import dataclass
 
+from aiogram.enums import ButtonStyle
 from aiogram.types import CopyTextButton, InlineKeyboardButton, InlineKeyboardMarkup
 
 from tsproxy.bot.callbacks import (
@@ -20,7 +21,16 @@ from tsproxy.integrations.remnawave_types import AccountStatus, ProxyAccount
 
 logger = logging.getLogger(__name__)
 
-# Telegram копирует кнопкой «📋 Скопировать ссылку» не больше 256 символов
+# Цвет кнопок клиента (Bot API `style`, спека «Кнопки»): главная кнопка экрана — зелёная,
+# опасные действия — красные, остальные — обычного цвета приложения
+BUTTON_STYLES: dict[str, ButtonStyle] = {
+    "buttons.connect": ButtonStyle.SUCCESS,
+    "buttons.delete_device": ButtonStyle.DANGER,
+    "buttons.revoke_link": ButtonStyle.DANGER,
+    "buttons.confirm_revoke_link": ButtonStyle.DANGER,
+}
+
+# Telegram копирует кнопкой «Скопировать ссылку» не больше 256 символов
 COPY_TEXT_MAX_LENGTH = 256
 
 PLATFORM_TEXTS: dict[Platform, tuple[str, str]] = {
@@ -49,7 +59,9 @@ class Screens:
 
     def _button(self, key: str, screen: ScreenId) -> InlineKeyboardButton:
         return InlineKeyboardButton(
-            text=self._texts.get(key), callback_data=MenuCallback(screen=screen).pack()
+            text=self._texts.get(key),
+            callback_data=MenuCallback(screen=screen).pack(),
+            style=BUTTON_STYLES.get(key),
         )
 
     def _back(self) -> list[InlineKeyboardButton]:
@@ -93,7 +105,7 @@ class Screens:
         )
 
     def support(self) -> Screen:
-        """«💬 Поддержка»: частые вопросы кнопками, иначе — просто напишите вопрос в чат."""
+        """«Поддержка»: частые вопросы кнопками, иначе — просто напишите вопрос в чат."""
         rows = [
             [
                 InlineKeyboardButton(
@@ -141,7 +153,7 @@ class Screens:
         return Screen(self._texts.get(text_key), InlineKeyboardMarkup(inline_keyboard=rows))
 
     def _link_rows(self, account: ProxyAccount) -> list[list[InlineKeyboardButton]]:
-        """Кнопки «Открыть страницу подключения» и «📋 Скопировать ссылку»."""
+        """Кнопки «Открыть страницу подключения» и «Скопировать ссылку»."""
         url = account.subscription_url
         rows = [[InlineKeyboardButton(text=self._texts.get("buttons.open_subscription"), url=url)]]
         if len(url) <= COPY_TEXT_MAX_LENGTH:
@@ -158,7 +170,7 @@ class Screens:
         return rows
 
     def connect(self, account: ProxyAccount) -> Screen:
-        """«🚀 Подключиться»: страница подписки и копирование ссылки."""
+        """«Подключиться»: страница подписки и копирование ссылки."""
         rows = self._link_rows(account)
         expire_at = format_moscow(account.expire_at)
         if account.status is AccountStatus.ACTIVE:
@@ -171,7 +183,7 @@ class Screens:
         return Screen(text, InlineKeyboardMarkup(inline_keyboard=rows))
 
     def no_account(self, *, trial_available: bool) -> Screen:
-        """«🚀 Подключиться», а подписки ещё нет: предложить пробный и тарифы.
+        """«Подключиться», а подписки ещё нет: предложить пробный и тарифы.
 
         Пробный предлагаем, пока пробные включены (задача 28): без аккаунта доступа клиент
         ещё не получал, даже если пробный отмечен (панель не ответила при выдаче) —

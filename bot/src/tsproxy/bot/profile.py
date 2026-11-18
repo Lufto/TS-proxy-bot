@@ -1,6 +1,6 @@
-"""«👤 Мой профиль», `/profile`, «📱 Мои устройства» с «🗑 Удалить» и «🔄 Перевыпустить ссылку».
+"""«Мой профиль», `/profile`, «Мои устройства» с «Удалить» и «Перевыпустить ссылку».
 
-Клиент — всегда `from_user.id` нажавшего. Кнопка «🗑 Удалить» несёт только короткую
+Клиент — всегда `from_user.id` нажавшего. Кнопка «Удалить» несёт только короткую
 ссылку на устройство; сервис ищет его среди устройств нажавшего (аудит §4.3).
 Кнопки перевыпуска (задача 31) не несут ничего: перевыпускается только своя ссылка.
 """
@@ -69,7 +69,7 @@ async def on_profile(callback: CallbackQuery, ctx: BotContext) -> None:
 
 
 async def devices_screen(ctx: BotContext, client: Client) -> Screen:
-    """Экран «📱 Мои устройства»: список, «подписки нет» или «панель недоступна»."""
+    """Экран «Мои устройства»: список, «подписки нет» или «панель недоступна»."""
     screens = ProfileScreens(ctx.texts)
     try:
         devices = await ctx.profiles.devices(client.telegram_id)
@@ -89,7 +89,7 @@ async def on_devices(callback: CallbackQuery, ctx: BotContext) -> None:
 async def on_delete_device(
     callback: CallbackQuery, callback_data: DeviceCallback, ctx: BotContext
 ) -> None:
-    """«🗑 Удалить»: только устройство из списка нажавшего; итог — над обновлённым списком."""
+    """«Удалить»: только устройство из списка нажавшего; итог — над обновлённым списком."""
     await callback.answer()
     client = await ctx.clients.resolve(profile_of(callback.from_user))
     screens = ProfileScreens(ctx.texts)
@@ -107,7 +107,7 @@ async def on_delete_device(
 
 
 async def on_revoke_ask(callback: CallbackQuery, ctx: BotContext) -> None:
-    """«🔄 Перевыпустить ссылку»: предупреждение или сразу «можно будет …», если раньше суток."""
+    """«Перевыпустить ссылку»: предупреждение или сразу «можно будет …», если раньше суток."""
     await callback.answer()
     client = await ctx.clients.resolve(profile_of(callback.from_user))
     screens = ProfileScreens(ctx.texts)
@@ -117,7 +117,7 @@ async def on_revoke_ask(callback: CallbackQuery, ctx: BotContext) -> None:
 
 
 async def on_revoke(callback: CallbackQuery, ctx: BotContext) -> None:
-    """«✅ Да, перевыпустить»: новая ссылка — экраном как в «🚀 Подключиться»."""
+    """«Да, перевыпустить»: новая ссылка — экраном как в «Подключиться»."""
     await callback.answer()
     client = await ctx.clients.resolve(profile_of(callback.from_user))
     screens = ProfileScreens(ctx.texts)
