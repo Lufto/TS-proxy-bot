@@ -15,7 +15,7 @@ from test_app import make_settings
 from tsproxy.app import build_application, close_application
 from tsproxy.bot.callbacks import MenuCallback, ScreenId
 from tsproxy.bot.context import BotContext
-from tsproxy.bot.fakes import FakeTelegramSession
+from tsproxy.bot.fakes import FIRST_MESSAGE_ID, FakeTelegramSession
 from tsproxy.bot.notices import NoticeScreens, TelegramNotifier
 from tsproxy.content.loader import REQUIRED_TEXTS, Content, Texts
 from tsproxy.db.models import Client
@@ -31,7 +31,7 @@ from tsproxy.services.reminders import (
 from tsproxy.services.term_guard import TermLockedHandlers
 
 GB = 1024**3
-NOTICE_MESSAGE_ID = 500
+NOTICE_MESSAGE_ID = FIRST_MESSAGE_ID + 1  # первое сообщение, которое шлёт подделка Telegram
 EXPIRE_AT = NOW + timedelta(days=1)  # 13:00 МСК следующего дня
 
 ALL_NOTICES: list[ClientNotice] = [
