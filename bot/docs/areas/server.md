@@ -26,7 +26,7 @@
 | Вход: запуск, сборка зависимостей | `__main__.py`, `app.py` |
 | Подключение обработчиков бота, общие зависимости, данные кнопок, «не подошло ни одному» | `bot/dispatcher.py`, `bot/context.py`, `bot/callbacks.py`, `bot/fallback.py` |
 | Веб-сервер и вебхук Telegram | `web/app.py`, `web/telegram.py` |
-| Время и даты по Москве | `services/clock.py`, `domain/dates.py` |
+| Время и даты: администратору — по Москве, клиенту — по его часам (`<tg-time>`) | `services/clock.py`, `domain/dates.py`, `content/dates.py` |
 | Суммы текстом («150 ₽», «100 ⭐») | `content/amounts.py` |
 | Сообщения в темы админов (кроме тревог), отправка файлов | `services/admin_topics.py`, `bot/documents.py` |
 | Служба и выкатка | `ops/tsproxy-bot/` (`tsproxy.service`, `install.sh`, `deploy.sh`, `rollback.sh`) |

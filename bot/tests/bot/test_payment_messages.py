@@ -14,9 +14,9 @@ from tsproxy.bot.context import BotContext
 from tsproxy.bot.fakes import FakeTelegramSession
 from tsproxy.bot.payments import PaymentScreens, TelegramPaymentMessages
 from tsproxy.bot.screens import Screens
+from tsproxy.content.dates import client_time
 from tsproxy.content.loader import REQUIRED_TEXTS, Content, Texts
 from tsproxy.db.models import Client
-from tsproxy.domain.dates import format_moscow
 from tsproxy.integrations.fakes import FakeRemnawave
 from tsproxy.integrations.remnawave_types import ProxyAccount
 from tsproxy.services.crediting import GrantedAccess
@@ -52,7 +52,10 @@ async def test_paid_message_shows_date_and_subscription_link(
 
     [sent] = telegram.sent(SendMessage)
     assert sent.chat_id == CLIENT_ID
-    assert sent.text.startswith("<b>✅ Оплачено, подписка до 23.11.2026, 15:00 МСК</b>")
+    assert sent.text.startswith(
+        '<b>✅ Оплачено, подписка до <tg-time unix="1795435200" format="Dt">'
+        "23.11.2026, 15:00 МСК</tg-time></b>"
+    )
     assert "сбоя" not in sent.text
     assert ctx.texts.get("buttons.open_subscription") in button_texts(sent)
     assert ctx.texts.get("buttons.instructions") in button_texts(sent)
@@ -150,7 +153,7 @@ async def test_dispute_message_points_to_support(
     await messages(ctx).payment_disputed(CLIENT_ID, None, access_ended=False)
 
     shortened, ended, pending = telegram.sent(SendMessage)
-    assert shortened.text == ctx.texts.get("payment.disputed", expire_at=format_moscow(NOW))
+    assert shortened.text == ctx.texts.get("payment.disputed", expire_at=client_time(NOW))
     assert ended.text == ctx.texts.get("payment.disputed_ended")
     assert pending.text == ctx.texts.get("payment.disputed_pending")
     for sent in (shortened, ended, pending):
