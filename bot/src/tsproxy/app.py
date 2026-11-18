@@ -472,6 +472,7 @@ def build_application(
         stars=stars,
         site_banner=site_banner,
         connect_waits=ConnectWaits(session_factory, events, clock),
+        clock=clock,
     )
     # Статистика и рассылка (задача 19)
     broadcasts = BroadcastService(

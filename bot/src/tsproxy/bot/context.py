@@ -17,6 +17,7 @@ from tsproxy.services.admin import AdminService
 from tsproxy.services.alerts import Alerter
 from tsproxy.services.client_card import ClientCardService
 from tsproxy.services.clients import ClientProfile, ClientService
+from tsproxy.services.clock import Clock
 from tsproxy.services.connect_waits import ConnectWaits
 from tsproxy.services.events import EventLog
 from tsproxy.services.link_revoke import LinkRevokeService
@@ -59,6 +60,7 @@ class BotContext:
     stars: StarsPayments  # оплата звёздами Telegram (задача 33)
     site_banner: SiteBannerSwitch  # плашка о неполадках на сайте (задачи сайта 13–15)
     connect_waits: ConnectWaits  # «Подключиться» при сбое панели — бот пришлёт ссылку сам
+    clock: Clock  # сутки простоя в живом меню (задача 26)
 
 
 def profile_of(user: User) -> ClientProfile:
