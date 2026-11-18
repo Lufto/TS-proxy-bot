@@ -15,11 +15,11 @@ from tsproxy.bot.callbacks import MenuCallback, ScreenId
 from tsproxy.bot.context import BotContext
 from tsproxy.bot.fakes import FakeTelegramSession
 from tsproxy.bot.trial import deliver_pending_trials
+from tsproxy.content.dates import client_time
 from tsproxy.content.loader import Content
 from tsproxy.db.enums import OrderStatus
 from tsproxy.db.models import Client, Order
 from tsproxy.domain.constants import TRIAL_DAYS, TRIAL_DEVICE_LIMIT, TRIAL_TRAFFIC_GB
-from tsproxy.domain.dates import format_moscow
 from tsproxy.integrations.fakes import FakeRemnawave
 from tsproxy.integrations.remnawave_types import RemnawaveUnavailable
 from tsproxy.services.fakes import FakeAlertSender, FakeClock
@@ -31,7 +31,7 @@ MAIN = MenuCallback(screen=ScreenId.MAIN).pack()
 def content_granted(ctx: BotContext, expire_at: datetime) -> str:
     return ctx.texts.get(
         "trial.granted",
-        expire_at=format_moscow(expire_at),
+        expire_at=client_time(expire_at),
         traffic_gb=TRIAL_TRAFFIC_GB,
         device_limit=TRIAL_DEVICE_LIMIT,
     )
@@ -56,7 +56,7 @@ async def test_trial_button_gives_subscription_link(
     [edited] = telegram.sent(EditMessageText)
     assert edited.text == content.texts.get(
         "trial.granted",
-        expire_at=format_moscow(clock.now + timedelta(days=TRIAL_DAYS)),
+        expire_at=client_time(clock.now + timedelta(days=TRIAL_DAYS)),
         traffic_gb=TRIAL_TRAFFIC_GB,
         device_limit=TRIAL_DEVICE_LIMIT,
     )

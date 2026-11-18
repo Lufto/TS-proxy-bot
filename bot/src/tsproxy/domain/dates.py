@@ -1,4 +1,4 @@
-"""Даты: внутри всё в UTC, клиенту показываем по Москве."""
+"""Даты: внутри всё в UTC, показываем по Москве (клиенту — через `content/dates.py`)."""
 
 import calendar
 from datetime import datetime
@@ -21,7 +21,10 @@ def require_aware(moment: datetime) -> datetime:
 
 
 def format_moscow(moment: datetime) -> str:
-    """Дата для клиента по московскому времени: «10.12.2026, 18:00 МСК». Секунды отбрасываются."""
+    """Дата по московскому времени: «10.12.2026, 18:00 МСК». Секунды отбрасываются.
+
+    Клиенту дату показывает `content.dates.client_time` — эта строка там запасной текст.
+    """
     return require_aware(moment).astimezone(MOSCOW).strftime(CLIENT_DATE_FORMAT)
 
 

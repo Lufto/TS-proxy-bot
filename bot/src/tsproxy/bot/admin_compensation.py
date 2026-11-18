@@ -30,6 +30,7 @@ from tsproxy.bot.admin_screens import AdminScreen
 from tsproxy.bot.callbacks import MenuCallback, ScreenId
 from tsproxy.bot.delivery import ClientDelivery
 from tsproxy.bot.screens import Screen
+from tsproxy.content.dates import client_time
 from tsproxy.content.loader import Texts
 from tsproxy.domain.compensation import CompensationAction, Outage
 from tsproxy.domain.constants import ONE_DAY, ONE_HOUR
@@ -327,7 +328,7 @@ class TelegramApologyMessenger:
     def screen(self, apology: Apology) -> Screen:
         values = {
             "amount": duration_words(self._texts, apology.amount),
-            "until": format_moscow(apology.until),
+            "until": client_time(apology.until),
         }
         if apology.action is CompensationAction.EXTEND_GRACE:
             # в льготном подписка кончилась — зовём продлить
