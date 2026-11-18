@@ -4,7 +4,7 @@ from datetime import timedelta
 
 import pytest
 from aiogram import Bot, Dispatcher
-from aiogram.methods import EditMessageText, SendMessage
+from aiogram.methods import SendMessage
 from aiogram.types import InlineKeyboardButton
 from bot_updates import (
     ADMIN_CHAT_ID,
@@ -55,9 +55,9 @@ async def create_account(remnawave: FakeRemnawave, telegram_id: int = CLIENT_ID)
     )
 
 
-def buttons(edited: EditMessageText) -> list[InlineKeyboardButton]:
-    assert edited.reply_markup is not None
-    return [b for row in edited.reply_markup.inline_keyboard for b in row]  # type: ignore[union-attr]
+def buttons(screen: SendMessage) -> list[InlineKeyboardButton]:
+    assert screen.reply_markup is not None
+    return [b for row in screen.reply_markup.inline_keyboard for b in row]  # type: ignore[union-attr]
 
 
 async def test_connect_opens_own_subscription_page(
@@ -71,12 +71,12 @@ async def test_connect_opens_own_subscription_page(
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), CONNECT))
 
-    [edited] = telegram.sent(EditMessageText)
-    assert edited.text == content.texts.get("connect.active", expire_at=client_time(EXPIRE_AT))
+    [screen] = telegram.sent(SendMessage)
+    assert screen.text == content.texts.get("connect.active", expire_at=client_time(EXPIRE_AT))
     # дату Telegram покажет по часам клиента; старые версии — по Москве
-    assert '<tg-time unix="1795435200" format="Dt">23.11.2026, 15:00 МСК</tg-time>' in edited.text
-    url_buttons = [b for b in buttons(edited) if b.url is not None]
-    copy_buttons = [b for b in buttons(edited) if b.copy_text is not None]
+    assert '<tg-time unix="1795435200" format="Dt">23.11.2026, 15:00 МСК</tg-time>' in screen.text
+    url_buttons = [b for b in buttons(screen) if b.url is not None]
+    copy_buttons = [b for b in buttons(screen) if b.copy_text is not None]
     assert [b.url for b in url_buttons] == [account.subscription_url]
     assert [b.copy_text.text for b in copy_buttons] == [account.subscription_url]  # type: ignore[union-attr]
     assert copy_buttons[0].text == content.texts.get("buttons.copy_link")
@@ -87,11 +87,11 @@ async def test_connect_without_account_offers_trial(
 ) -> None:
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), CONNECT))
 
-    [edited] = telegram.sent(EditMessageText)
-    assert edited.text == content.texts.get("connect.no_account")
-    texts = [b.text for b in buttons(edited)]
+    [screen] = telegram.sent(SendMessage)
+    assert screen.text == content.texts.get("connect.no_account")
+    texts = [b.text for b in buttons(screen)]
     assert content.texts.get("buttons.trial") in texts
-    assert all(b.url is None and b.copy_text is None for b in buttons(edited))
+    assert all(b.url is None and b.copy_text is None for b in buttons(screen))
 
 
 async def test_trial_marked_but_never_delivered_is_offered_again(
@@ -109,9 +109,9 @@ async def test_trial_marked_but_never_delivered_is_offered_again(
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), CONNECT))
 
-    [edited] = telegram.sent(EditMessageText)
-    assert edited.text == content.texts.get("connect.no_account")
-    assert content.texts.get("buttons.trial") in [b.text for b in buttons(edited)]
+    [screen] = telegram.sent(SendMessage)
+    assert screen.text == content.texts.get("connect.no_account")
+    assert content.texts.get("buttons.trial") in [b.text for b in buttons(screen)]
 
 
 async def test_button_of_another_client_shows_only_own_data(
@@ -140,9 +140,9 @@ async def test_expired_subscription_suggests_tariffs(
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), CONNECT))
 
-    [edited] = telegram.sent(EditMessageText)
-    assert edited.text == content.texts.get("connect.inactive", expire_at=client_time(EXPIRE_AT))
-    assert content.texts.get("buttons.tariffs") in [b.text for b in buttons(edited)]
+    [screen] = telegram.sent(SendMessage)
+    assert screen.text == content.texts.get("connect.inactive", expire_at=client_time(EXPIRE_AT))
+    assert content.texts.get("buttons.tariffs") in [b.text for b in buttons(screen)]
 
 
 @pytest.mark.parametrize(
@@ -162,8 +162,8 @@ async def test_panel_failure_apologizes_and_alerts_with_real_cause(
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), CONNECT))
 
-    [edited] = telegram.sent(EditMessageText)
-    assert edited.text == content.texts.get("connect.pending")
+    [screen] = telegram.sent(SendMessage)
+    assert screen.text == content.texts.get("connect.pending")
     [alert] = alert_sender.sent
     assert (alert.chat_id, alert.thread_id) == (ADMIN_CHAT_ID, ALERTS_THREAD_ID)
     assert content.admin_texts.get("alert.remnawave_unavailable.title") in alert.text

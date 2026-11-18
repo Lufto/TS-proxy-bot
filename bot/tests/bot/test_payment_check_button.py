@@ -4,7 +4,7 @@ from datetime import timedelta
 
 import pytest
 from aiogram import Bot, Dispatcher
-from aiogram.methods import EditMessageText, SendMessage
+from aiogram.methods import SendMessage
 from aiogram.types import InlineKeyboardMarkup
 from bot_updates import CLIENT_ID, OTHER_CLIENT_ID, callback, user
 from sqlalchemy import select
@@ -54,9 +54,9 @@ async def test_payment_screen_has_check_button(
     await buy_month(dispatcher, bot)
 
     order = await only_order(session_factory)
-    edited = telegram.sent(EditMessageText)[-1]
-    assert check(order.id) in callback_data(edited.reply_markup)  # type: ignore[arg-type]
-    assert "«Проверить оплату»" in edited.text
+    screen = telegram.sent(SendMessage)[-1]
+    assert check(order.id) in callback_data(screen.reply_markup)  # type: ignore[arg-type]
+    assert "«Проверить оплату»" in screen.text
 
 
 async def test_check_before_paying_says_not_yet(
@@ -71,9 +71,9 @@ async def test_check_before_paying_says_not_yet(
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), check(order.id)))
 
-    edited = telegram.sent(EditMessageText)[-1]
-    assert edited.text == content.texts.get("payment.check_not_paid")
-    assert check(order.id) in callback_data(edited.reply_markup)  # type: ignore[arg-type]
+    screen = telegram.sent(SendMessage)[-1]
+    assert screen.text == content.texts.get("payment.check_not_paid")
+    assert check(order.id) in callback_data(screen.reply_markup)  # type: ignore[arg-type]
 
 
 async def test_check_after_paying_credits_and_sends_paid_message(
@@ -92,9 +92,9 @@ async def test_check_after_paying_credits_and_sends_paid_message(
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), check(order.id)))
 
-    assert telegram.sent(EditMessageText)[-1].text == content.texts.get("payment.found")
-    paid = [m for m in telegram.sent(SendMessage) if m.chat_id == CLIENT_ID]
-    assert paid[-1].text.startswith("<b>✅ Оплачено, подписка до")
+    *_, paid, found = [m for m in telegram.sent(SendMessage) if m.chat_id == CLIENT_ID]
+    assert paid.text.startswith("<b>✅ Оплачено, подписка до")
+    assert found.text == content.texts.get("payment.found")
     assert (await only_order(session_factory)).status is OrderStatus.ACCESS_GRANTED
 
 
@@ -114,7 +114,7 @@ async def test_forged_check_of_other_clients_order_finds_nothing(
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), check(order.id)))
 
-    assert telegram.sent(EditMessageText)[-1].text == content.texts.get("payment.check_not_found")
+    assert telegram.sent(SendMessage)[-1].text == content.texts.get("payment.check_not_found")
     assert (await only_order(session_factory)).status is OrderStatus.CREATED
 
 
@@ -133,7 +133,7 @@ async def test_check_with_provider_down_apologizes_and_alerts(
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), check(order.id)))
 
-    assert telegram.sent(EditMessageText)[-1].text == content.texts.get("payment.check_unavailable")
+    assert telegram.sent(SendMessage)[-1].text == content.texts.get("payment.check_unavailable")
     [alert] = alert_sender.sent
     texts = content.admin_texts
     assert texts.get("alert.payment_check_button_unavailable.title") in alert.text
@@ -163,7 +163,7 @@ async def test_buy_after_lost_notification_finds_payment_instead_of_new_link(
 
     await buy_month(dispatcher, bot)
 
-    assert telegram.sent(EditMessageText)[-1].text == content.texts.get("payment.found")
+    assert telegram.sent(SendMessage)[-1].text == content.texts.get("payment.found")
     assert len(payments.ledger.all()) == 1
     assert (await only_order(session_factory)).status is OrderStatus.ACCESS_GRANTED
 
@@ -182,7 +182,7 @@ async def test_buy_with_provider_silent_on_check_gives_no_link(
         bot, callback(user(CLIENT_ID), TariffCallback(tariff_id="m3").pack())
     )
 
-    assert telegram.sent(EditMessageText)[-1].text == content.texts.get("payment.unavailable")
+    assert telegram.sent(SendMessage)[-1].text == content.texts.get("payment.unavailable")
     assert len(payments.ledger.all()) == 1
 
 
@@ -206,4 +206,4 @@ async def test_check_when_payment_not_recorded_says_admin_will_grant(
 
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), check(order.id)))
 
-    assert telegram.sent(EditMessageText)[-1].text == content.texts.get("payment.not_recorded")
+    assert telegram.sent(SendMessage)[-1].text == content.texts.get("payment.not_recorded")

@@ -46,4 +46,4 @@ class TelegramGraceMessenger:
         self, telegram_id: int, stage: GraceStage, access_until: datetime
     ) -> bool:
         screen = grace_screen(self._texts, stage, access_until)
-        return await self._delivery.send(telegram_id, screen) is not None
+        return await self._delivery.send(telegram_id, screen.kept()) is not None

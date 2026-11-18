@@ -31,6 +31,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from tsproxy.bot.callbacks import MenuCallback, ScreenId
+from tsproxy.bot.delivery import KEPT_TEXT_MARK
 from tsproxy.bot.fakes import FakeTelegramSession
 from tsproxy.bot.support_guard import KeyedLock
 from tsproxy.bot.throttling import is_command
@@ -154,8 +155,9 @@ async def open_ticket(
     return ticket.topic_id
 
 
-# Кнопка «В меню» под «Обращение принято» и под ответами поддержки
-TO_MENU = [("В меню", MenuCallback(screen=ScreenId.MAIN).pack())]
+# Кнопка «В меню» под «Обращение принято» и под ответами поддержки. Данные кнопки несут
+# метку сохраняемого текста (`delivery.KEPT_TEXT_MARK`): при нажатии гаснут только кнопки
+TO_MENU = [("В меню", KEPT_TEXT_MARK + MenuCallback(screen=ScreenId.MAIN).pack())]
 
 
 def menu_buttons(markup: object) -> list[tuple[str, str | None]]:

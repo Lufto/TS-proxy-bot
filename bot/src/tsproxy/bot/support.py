@@ -6,8 +6,9 @@
   Сообщение копируется в тему как есть (текст, фото, файлы, голосовые, видео); стикеры,
   контакты, геолокацию и т. п. не передаём. Больше 10 сообщений в минуту — просим подождать.
 - Сообщение администратора в теме обращения уходит клиенту от «Поддержки», под ним —
-  кнопка «В меню» (как и под быстрым ответом). Начинается
-  с `//` — внутренняя заметка, клиенту не уходит. Команды (`/…`) клиенту не уходят.
+  кнопка «В меню» (как и под быстрым ответом). Ответ и «Обращение принято» — сообщения
+  с сохраняемым текстом: при нажатии «В меню» у них гаснут только кнопки (`bot.delivery`).
+  Начинается с `//` — внутренняя заметка, клиенту не уходит. Команды (`/…`) клиенту не уходят.
 - Ответ на конкретное сообщение (reply) с одной стороны приходит ответом и с другой.
 - Переписка — в базе (`services.support`). Тексты сообщений в лог не пишем.
 - Задача 17: экран «Поддержка» сначала показывает частые вопросы; в начале темы — карточка
@@ -31,6 +32,7 @@ from aiogram.types import CallbackQuery, Message, MessageId, ReplyParameters, Us
 from tsproxy.bot.admin import AdminAccess, AdminFilter
 from tsproxy.bot.callbacks import FaqCallback, MenuCallback, ScreenId
 from tsproxy.bot.context import BotContext, profile_of
+from tsproxy.bot.delivery import kept_markup
 from tsproxy.bot.support_actions import (
     CardClientActions,
     register_ticket_actions,
@@ -135,7 +137,7 @@ async def on_support_screen(callback: CallbackQuery, ctx: BotContext) -> None:
 
 
 async def on_faq(callback: CallbackQuery, callback_data: FaqCallback, ctx: BotContext) -> None:
-    """Ответ на частый вопрос — в том же сообщении меню."""
+    """Ответ на частый вопрос — новым экраном (живое меню)."""
     await callback.answer()
     await ctx.delivery.show(callback, ctx.screens.faq_answer(callback_data.question))
 
@@ -328,7 +330,7 @@ async def _send_reply(
     """Отправить ответ клиенту с подписью «Поддержка:» (разметка администратора сохраняется)."""
     client_id = ticket.client_telegram_id
     prefix = ctx.texts.get("support.reply_prefix")
-    to_menu = ctx.screens.to_menu()
+    to_menu = kept_markup(ctx.screens.to_menu())  # текст ответа при нажатии не удаляется
     if message.content_type == ContentType.TEXT:
         return await bot.send_message(
             client_id,

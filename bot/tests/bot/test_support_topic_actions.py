@@ -11,6 +11,7 @@ from aiogram.methods import (
     CopyMessage,
     CreateForumTopic,
     DeleteMessage,
+    EditMessageReplyMarkup,
     EditMessageText,
     SendMessage,
 )
@@ -52,6 +53,7 @@ from tsproxy.services.fakes import FakeClock
 
 STRANGER_ID = 555  # не администратор, но состоит в группе
 CARD_MESSAGE_ID = 3001  # сообщение бота с кнопками в теме
+REPLY_MESSAGE_ID = 3002  # ответ поддержки в чате клиента
 
 
 def buttons(markup: InlineKeyboardMarkup | None) -> list[tuple[str, str | None]]:
@@ -105,8 +107,8 @@ async def test_support_screen_shows_frequent_questions(
     data = MenuCallback(screen=ScreenId.SUPPORT).pack()
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), data))
 
-    [edited] = telegram.sent(EditMessageText)
-    shown = buttons(edited.reply_markup)  # type: ignore[arg-type]
+    [screen] = telegram.sent(SendMessage)
+    shown = buttons(screen.reply_markup)  # type: ignore[arg-type]
     faq = [(text, data) for text, data in shown if data and data.startswith("faq")]
     assert 3 <= len(faq) - 1 <= 5  # частые вопросы и «Другой вопрос»
     assert faq[0] == (
@@ -130,10 +132,10 @@ async def test_frequent_question_shows_its_answer(
     data = FaqCallback(question=question).pack()
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), data))
 
-    [edited] = telegram.sent(EditMessageText)
-    assert edited.text == content.texts.get(f"faq.{question.value}.answer")
+    [answer] = telegram.sent(SendMessage)
+    assert answer.text == content.texts.get(f"faq.{question.value}.answer")
     back = MenuCallback(screen=ScreenId.SUPPORT).pack()
-    assert (content.texts.get("buttons.faq_back"), back) in buttons(edited.reply_markup)  # type: ignore[arg-type]
+    assert (content.texts.get("buttons.faq_back"), back) in buttons(answer.reply_markup)  # type: ignore[arg-type]
     assert telegram.sent(CreateForumTopic) == []  # частый вопрос — не обращение
 
 
@@ -397,7 +399,7 @@ async def test_quick_reply_goes_to_client_and_is_shown_in_topic(
     assert await journal(session_factory) == []  # ответы в журнал не пишем
 
 
-async def test_to_menu_under_support_reply_opens_main_menu(
+async def test_to_menu_under_support_reply_opens_main_menu_and_keeps_reply(
     dispatcher: Dispatcher,
     bot: Bot,
     telegram: FakeTelegramSession,
@@ -409,11 +411,21 @@ async def test_to_menu_under_support_reply_opens_main_menu(
     reply = [m for m in telegram.sent(SendMessage) if m.chat_id == CLIENT_ID][-1]
     [(_, data)] = buttons(reply.reply_markup)  # type: ignore[arg-type]
 
-    await dispatcher.feed_update(bot, callback(user(CLIENT_ID), data or ""))
+    await dispatcher.feed_update(
+        bot,
+        callback(
+            user(CLIENT_ID),
+            data or "",
+            message_id=REPLY_MESSAGE_ID,
+            markup=reply.reply_markup,  # type: ignore[arg-type]
+        ),
+    )
 
-    shown = [m.text for m in telegram.sent(EditMessageText) if m.chat_id == CLIENT_ID]
-    shown += [m.text for m in telegram.sent(SendMessage) if m.chat_id == CLIENT_ID]
-    assert content.texts.get("menu.title") in shown
+    menu = [m for m in telegram.sent(SendMessage) if m.chat_id == CLIENT_ID][-1]
+    assert menu.text == content.texts.get("menu.title")
+    assert telegram.sent(DeleteMessage) == []  # текст ответа поддержки не удаляем
+    [stripped] = telegram.sent(EditMessageReplyMarkup)
+    assert (stripped.message_id, stripped.reply_markup) == (REPLY_MESSAGE_ID, None)
 
 
 async def test_quick_reply_menu_can_be_hidden(

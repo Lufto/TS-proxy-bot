@@ -22,6 +22,7 @@ from aiogram.types import CallbackQuery, Message
 from tsproxy.bot.admin import AdminAccess, AdminFilter
 from tsproxy.bot.callbacks import QuickReplyCallback, TicketAction, TicketCallback
 from tsproxy.bot.context import BotContext
+from tsproxy.bot.delivery import kept_markup
 from tsproxy.bot.support_card import SupportTopicTexts
 from tsproxy.db.enums import MessageAuthor
 from tsproxy.services.support import MessageContent, TicketChange, TicketRef
@@ -193,7 +194,7 @@ async def on_quick_reply(
             bot.send_message(
                 client_id,
                 ctx.texts.get("support.reply_prefix") + text,
-                reply_markup=ctx.screens.to_menu(),
+                reply_markup=kept_markup(ctx.screens.to_menu()),
             ),
         )
     except TelegramBadRequest as error:

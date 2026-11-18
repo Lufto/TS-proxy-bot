@@ -1,7 +1,7 @@
 """Экраны клиента: текст и кнопки. Только сборка из `content/client/`, без Telegram-вызовов."""
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from aiogram.enums import ButtonStyle
 from aiogram.types import CopyTextButton, InlineKeyboardButton, InlineKeyboardMarkup
@@ -45,10 +45,20 @@ PLATFORM_TEXTS: dict[Platform, tuple[str, str]] = {
 
 @dataclass(frozen=True)
 class Screen:
-    """Что показать клиенту: текст (HTML) и кнопки под ним."""
+    """Что показать клиенту: текст (HTML) и кнопки под ним.
+
+    `keeps_text` — сообщение с текстом, который нужно сохранить (уведомление, сообщение
+    об оплате): когда клиент нажимает его кнопку, бот снимает кнопки, а не удаляет
+    сообщение (`ClientDelivery.show`). Обычный экран меню при нажатии удаляется.
+    """
 
     text: str
     markup: InlineKeyboardMarkup
+    keeps_text: bool = False
+
+    def kept(self) -> "Screen":
+        """Тот же экран как сообщение с сохраняемым текстом."""
+        return replace(self, keeps_text=True)
 
 
 class Screens:
@@ -119,8 +129,9 @@ class Screens:
         return Screen(self._texts.get("support.intro"), InlineKeyboardMarkup(inline_keyboard=rows))
 
     def ticket_accepted(self) -> Screen:
-        """«Обращение принято» после первого сообщения обращения — без номера, с «В меню»."""
-        return Screen(self._texts.get("support.ticket_created"), self.to_menu())
+        """«Обращение принято» после первого сообщения обращения — без номера, с «В меню».
+        Текст сохраняемый: при нажатии «В меню» гаснут только кнопки."""
+        return Screen(self._texts.get("support.ticket_created"), self.to_menu()).kept()
 
     def to_menu(self) -> InlineKeyboardMarkup:
         """Одна кнопка «В меню» — под «Обращение принято» и под каждым ответом поддержки."""
