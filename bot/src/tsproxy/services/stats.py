@@ -20,6 +20,9 @@
 не входят (рубли заказа у них — расчётные). Звёзды — из события «оплата получена»
 (`crediting.STARS_DETAIL`), за вычетом звёзд, возвращённых за тот же период (по времени
 возврата, как у рублей); «примерно в рублях» — по нынешнему курсу из `tariffs.yaml`.
+
+Заказы тестового тарифа администраторов (`ADMIN_TEST_TARIFF_ID`, владелец 2026-11-20) нигде
+не считаются: ни в продажах, ни в возвратах, ни в звёздах, ни в конверсии пробного.
 """
 
 import logging
@@ -34,7 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from tsproxy.db.enums import TicketStatus
 from tsproxy.db.models import Client, Event, Order, SupportTicket
 from tsproxy.domain.client_state import ClientSnapshot
-from tsproxy.domain.constants import UNLIMITED_TRAFFIC_BYTES
+from tsproxy.domain.constants import ADMIN_TEST_TARIFF_ID, UNLIMITED_TRAFFIC_BYTES
 from tsproxy.domain.grace import observed_grace_extension
 from tsproxy.domain.stars import stars_in_rubles
 from tsproxy.domain.stats import (
@@ -214,6 +217,8 @@ async def sales_between(
 # Заказ оплачен звёздами Telegram (задача 33) — или нет
 _PAID_WITH_STARS = Order.payment_provider == STARS_PROVIDER
 _PAID_WITH_RUBLES = or_(Order.payment_provider.is_(None), Order.payment_provider != STARS_PROVIDER)
+# Не тестовый заказ администратора. Возврат без заказа (внешнее соединение) — тоже не тестовый
+_NOT_ADMIN_TEST = or_(Order.tariff_id.is_(None), Order.tariff_id != ADMIN_TEST_TARIFF_ID)
 
 
 async def _sales(
@@ -222,6 +227,7 @@ async def _sales(
     rows = await session.execute(
         select(Order.paid_amount, Order.price).where(
             _PAID_WITH_RUBLES,
+            _NOT_ADMIN_TEST,
             Order.paid_at.is_not(None),
             Order.paid_at >= since,
             Order.paid_at <= until,
@@ -249,6 +255,7 @@ def _refunded_between(
         .outerjoin(Order, Order.id == Event.order_id)
         .where(
             Event.kind == EventKind.REFUND_COMPLETED.value,
+            _NOT_ADMIN_TEST,
             Event.occurred_at >= since,
             Event.occurred_at <= until,
         )
@@ -270,6 +277,7 @@ async def _stars_sales(
         await session.scalars(
             select(Order.id).where(
                 _PAID_WITH_STARS,
+                _NOT_ADMIN_TEST,
                 Order.paid_at.is_not(None),
                 Order.paid_at >= since,
                 Order.paid_at <= until,
@@ -298,7 +306,8 @@ async def _trials(session: AsyncSession) -> TrialStats:
                 Order,
                 (Order.client_id == first_trial.c.client_id)
                 & Order.paid_at.is_not(None)
-                & (Order.paid_at >= first_trial.c.first_at),
+                & (Order.paid_at >= first_trial.c.first_at)
+                & (Order.tariff_id != ADMIN_TEST_TARIFF_ID),
             )
         )
         or 0

@@ -231,7 +231,7 @@ def create_tariffs_router() -> Router:
 async def _tariffs_screen(ctx: BotContext, client: Client) -> Screen:
     """Тарифы с кнопками оплаты — или, если оплата выключена, списком (задача 29)."""
     screens = TariffScreens(ctx.texts)
-    offers = ctx.orders.offers()
+    offers = ctx.orders.offers(client.telegram_id)
     if ctx.orders.payments_enabled:
         return screens.tariffs(offers)
     return screens.payments_off(offers, trial_available=await ctx.clients.trial_offered(client))
@@ -257,7 +257,7 @@ async def offered_or_refused(callback: CallbackQuery, tariff_id: str, ctx: BotCo
     Если есть — на нажатие ещё не ответили: обработчик отвечает сам.
     """
     telegram_id = callback.from_user.id
-    if tariff_id in {offer.tariff.id for offer in ctx.orders.offers()}:
+    if tariff_id in {offer.tariff.id for offer in ctx.orders.offers(telegram_id)}:
         return True
     # старая кнопка (тариф убрали из файла) или подменённая
     logger.info("Клиент %s: тариф %r недоступен", telegram_id, tariff_id)
@@ -304,7 +304,9 @@ async def on_tariff_screen(
     await callback.answer()
     client = await ctx.clients.resolve(profile_of(callback.from_user))
     tariff = next(
-        offer.tariff for offer in ctx.orders.offers() if offer.tariff.id == callback_data.tariff_id
+        offer.tariff
+        for offer in ctx.orders.offers(client.telegram_id)
+        if offer.tariff.id == callback_data.tariff_id
     )
     if not ctx.orders.payments_enabled:
         # оплата выключена (задача 29): тот же экран, что у списка тарифов

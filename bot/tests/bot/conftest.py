@@ -204,6 +204,8 @@ def ctx(
         clock,
         KeyedLocks(),
         payment_checks,
+        admin_ids=frozenset({ADMIN_ID}),
+        admin_test_tariff=content.admin_test_tariff,
     )
     return BotContext(
         texts=content.texts,

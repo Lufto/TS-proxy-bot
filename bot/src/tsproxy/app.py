@@ -429,6 +429,8 @@ def build_application(
         clock,
         KeyedLocks(),
         payment_checks,
+        admin_ids=settings.admin_ids,
+        admin_test_tariff=content.admin_test_tariff,
     )
     payments_reconciliation = PaymentReconciliation(
         session_factory, provider, payment_checks, alerter, content.admin_texts, clock

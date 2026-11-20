@@ -131,15 +131,24 @@ class StarsPayments:
         self._rate = rate
 
     def price(self, tariff: Tariff) -> int:
-        """Цена тарифа в звёздах."""
+        """Цена тарифа в звёздах: по курсу, у тестового тарифа администраторов — своя."""
+        if tariff.stars is not None:
+            return tariff.stars
         return stars_price(tariff.price, self._rate)
+
+    def _order_stars(self, order: Order) -> int:
+        """Сколько звёзд ждём за заказ: по его рублям и курсу, тестовый — по своему тарифу."""
+        test = self._orders.admin_test_tariff
+        if test is not None and test.stars is not None and order.tariff_id == test.id:
+            return test.stars
+        return stars_price(order.price, self._rate)
 
     # --- Счёт ---
 
     async def invoice(self, client: Client, tariff_id: str) -> StarsInvoice:
         """Новый заказ звёздами и данные счёта. Ошибки — как у `OrderService.stars_order`."""
         created = await self._orders.stars_order(client, tariff_id)
-        stars = stars_price(created.tariff.price, self._rate)
+        stars = self.price(created.tariff)
         logger.info("Заказ %s: счёт на %d звёзд", created.order_id, stars)
         return StarsInvoice(created.order_id, created.tariff, stars, str(created.order_id))
 
@@ -162,7 +171,7 @@ class StarsPayments:
             awaiting_payment=order.status is OrderStatus.CREATED,
             paid=order.status in PAID_STATUSES,
             created_at=order.created_at,
-            expected_stars=stars_price(order.price, self._rate),
+            expected_stars=self._order_stars(order),
         )
 
     # --- Оплата пришла ---
@@ -207,7 +216,7 @@ class StarsPayments:
 
     def _state(self, order: Order, payment: StarsPayment) -> PaymentState:
         """Оплата звёздами глазами зачёта: рубли заказа, которые она покрывает."""
-        expected = stars_price(order.price, self._rate)
+        expected = self._order_stars(order)
         return PaymentState(
             payment_id=payment.charge_id,
             status=PaymentStatus.SUCCEEDED,

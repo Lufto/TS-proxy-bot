@@ -12,7 +12,7 @@ from tsproxy.content.loader import Tariff, Texts
 from tsproxy.db.engine import create_session_factory
 from tsproxy.db.enums import OrderStatus
 from tsproxy.db.models import Client, Event, Order
-from tsproxy.domain.constants import PAYMENT_LINK_LIFETIME
+from tsproxy.domain.constants import ADMIN_TEST_TARIFF_ID, PAYMENT_LINK_LIFETIME
 from tsproxy.domain.payments import PAYMENT_REUSE_MIN_REMAINING
 from tsproxy.integrations.fake_payments import FAKE_PROVIDER_NAME, FakePaymentProvider
 from tsproxy.integrations.payments_types import PaymentUnavailable
@@ -37,6 +37,7 @@ TARIFFS = (
     Tariff("m12", "12 месяцев", 365, Decimal("1440")),
 )
 TEXTS = Texts({"payment.description": "TS Proxy, {title}"}, "test")
+ADMIN_TEST = Tariff(ADMIN_TEST_TARIFF_ID, "Тест для админов", 30, Decimal("50"), stars=1)
 
 
 @pytest.fixture
@@ -65,6 +66,8 @@ def make_service(
         clock,
         KeyedLocks(),
         FakeEarlierPayments(),
+        admin_ids=frozenset({ADMIN_TELEGRAM_ID}),
+        admin_test_tariff=ADMIN_TEST,
     )
 
 
@@ -99,8 +102,8 @@ async def event_kinds(session_factory: async_sessionmaker[AsyncSession]) -> list
 # --- Витрина тарифов ---
 
 
-def test_client_sees_visible_tariffs_with_discounts(orders: OrderService) -> None:
-    offers = orders.offers()
+def test_client_sees_visible_tariffs_with_discounts(orders: OrderService, client: Client) -> None:
+    offers = orders.offers(client.telegram_id)
 
     assert [(o.tariff.id, o.discount_percent) for o in offers] == [
         ("m1", 0),
@@ -110,14 +113,48 @@ def test_client_sees_visible_tariffs_with_discounts(orders: OrderService) -> Non
     ]
 
 
+def test_admin_sees_test_tariff_last_without_discount(orders: OrderService) -> None:
+    """Тестовый тариф за 50 ₽ (владелец, 2026-11-20) — в конце витрины администратора."""
+    offers = orders.offers(ADMIN_TELEGRAM_ID)
+
+    assert [o.tariff.id for o in offers] == ["m1", "m3", "m6", "m12", ADMIN_TEST_TARIFF_ID]
+    assert offers[-1].discount_percent == 0
+
+
+async def test_client_cannot_order_admin_test_tariff(
+    orders: OrderService,
+    payments: FakePaymentProvider,
+    client: Client,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Подделанная кнопка тестового тарифа у клиента: ни заказа, ни платежа — ни СБП, ни звёзды."""
+    with pytest.raises(TariffUnavailable):
+        await orders.checkout(client, ADMIN_TEST_TARIFF_ID)
+    with pytest.raises(TariffUnavailable):
+        await orders.stars_order(client, ADMIN_TEST_TARIFF_ID)
+    assert await all_orders(session_factory) == []
+    assert payments.ledger.all() == []
+
+
+async def test_admin_orders_test_tariff_for_50_rubles(
+    orders: OrderService, admin: Client, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    checkout = await orders.checkout(admin, ADMIN_TEST_TARIFF_ID)
+
+    [order] = await all_orders(session_factory)
+    assert checkout.tariff == ADMIN_TEST
+    assert (order.tariff_id, order.price, order.days) == (ADMIN_TEST_TARIFF_ID, Decimal("50"), 30)
+
+
 def test_no_monthly_tariff_means_no_discounts(
     session_factory: async_sessionmaker[AsyncSession],
     payments: FakePaymentProvider,
     clock: FakeClock,
     mask: Masker,
+    client: Client,
 ) -> None:
     service = make_service(session_factory, payments, clock, mask, tariffs=TARIFFS[1:4])
-    assert [o.discount_percent for o in service.offers()] == [0, 0, 0]
+    assert [o.discount_percent for o in service.offers(client.telegram_id)] == [0, 0, 0]
 
 
 # --- Заказ и платёж ---
@@ -333,7 +370,7 @@ def test_tariffs_are_shown_while_payments_off(
     """Витрина та же: клиент видит цены, хотя купить пока нельзя."""
     service = make_service(session_factory, None, clock, mask)
 
-    assert [o.tariff.id for o in service.offers()] == ["m1", "m3", "m6", "m12"]
+    assert [o.tariff.id for o in service.offers(111)] == ["m1", "m3", "m6", "m12"]
 
 
 async def test_checkout_while_payments_off_creates_nothing(

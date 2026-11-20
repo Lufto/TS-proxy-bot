@@ -13,6 +13,7 @@ from tsproxy.db.engine import create_session_factory
 from tsproxy.db.enums import OrderStatus, TicketStatus
 from tsproxy.db.models import Client, Event, Order, SupportTicket
 from tsproxy.domain.constants import (
+    ADMIN_TEST_TARIFF_ID,
     BYTES_PER_GB,
     PAID_DEVICE_LIMIT,
     TRIAL_DEVICE_LIMIT,
@@ -66,11 +67,12 @@ async def add_paid_order(
     paid_at: object,
     price: str = "150",
     paid_amount: str | None = None,
+    tariff_id: str = "m1",
 ) -> None:
     session.add(
         Order(
             client_id=client.id,
-            tariff_id="m1",
+            tariff_id=tariff_id,
             price=Decimal(price),
             days=30,
             status=OrderStatus.ACCESS_GRANTED,
@@ -116,6 +118,24 @@ async def test_sales_count_what_was_actually_paid(
     result = await stats.collect()
 
     assert result.sales_today == SalesTotal(count=1, amount=Decimal(100))
+
+
+async def test_admin_test_payments_are_not_sales(
+    stats: StatsService, session: AsyncSession
+) -> None:
+    """Тестовые оплаты администраторов (владелец, 2026-11-20) — не продажи и не конверсия."""
+    admin = await add_client(session, 900)
+    await trial_event(session, admin, LAST_MONTH)
+    await add_paid_order(session, admin, TODAY_EARLY, price="50", tariff_id=ADMIN_TEST_TARIFF_ID)
+    await add_stars_order(
+        session, admin, TODAY_EARLY, stars=1, price="50", tariff_id=ADMIN_TEST_TARIFF_ID
+    )
+
+    result = await stats.collect()
+
+    assert result.sales_today == SalesTotal(count=0, amount=Decimal(0))
+    assert result.sales_month == SalesTotal(count=0, amount=Decimal(0))
+    assert result.trials.converted == 0
 
 
 # --- Подписки ---
@@ -312,12 +332,17 @@ async def test_refunds_are_subtracted_by_time_of_refund(
 
 
 async def add_stars_order(
-    session: AsyncSession, client: Client, paid_at: object, stars: int, price: str = "150"
+    session: AsyncSession,
+    client: Client,
+    paid_at: object,
+    stars: int,
+    price: str = "150",
+    tariff_id: str = "m1",
 ) -> Order:
     """Заказ, оплаченный звёздами, — как его оставляет `services.stars`."""
     order = Order(
         client_id=client.id,
-        tariff_id="m1",
+        tariff_id=tariff_id,
         price=Decimal(price),
         days=30,
         status=OrderStatus.ACCESS_GRANTED,

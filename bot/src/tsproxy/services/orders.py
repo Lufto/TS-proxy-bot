@@ -134,8 +134,12 @@ class OrderService:
         clock: Clock,
         locks: KeyedLocks,
         earlier_payments: EarlierPayments,
+        admin_ids: frozenset[int] = frozenset(),
+        admin_test_tariff: Tariff | None = None,
     ) -> None:
         self._session_factory = session_factory
+        self._admin_ids = admin_ids
+        self._admin_test_tariff = admin_test_tariff
         self._payments = payments
         self._earlier_payments = earlier_payments
         self._events = events
@@ -151,22 +155,34 @@ class OrderService:
 
     # --- Витрина ---
 
-    def offers(self) -> tuple[TariffOffer, ...]:
-        """Тарифы на витрине — одинаковые для всех клиентов."""
+    def offers(self, telegram_id: int) -> tuple[TariffOffer, ...]:
+        """Тарифы на витрине нажавшего: одинаковые для всех клиентов, у администраторов
+        (`ADMIN_IDS`) в конце — тестовый тариф, без скидки (владелец, 2026-11-20)."""
         monthly = next((t.price for t in self._tariffs if t.days == MONTH_DAYS), None)
-        return tuple(
+        offers = tuple(
             TariffOffer(
                 tariff,
                 0 if monthly is None else discount_percent(tariff.days, tariff.price, monthly),
             )
             for tariff in self._tariffs
         )
+        test = self._test_tariff_for(telegram_id)
+        return offers if test is None else (*offers, TariffOffer(test, 0))
+
+    @property
+    def admin_test_tariff(self) -> Tariff | None:
+        """Тестовый тариф администраторов из файла тарифов (нет — `None`)."""
+        return self._admin_test_tariff
+
+    def _test_tariff_for(self, telegram_id: int) -> Tariff | None:
+        """Тестовый тариф — только администратору; клиенту его нет даже по подделанной кнопке."""
+        return self._admin_test_tariff if telegram_id in self._admin_ids else None
 
     def _tariff_for(self, telegram_id: int, tariff_id: str) -> Tariff:
-        """Тариф по id из кнопки — только из белого списка `tariffs.yaml`."""
-        for tariff in self._tariffs:
-            if tariff.id == tariff_id:
-                return tariff
+        """Тариф по id из кнопки — только с витрины нажавшего (`offers`)."""
+        for offer in self.offers(telegram_id):
+            if offer.tariff.id == tariff_id:
+                return offer.tariff
         raise TariffUnavailable(f"тариф {tariff_id!r} недоступен клиенту {telegram_id}")
 
     # --- Заказ и платёж ---

@@ -7,7 +7,7 @@
 import html
 import re
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -17,6 +17,7 @@ from typing import Any
 import yaml
 
 from tsproxy.content.pictures import PICTURES_FOLDER, PictureFiles
+from tsproxy.domain.constants import ADMIN_TEST_TARIFF_ID
 from tsproxy.domain.dates import format_moscow
 from tsproxy.domain.site_banner import SiteBanner
 from tsproxy.integrations.payments_types import PaymentFailure
@@ -38,6 +39,7 @@ CLIENT_FOLDERS = ("client",)
 ADMIN_FOLDERS = ("admin", "alerts")
 TEXTS_SUFFIX = ".yaml"
 TARIFFS_FILE = "tariffs.yaml"
+ADMIN_TEST_KEY = "admin_test_tariff"
 STARS_RATE_KEY = "stars_rub_rate"  # курс звезды Telegram в рублях (задача 33)
 # Быстрые ответы поддержки в admin/: quick_replies.<имя>.button и .text
 QUICK_REPLIES_GROUP = "quick_replies"
@@ -64,6 +66,8 @@ class Tariff:
     title: str
     days: int
     price: Decimal
+    # цена в звёздах вместо расчёта по курсу — только у тестового тарифа администраторов
+    stars: int | None = None
 
 
 class Html(str):
@@ -224,6 +228,27 @@ def load_stars_rate(path: Path) -> Decimal:
     return rate
 
 
+def load_admin_test_tariff(path: Path) -> Tariff | None:
+    """Тестовый тариф администраторов (`admin_test_tariff`, владелец 2026-11-20): нет — `None`.
+
+    Отдельно от `tariffs`: сайт читает только список `tariffs`, и тестовый тариф туда не
+    попадает. Поля — title, days, price, stars (цена в звёздах, не по курсу).
+    """
+    raw = _read_yaml(path)
+    item = raw.get(ADMIN_TEST_KEY) if isinstance(raw, dict) else None
+    if item is None:
+        return None
+    where = f"{TARIFFS_FILE}: {ADMIN_TEST_KEY}"
+    if not isinstance(item, dict):
+        raise ContentError(f"{where}: ожидается набор полей title, days, price, stars")
+    stars = item.get("stars")
+    if isinstance(stars, bool) or not isinstance(stars, int) or stars <= 0:
+        raise ContentError(f"{where}: stars — целое число звёзд больше нуля")
+    fields = {key: value for key, value in item.items() if key != "stars"}
+    tariff = _parse_tariff({"id": ADMIN_TEST_TARIFF_ID, **fields}, 0)
+    return replace(tariff, stars=stars)
+
+
 def load_tariffs(path: Path) -> tuple[Tariff, ...]:
     raw = _read_yaml(path)
     items = raw.get("tariffs") if isinstance(raw, dict) else None
@@ -234,6 +259,8 @@ def load_tariffs(path: Path) -> tuple[Tariff, ...]:
     duplicates = sorted({i for i in ids if ids.count(i) > 1})
     if duplicates:
         raise ContentError(f"{TARIFFS_FILE}: повторяются id {', '.join(duplicates)}")
+    if ADMIN_TEST_TARIFF_ID in ids:
+        raise ContentError(f"{TARIFFS_FILE}: id {ADMIN_TEST_TARIFF_ID} — только у {ADMIN_TEST_KEY}")
     return tariffs
 
 
@@ -244,6 +271,9 @@ class Content:
     tariffs: tuple[Tariff, ...]
     stars_rub_rate: Decimal  # курс звезды Telegram в рублях (задача 33)
     pictures: PictureFiles  # картинки экранов (bot-telegram-ui, задача 27)
+    admin_test_tariff: Tariff | None = (
+        None  # тестовый тариф администраторов  # картинки экранов (bot-telegram-ui, задача 27)
+    )
 
     def tariff(self, tariff_id: str) -> Tariff | None:
         return next((t for t in self.tariffs if t.id == tariff_id), None)
@@ -999,6 +1029,7 @@ def load_content(directory: Path, config_dir: Path) -> Content:
         tariffs=load_tariffs(config_dir / TARIFFS_FILE),
         stars_rub_rate=load_stars_rate(config_dir / TARIFFS_FILE),
         pictures=PictureFiles(directory / PICTURES_FOLDER),
+        admin_test_tariff=load_admin_test_tariff(config_dir / TARIFFS_FILE),
     )
     missing = content.pictures.missing()
     if missing:

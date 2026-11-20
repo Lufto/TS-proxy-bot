@@ -9,11 +9,18 @@ from bot_updates import ADMIN_ID, BOT_TOKEN, CLIENT_ID, NOW, callback, message, 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from tsproxy.bot.callbacks import MenuCallback, ScreenId, TariffCallback, TariffScreenCallback
+from tsproxy.bot.callbacks import (
+    MenuCallback,
+    ScreenId,
+    StarsCallback,
+    TariffCallback,
+    TariffScreenCallback,
+)
 from tsproxy.bot.fakes import FakeTelegramSession
 from tsproxy.bot.tariffs import TariffScreens
 from tsproxy.content.loader import REQUIRED_TEXTS, Content, Texts
 from tsproxy.db.models import Client, Order
+from tsproxy.domain.constants import ADMIN_TEST_TARIFF_ID
 from tsproxy.integrations.failures import Failure
 from tsproxy.integrations.fake_payments import FakePaymentProvider
 from tsproxy.integrations.payments_types import (
@@ -74,16 +81,52 @@ async def test_client_sees_tariffs_with_discount(
     assert shown[1][0] == "3 месяца — 405 ₽ · выгода 10%"
 
 
-async def test_admin_sees_same_tariffs_without_test_one(
+async def test_only_admin_sees_test_tariff(
     dispatcher: Dispatcher, bot: Bot, telegram: FakeTelegramSession
 ) -> None:
-    """Задача 15: тестового тарифа за 15 ₽ больше нет — и у администраторов тоже."""
+    """Тестовый тариф за 50 ₽ (владелец, 2026-11-20) — только у администратора, последним.
+    Старого тестового за 15 ₽ (задача 15) нет ни у кого."""
+    await dispatcher.feed_update(bot, message(user(CLIENT_ID), "/buy"))
     await dispatcher.feed_update(bot, message(user(ADMIN_ID), "/buy"))
 
-    [sent] = telegram.sent(SendMessage)
-    data = [d for _, d, _ in buttons(sent.reply_markup)]  # type: ignore[arg-type]
-    assert tariff_screen("test15") not in data
-    assert tariff_screen("m1") in data
+    client_screen, admin_screen = telegram.sent(SendMessage)
+    client_data = [d for _, d, _ in buttons(client_screen.reply_markup)]  # type: ignore[arg-type]
+    admin_shown = buttons(admin_screen.reply_markup)  # type: ignore[arg-type]
+    assert tariff_screen(ADMIN_TEST_TARIFF_ID) not in client_data
+    assert admin_shown[-2] == ("Тест для админов — 50 ₽", tariff_screen(ADMIN_TEST_TARIFF_ID), None)
+    assert tariff_screen("test15") not in [d for _, d, _ in admin_shown]
+
+
+async def test_admin_test_tariff_costs_50_rubles_or_one_star(
+    dispatcher: Dispatcher, bot: Bot, telegram: FakeTelegramSession
+) -> None:
+    await dispatcher.feed_update(bot, callback(user(ADMIN_ID), tariff_screen(ADMIN_TEST_TARIFF_ID)))
+
+    shown = [text for text, _, _ in buttons(last_screen(telegram).reply_markup)]  # type: ignore[arg-type]
+    assert "СБП — 50 ₽" in shown
+    assert "Stars — 1 ⭐" in shown
+
+
+async def test_client_forged_test_tariff_button_orders_nothing(
+    dispatcher: Dispatcher,
+    bot: Bot,
+    telegram: FakeTelegramSession,
+    payments: FakePaymentProvider,
+    session_factory: async_sessionmaker[AsyncSession],
+    content: Content,
+) -> None:
+    """Клиент прислал кнопку тестового тарифа (подделка): отказ и тарифы, без заказа."""
+    for data in (
+        tariff_screen(ADMIN_TEST_TARIFF_ID),
+        buy(ADMIN_TEST_TARIFF_ID),
+        StarsCallback(tariff_id=ADMIN_TEST_TARIFF_ID).pack(),
+    ):
+        await dispatcher.feed_update(bot, callback(user(CLIENT_ID), data))
+
+    assert await orders_in_db(session_factory) == []
+    assert payments.ledger.all() == []
+    refusals = [a.text for a in telegram.sent(AnswerCallbackQuery) if a.text]
+    assert refusals == [content.texts.get("tariffs.not_available")] * 3
 
 
 async def test_buy_command_opens_tariffs(
