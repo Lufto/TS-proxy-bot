@@ -23,8 +23,7 @@ const data: TCommonSchema = {
         { title: 'Terms of Service', url: '/terms/' },
         { title: 'Privacy Policy', url: '/privacy/' },
       ],
-      // Кодовое слово Platega на время согласования кассы — после регистрации убрать
-      copyright: 'TS Proxy · Platega test',
+      copyright: 'TS Proxy',
     },
   },
 };
