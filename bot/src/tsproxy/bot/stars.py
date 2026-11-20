@@ -33,6 +33,7 @@ from tsproxy.bot.tariffs import (
     TariffScreens,
     offered_or_refused,
     refusal_screen,
+    tariff_back_row,
 )
 from tsproxy.content.loader import Texts
 from tsproxy.domain.stars import STARS_CURRENCY
@@ -53,22 +54,12 @@ PAID_NOTICES = {
 def invoice_of(texts: Texts, invoice: StarsInvoice) -> Invoice:
     """Счёт в звёздах из текстов `stars.*`.
 
-    Под кнопкой оплаты — «К тарифам» и «В меню»: иначе из счёта некуда уйти, кроме оплаты.
+    Под кнопкой оплаты — «Назад» к экрану тарифа: иначе из счёта некуда уйти, кроме оплаты.
     """
     title = invoice.tariff.title
     rows = [
         [InlineKeyboardButton(text=texts.get("stars.pay_button", stars=invoice.stars), pay=True)],
-        *(
-            [
-                InlineKeyboardButton(
-                    text=texts.get(key), callback_data=MenuCallback(screen=screen).pack()
-                )
-            ]
-            for key, screen in (
-                ("buttons.tariffs_back", ScreenId.TARIFFS),
-                ("buttons.back", ScreenId.MAIN),
-            )
-        ),
+        tariff_back_row(texts, invoice.tariff.id),
     ]
     return Invoice(
         title=texts.get("stars.invoice_title", title=title),
@@ -107,7 +98,9 @@ async def on_stars(callback: CallbackQuery, callback_data: StarsCallback, ctx: B
     except ORDER_REFUSALS as error:
         await ctx.delivery.show(callback, await refusal_screen(ctx, client, error))
         return
-    await ctx.delivery.show(callback, TariffScreens(ctx.texts).stars_sent(invoice.stars))
+    await ctx.delivery.show(
+        callback, TariffScreens(ctx.texts).stars_sent(invoice.tariff.id, invoice.stars)
+    )
     await ctx.delivery.invoice(client.telegram_id, invoice_of(ctx.texts, invoice))
 
 

@@ -83,6 +83,16 @@ ORDER_REFUSALS = (
 )
 
 
+def tariff_back_row(texts: Texts, tariff_id: str) -> list[InlineKeyboardButton]:
+    """«Назад» к экрану тарифа (спека bot-buttons-unify)."""
+    return [
+        InlineKeyboardButton(
+            text=texts.get("buttons.step_back"),
+            callback_data=TariffScreenCallback(tariff_id=tariff_id).pack(),
+        )
+    ]
+
+
 class TariffScreens:
     """Экраны тарифов и оплаты из `content/client/`."""
 
@@ -95,6 +105,10 @@ class TariffScreens:
                 text=self._texts.get(key), callback_data=MenuCallback(screen=screen).pack()
             )
         ]
+
+    def _to_tariff(self, tariff_id: str) -> list[InlineKeyboardButton]:
+        """«Назад» к экрану тарифа — из ссылки на оплату и счёта в звёздах."""
+        return tariff_back_row(self._texts, tariff_id)
 
     def _offer_text(self, offer: TariffOffer) -> str:
         tariff = offer.tariff
@@ -119,7 +133,7 @@ class TariffScreens:
             ]
             for offer in offers
         ]
-        rows.append(self._menu_button("buttons.back", ScreenId.MAIN))
+        rows.append(self._menu_button("buttons.step_back", ScreenId.MAIN))
         return Screen(self._texts.get("tariffs.title"), InlineKeyboardMarkup(inline_keyboard=rows))
 
     def payments_off(self, offers: tuple[TariffOffer, ...], *, trial_available: bool) -> Screen:
@@ -127,7 +141,7 @@ class TariffScreens:
         prices = "\n".join(self._offer_text(offer) for offer in offers)
         note = self._texts.get("tariffs.off_trial" if trial_available else "tariffs.off_later")
         rows = [self._menu_button("buttons.trial", ScreenId.TRIAL)] if trial_available else []
-        rows.append(self._menu_button("buttons.back", ScreenId.MAIN))
+        rows.append(self._menu_button("buttons.step_back", ScreenId.MAIN))
         return Screen(
             PARAGRAPH.join([self._texts.get("tariffs.off_title"), prices, note]),
             InlineKeyboardMarkup(inline_keyboard=rows),
@@ -151,19 +165,14 @@ class TariffScreens:
             ],
         ]
         text = self._texts.get("tariffs.screen", title=tariff.title, price=price, stars=stars)
-        rows.append(self._menu_button("buttons.tariffs_back", ScreenId.TARIFFS))
-        rows.append(self._menu_button("buttons.back", ScreenId.MAIN))
+        rows.append(self._menu_button("buttons.step_back", ScreenId.TARIFFS))
         return Screen(text, InlineKeyboardMarkup(inline_keyboard=rows))
 
-    def stars_sent(self, stars: int) -> Screen:
+    def stars_sent(self, tariff_id: str, stars: int) -> Screen:
         """Счёт в звёздах отправлен сообщением ниже (задача 33)."""
-        rows = [
-            self._menu_button("buttons.tariffs_back", ScreenId.TARIFFS),
-            self._menu_button("buttons.back", ScreenId.MAIN),
-        ]
         return Screen(
             self._texts.get("stars.invoice_sent", stars=stars),
-            InlineKeyboardMarkup(inline_keyboard=rows),
+            InlineKeyboardMarkup(inline_keyboard=[self._to_tariff(tariff_id)]),
         )
 
     def payment(self, checkout: Checkout) -> Screen:
@@ -182,8 +191,7 @@ class TariffScreens:
                 )
             ],
             self._check_button(checkout.order_id),
-            self._menu_button("buttons.tariffs_back", ScreenId.TARIFFS),
-            self._menu_button("buttons.back", ScreenId.MAIN),
+            self._to_tariff(checkout.tariff.id),
         ]
         return Screen(text, InlineKeyboardMarkup(inline_keyboard=rows))
 
@@ -191,7 +199,6 @@ class TariffScreens:
         """Сообщение вместо ссылки (`payment.too_many`, `payment.unavailable`, `payment.found`,
         ответы на «Проверить оплату»). `check_order_id` — с кнопкой «проверить ещё раз»."""
         rows = [] if check_order_id is None else [self._check_button(check_order_id)]
-        rows.append(self._menu_button("buttons.tariffs_back", ScreenId.TARIFFS))
         rows.append(self._menu_button("buttons.back", ScreenId.MAIN))
         return Screen(self._texts.get(key), InlineKeyboardMarkup(inline_keyboard=rows))
 

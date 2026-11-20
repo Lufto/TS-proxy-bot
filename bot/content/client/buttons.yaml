@@ -10,9 +10,9 @@ buttons:
   site: Сайт
   terms: Соглашение
   privacy: Конфиденциальность
+  # «В меню» — где действие совершено; «Назад» — на шаг выше (спека bot-buttons-unify)
   back: В меню
-  instructions_back: Другое устройство
-  open_subscription: Открыть страницу подключения
+  step_back: Назад
   copy_link: Скопировать ссылку
   platform_ios: iPhone и iPad
   platform_android: Android
@@ -21,7 +21,6 @@ buttons:
   platform_linux: Linux
   devices: Мои устройства
   renew: Продлить подписку
-  profile_back: В профиль
   # {number} — номер устройства в списке «Мои устройства»
   delete_device: Удалить {number}
   revoke_link: Перевыпустить ссылку
@@ -29,10 +28,8 @@ buttons:
   cancel_revoke_link: Отмена
   # {price} — цена тарифа в рублях
   pay: "Оплатить {price} ₽"
-  tariffs_back: К тарифам
   # экран оплаты: спросить платёжку, пришла ли оплата
   check_payment: Проверить оплату
-  faq_back: К частым вопросам
   # способ оплаты на экране тарифа; {price} — рубли, {stars} — звёзды
   pay_sbp: "СБП — {price} ₽"
   pay_stars: "Stars — {stars} ⭐"

@@ -275,7 +275,7 @@ def test_revoke_screens_use_only_required_texts(content: Content) -> None:
     texts = Texts({key: content.texts._items[key] for key in REQUIRED_TEXTS}, "required")
     screens = ProfileScreens(texts)
     screens.revoke_ask()
-    screens.devices(DeviceList((), 3), revoke_available_at=NOW)
+    screens.devices(DeviceList((), 3, "https://sub.example/x"), revoke_available_at=NOW)
     texts.get("revoke_link.too_soon", available_at=format_moscow(NOW))
 
 

@@ -55,10 +55,12 @@ class TrafficUsage:
 
 @dataclass(frozen=True)
 class SubscriptionStatus:
-    """Статус подписки и срок в панели — для строки статуса в главном меню (задача 19)."""
+    """Статус подписки, срок и ссылка в панели — для строки статуса и кнопки «Подключиться»
+    в главном меню (задача 19, спека bot-buttons-unify)."""
 
     status: ProfileStatus
     expire_at: datetime
+    subscription_url: str
 
 
 @dataclass(frozen=True)
@@ -70,12 +72,14 @@ class Profile:
     time_left: TimeLeft
     devices: DeviceSlots
     traffic: TrafficUsage | None
+    subscription_url: str
 
 
 @dataclass(frozen=True)
 class DeviceList:
     devices: tuple[Device, ...]
     limit: int | None
+    subscription_url: str
 
 
 @dataclass(frozen=True)
@@ -136,7 +140,9 @@ class ProfileService:
         if account is None:
             return None
         now = utc_now(self._clock)
-        return SubscriptionStatus(self._status(client, account, now), account.expire_at)
+        return SubscriptionStatus(
+            self._status(client, account, now), account.expire_at, account.subscription_url
+        )
 
     async def profile(self, client: Client) -> Profile | None:
         """Профиль клиента. `None` — прокси-аккаунта нет. Сбой панели не скрываем."""
@@ -155,6 +161,7 @@ class ProfileService:
             time_left=time_left(now, account.expire_at),
             devices=DeviceSlots(used=len(devices), limit=_device_limit(account)),
             traffic=traffic,
+            subscription_url=account.subscription_url,
         )
 
     async def devices(self, telegram_id: int) -> DeviceList | None:
@@ -163,7 +170,7 @@ class ProfileService:
         if account is None:
             return None
         devices = await self._remnawave.list_devices(telegram_id)
-        return DeviceList(tuple(devices), _device_limit(account))
+        return DeviceList(tuple(devices), _device_limit(account), account.subscription_url)
 
     async def delete_device(self, telegram_id: int, ref: str) -> DeviceDeletion | None:
         """Удалить устройство по ссылке из кнопки — только из списка самого клиента.
@@ -179,4 +186,7 @@ class ProfileService:
             return DeviceDeletion(deleted=False, devices=current)
         remaining = await self._remnawave.delete_device(telegram_id, device.hwid)
         logger.info("Клиент %s удалил устройство %s", telegram_id, ref)
-        return DeviceDeletion(deleted=True, devices=DeviceList(tuple(remaining), current.limit))
+        return DeviceDeletion(
+            deleted=True,
+            devices=DeviceList(tuple(remaining), current.limit, current.subscription_url),
+        )

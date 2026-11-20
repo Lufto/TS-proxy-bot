@@ -44,6 +44,27 @@ PLATFORM_TEXTS: dict[Platform, tuple[str, str]] = {
 }
 
 
+def link_row(texts: Texts, url: str) -> list[InlineKeyboardButton]:
+    """«Подключиться» — сама ссылка подписки — и рядом «Скопировать ссылку» (спека
+    bot-buttons-unify): один ряд, одно нажатие до страницы подключения."""
+    row = [
+        InlineKeyboardButton(
+            text=texts.get("buttons.connect"),
+            url=url,
+            style=BUTTON_STYLES.get("buttons.connect"),
+        )
+    ]
+    if len(url) <= COPY_TEXT_MAX_LENGTH:
+        row.append(
+            InlineKeyboardButton(
+                text=texts.get("buttons.copy_link"), copy_text=CopyTextButton(text=url)
+            )
+        )
+    else:
+        logger.warning("Ссылка подписки длиннее %d символов: без копирования", len(url))
+    return row
+
+
 @dataclass(frozen=True)
 class Screen:
     """Что показать клиенту: текст (HTML) и кнопки под ним.
@@ -66,6 +87,20 @@ class Screen:
         return replace(self, keeps_text=True)
 
 
+@dataclass(frozen=True)
+class ConnectButton:
+    """Какой будет «Подключиться» (спека bot-buttons-unify).
+
+    `url` — ссылка подписки: кнопка сама открывает страницу подключения, рядом
+    «Скопировать ссылку». Без ссылки и `shown` — кнопка экрана «Подключиться» (бот не знает
+    ссылку: аккаунта нет, панель не ответила); без ссылки и не `shown` — кнопки нет
+    (доступа нет, ссылка не работает).
+    """
+
+    url: str | None = None
+    shown: bool = True
+
+
 class Screens:
     """Собирает экраны меню из текстов."""
 
@@ -80,7 +115,12 @@ class Screens:
         )
 
     def _back(self) -> list[InlineKeyboardButton]:
+        """«В меню» — под экраном, где действие совершено (спека bot-buttons-unify)."""
         return [self._button("buttons.back", ScreenId.MAIN)]
+
+    def _step_back(self, screen: ScreenId) -> list[InlineKeyboardButton]:
+        """«Назад» — на шаг выше, под экраном-переходом (спека bot-buttons-unify)."""
+        return [self._button("buttons.step_back", screen)]
 
     def _link(self, key: str, url_key: str) -> InlineKeyboardButton:
         return InlineKeyboardButton(text=self._texts.get(key), url=self._texts.get(url_key))
@@ -98,19 +138,23 @@ class Screens:
         trial_available: bool,
         status: str | None,
         picture: Picture,
+        connect: ConnectButton,
+        renew: bool,
     ) -> Screen:
         """Главное меню — фото с подписью (задача 27). «Попробовать бесплатно» — только если
         пробный ещё не брал.
 
         `status` — строка статуса подписки над меню (задача 19), `None` — без неё;
-        `picture` — картинка по статусу подписки (`ProfileScreens.menu_header`).
+        `picture` — картинка по статусу подписки (`ProfileScreens.menu_header`);
+        `connect` — какой будет «Подключиться»; `renew` — «Продлить подписку» вместо
+        «Тарифов» (была оплаченная подписка).
         """
-        rows = [[self._button("buttons.connect", ScreenId.CONNECT)]]
+        rows = self._connect_rows(connect)
         if trial_available:
             rows.append([self._button("buttons.trial", ScreenId.TRIAL)])
         rows += [
             [
-                self._button("buttons.tariffs", ScreenId.TARIFFS),
+                self._button("buttons.renew" if renew else "buttons.tariffs", ScreenId.TARIFFS),
                 self._button("buttons.profile", ScreenId.PROFILE),
             ],
             [
@@ -123,12 +167,19 @@ class Screens:
         text = title if status is None else f"{status}\n\n{title}"
         return Screen(text, InlineKeyboardMarkup(inline_keyboard=rows), picture=picture)
 
+    def _connect_rows(self, connect: ConnectButton) -> list[list[InlineKeyboardButton]]:
+        if connect.url is not None:
+            return [link_row(self._texts, connect.url)]
+        if connect.shown:
+            return [[self._button("buttons.connect", ScreenId.CONNECT)]]
+        return []
+
     def about(self) -> Screen:
         """«О сервисе» — фото с подписью (задача 28): сайт, документы и возврат в меню."""
         rows = [
             [self._link("buttons.site", "documents.site_url")],
             self._documents(),
-            self._back(),
+            self._step_back(ScreenId.MAIN),
         ]
         return Screen(
             self._texts.get("about.text"),
@@ -147,7 +198,7 @@ class Screens:
             ]
             for question in FaqQuestion
         ]
-        rows.append(self._back())
+        rows.append(self._step_back(ScreenId.MAIN))
         return Screen(self._texts.get("support.intro"), InlineKeyboardMarkup(inline_keyboard=rows))
 
     def ticket_accepted(self) -> Screen:
@@ -160,8 +211,8 @@ class Screens:
         return InlineKeyboardMarkup(inline_keyboard=[self._back()])
 
     def faq_answer(self, question: FaqQuestion) -> Screen:
-        """Ответ на частый вопрос: назад к вопросам или в меню."""
-        rows = [[self._button("buttons.faq_back", ScreenId.SUPPORT)], self._back()]
+        """Ответ на частый вопрос: «Назад» — к вопросам."""
+        rows = [self._step_back(ScreenId.SUPPORT)]
         return Screen(
             self._texts.get(f"faq.{question.value}.answer"),
             InlineKeyboardMarkup(inline_keyboard=rows),
@@ -178,7 +229,7 @@ class Screens:
             ]
             for platform, (button_key, _) in PLATFORM_TEXTS.items()
         ]
-        rows.append(self._back())
+        rows.append(self._step_back(ScreenId.MAIN))
         return Screen(
             self._texts.get("instructions.choose"), InlineKeyboardMarkup(inline_keyboard=rows)
         )
@@ -187,7 +238,8 @@ class Screens:
         """Три шага для одной платформы.
 
         `subscription_url` — личная ссылка подписки клиента (задача 17): шаг «откройте вашу
-        страницу подключения» ведёт прямо на неё; `None` — шаг через «Подключиться».
+        страницу подключения» ведёт прямо на неё, «Подключиться» — тоже; `None` — шаг через
+        экран «Подключиться».
         """
         _, text_key = PLATFORM_TEXTS[platform]
         if subscription_url is None:
@@ -196,40 +248,26 @@ class Screens:
             open_page = self._texts.get("instructions.open_page_link", url=subscription_url)
         text = self._texts.get(text_key, open_page=Html(open_page))
         rows = [
-            [self._button("buttons.connect", ScreenId.CONNECT)],
-            [self._button("buttons.instructions_back", ScreenId.INSTRUCTIONS)],
-            self._back(),
+            self._connect_rows(ConnectButton(url=subscription_url))[0],
+            self._step_back(ScreenId.INSTRUCTIONS),
         ]
         return Screen(text, InlineKeyboardMarkup(inline_keyboard=rows))
 
-    def _link_rows(self, account: ProxyAccount) -> list[list[InlineKeyboardButton]]:
-        """Кнопки «Открыть страницу подключения» и «Скопировать ссылку»."""
-        url = account.subscription_url
-        rows = [[InlineKeyboardButton(text=self._texts.get("buttons.open_subscription"), url=url)]]
-        if len(url) <= COPY_TEXT_MAX_LENGTH:
-            rows.append(
-                [
-                    InlineKeyboardButton(
-                        text=self._texts.get("buttons.copy_link"),
-                        copy_text=CopyTextButton(text=url),
-                    )
-                ]
-            )
-        else:
-            logger.warning("Ссылка подписки длиннее %d символов: без копирования", len(url))
-        return rows
-
     def connect(self, account: ProxyAccount) -> Screen:
-        """«Подключиться»: страница подписки и копирование ссылки."""
-        rows = self._link_rows(account)
+        """Экран «Подключиться» — для старых кнопок и когда меню не знало ссылку: ссылка
+        в тексте и кнопкой; подписка закончилась — «Тарифы» вместо ссылки (был ли пробный,
+        по аккаунту не видно)."""
         expire_at = client_time(account.expire_at)
         if account.status is AccountStatus.ACTIVE:
-            text = self._texts.get("connect.active", expire_at=expire_at)
+            text = self._texts.get(
+                "connect.active", expire_at=expire_at, url=account.subscription_url
+            )
+            rows = [link_row(self._texts, account.subscription_url)]
         else:
             text = self._texts.get("connect.inactive", expire_at=expire_at)
-            rows.append([self._button("buttons.tariffs", ScreenId.TARIFFS)])
+            rows = [[self._button("buttons.tariffs", ScreenId.TARIFFS)]]
         rows.append([self._button("buttons.instructions", ScreenId.INSTRUCTIONS)])
-        rows.append(self._back())
+        rows.append(self._step_back(ScreenId.MAIN))
         return Screen(text, InlineKeyboardMarkup(inline_keyboard=rows))
 
     def no_account(self, *, trial_available: bool) -> Screen:
@@ -240,27 +278,37 @@ class Screens:
         повторное нажатие доделает выдачу.
         """
         rows = [[self._button("buttons.trial", ScreenId.TRIAL)]] if trial_available else []
-        rows += [[self._button("buttons.tariffs", ScreenId.TARIFFS)], self._back()]
+        rows += [
+            [self._button("buttons.tariffs", ScreenId.TARIFFS)],
+            self._step_back(ScreenId.MAIN),
+        ]
         return Screen(
             self._texts.get("connect.no_account"), InlineKeyboardMarkup(inline_keyboard=rows)
         )
 
     def trial_granted(self, account: ProxyAccount) -> Screen:
         """Пробный период выдан: срок, лимиты и ссылка подписки."""
-        rows = self._link_rows(account)
-        rows += [[self._button("buttons.instructions", ScreenId.INSTRUCTIONS)], self._back()]
+        rows = [
+            link_row(self._texts, account.subscription_url),
+            [self._button("buttons.instructions", ScreenId.INSTRUCTIONS)],
+            self._back(),
+        ]
         text = self._texts.get(
             "trial.granted",
             expire_at=client_time(account.expire_at),
             traffic_gb=TRIAL_TRAFFIC_GB,
             device_limit=TRIAL_DEVICE_LIMIT,
+            url=account.subscription_url,
         )
         return Screen(text, InlineKeyboardMarkup(inline_keyboard=rows))
 
     def access_granted(self, text: str, account: ProxyAccount) -> Screen:
         """Доступ выдан (например, после оплаты): текст, ссылка подписки и «Инструкции»."""
-        rows = self._link_rows(account)
-        rows += [[self._button("buttons.instructions", ScreenId.INSTRUCTIONS)], self._back()]
+        rows = [
+            link_row(self._texts, account.subscription_url),
+            [self._button("buttons.instructions", ScreenId.INSTRUCTIONS)],
+            self._back(),
+        ]
         return Screen(text, InlineKeyboardMarkup(inline_keyboard=rows))
 
     def refusal(self, key: str) -> Screen:

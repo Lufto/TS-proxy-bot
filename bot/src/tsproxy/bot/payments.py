@@ -45,6 +45,7 @@ class PaymentScreens:
         values: dict[str, object] = {
             "expire_at": client_time(account.expire_at),
             "device_limit": PAID_DEVICE_LIMIT,
+            "url": account.subscription_url,
         }
         if granted.prorated:
             text = self._texts.get(

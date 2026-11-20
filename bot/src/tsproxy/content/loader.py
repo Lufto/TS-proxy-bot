@@ -268,8 +268,7 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         "buttons.terms",
         "buttons.privacy",
         "buttons.back",
-        "buttons.instructions_back",
-        "buttons.open_subscription",
+        "buttons.step_back",  # спека bot-buttons-unify
         "buttons.copy_link",
         "buttons.platform_ios",
         "buttons.platform_android",
@@ -313,7 +312,6 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         # задача 08: профиль и устройства
         "buttons.devices",
         "buttons.renew",
-        "buttons.profile_back",
         "buttons.delete_device",
         "profile.title",
         "profile.status_trial",
@@ -359,7 +357,6 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         "support.reply_prefix",
         "fallback.unknown_command",
         # задача 17: частые вопросы на экране «Поддержка» (набор — FaqQuestion)
-        "buttons.faq_back",
         *(
             f"faq.{question}.{part}"
             for question in ("connect", "not_working", "devices", "renew", "payment", "other")
@@ -367,7 +364,6 @@ REQUIRED_TEXTS: frozenset[str] = frozenset(
         ),
         # задача 12: тарифы и оплата
         "buttons.pay",
-        "buttons.tariffs_back",
         "tariffs.title",
         "tariffs.button",
         "tariffs.button_discount",

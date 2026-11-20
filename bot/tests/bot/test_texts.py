@@ -20,7 +20,7 @@ from tsproxy.bot.callbacks import (
     TicketAction,
     TicketCallback,
 )
-from tsproxy.bot.screens import Screens
+from tsproxy.bot.screens import ConnectButton, Screens
 from tsproxy.content.loader import (
     QUICK_REPLY_ID_MAX_LENGTH,
     REQUIRED_TEXTS,
@@ -61,9 +61,9 @@ INSTRUCTION_MAX_CHARS = 400
 HTML_TAG = re.compile(r"<[^>]+>")
 # Тексты с подстановками; у остальных обязательных текстов подстановок нет
 TEXT_PLACEHOLDERS: dict[str, set[str]] = {
-    "connect.active": {"expire_at"},
+    "connect.active": {"expire_at", "url"},
     "connect.inactive": {"expire_at"},
-    "trial.granted": {"expire_at", "traffic_gb", "device_limit"},
+    "trial.granted": {"expire_at", "traffic_gb", "device_limit", "url"},
     # задача 17: шаг «откройте вашу страницу подключения» в инструкциях
     **{f"instructions.{platform.value}": {"open_page"} for platform in Platform},
     "instructions.open_page_link": {"url"},
@@ -74,8 +74,8 @@ TEXT_PLACEHOLDERS: dict[str, set[str]] = {
     "payment.description": {"title"},
     "payment.screen": {"title", "price", "expires_at"},
     # задача 13: оплата засчитана
-    "payment.paid": {"expire_at", "device_limit"},
-    "payment.paid_prorated": {"expire_at", "device_limit", "amount", "price"},
+    "payment.paid": {"expire_at", "device_limit", "url"},
+    "payment.paid_prorated": {"expire_at", "device_limit", "amount", "price", "url"},
     "payment.disputed": {"expire_at"},
     # задача 21: сообщение о возврате, перенос подписки
     "refund.completed": {"amount", "expire_at"},
@@ -251,7 +251,20 @@ async def test_all_screens_use_only_required_texts(content: Content) -> None:
     account = await remnawave.get_or_create_account(
         1, expire_at=remnawave._now(), device_limit=3, traffic_limit_bytes=0
     )
-    screens.main_menu(trial_available=True, status=None, picture=Picture.MENU_NEW)
+    screens.main_menu(
+        trial_available=True,
+        status=None,
+        picture=Picture.MENU_NEW,
+        connect=ConnectButton(),
+        renew=False,
+    )
+    screens.main_menu(
+        trial_available=False,
+        status=None,
+        picture=Picture.MENU_ACTIVE,
+        connect=ConnectButton(url=account.subscription_url),
+        renew=True,
+    )
     screens.about()
     screens.support()
     for question in FaqQuestion:

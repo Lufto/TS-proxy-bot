@@ -1,6 +1,6 @@
 """«Попробовать бесплатно»: ссылка подписки один раз, повтор — «уже использовали»."""
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 from decimal import Decimal
 
 from aiogram import Bot, Dispatcher
@@ -28,19 +28,20 @@ from tsproxy.db.enums import OrderStatus
 from tsproxy.db.models import Client, Order
 from tsproxy.domain.constants import TRIAL_DAYS, TRIAL_DEVICE_LIMIT, TRIAL_TRAFFIC_GB
 from tsproxy.integrations.fakes import FakeRemnawave
-from tsproxy.integrations.remnawave_types import RemnawaveUnavailable
+from tsproxy.integrations.remnawave_types import ProxyAccount, RemnawaveUnavailable
 from tsproxy.services.fakes import FakeAlertSender, FakeClock
 
 TRIAL = MenuCallback(screen=ScreenId.TRIAL).pack()
 MAIN = MenuCallback(screen=ScreenId.MAIN).pack()
 
 
-def content_granted(ctx: BotContext, expire_at: datetime) -> str:
+def content_granted(ctx: BotContext, account: ProxyAccount) -> str:
     return ctx.texts.get(
         "trial.granted",
-        expire_at=client_time(expire_at),
+        expire_at=client_time(account.expire_at),
         traffic_gb=TRIAL_TRAFFIC_GB,
         device_limit=TRIAL_DEVICE_LIMIT,
+        url=account.subscription_url,
     )
 
 
@@ -66,6 +67,7 @@ async def test_trial_button_gives_subscription_link(
         expire_at=client_time(clock.now + timedelta(days=TRIAL_DAYS)),
         traffic_gb=TRIAL_TRAFFIC_GB,
         device_limit=TRIAL_DEVICE_LIMIT,
+        url=account.subscription_url,
     )
     assert [b.url for b in buttons(screen) if b.url] == [account.subscription_url]
 
@@ -193,7 +195,7 @@ async def test_trial_link_arrives_by_itself_when_panel_is_back(
     account = await remnawave.get_account(CLIENT_ID)
     [sent] = telegram.sent(SendMessage)
     assert sent.chat_id == CLIENT_ID
-    assert sent.text == content_granted(ctx, account.expire_at)
+    assert sent.text == content_granted(ctx, account)
 
 
 async def test_trial_link_sent_by_bot_keeps_its_text_under_new_menu(

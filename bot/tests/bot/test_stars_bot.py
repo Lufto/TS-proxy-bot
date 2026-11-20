@@ -188,10 +188,7 @@ async def test_stars_button_sends_invoice_in_stars(
     assert isinstance(invoice.reply_markup, InlineKeyboardMarkup)
     pay, *back = [row[0] for row in invoice.reply_markup.inline_keyboard]
     assert pay.pay is True and "270" in pay.text
-    assert [b.callback_data for b in back] == [
-        MenuCallback(screen=ScreenId.TARIFFS).pack(),
-        MenuCallback(screen=ScreenId.MAIN).pack(),
-    ]
+    assert [b.callback_data for b in back] == [TariffScreenCallback(tariff_id="m3").pack()]
     assert telegram.sent(SendMessage)[-1].text == content.texts.get("stars.invoice_sent", stars=270)
     assert order.payment_provider == STARS_PROVIDER
     assert payments.ledger.all() == []

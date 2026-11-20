@@ -58,8 +58,22 @@ async def test_paid_message_shows_date_and_subscription_link(
         "23.11.2026, 15:00 МСК</tg-time></b>"
     )
     assert "сбоя" not in sent.text
-    assert ctx.texts.get("buttons.open_subscription") in button_texts(sent)
+    assert ctx.texts.get("buttons.connect") in button_texts(sent)
     assert ctx.texts.get("buttons.instructions") in button_texts(sent)
+
+
+async def test_paid_message_keeps_link_in_text(
+    ctx: BotContext, telegram: FakeTelegramSession, remnawave: FakeRemnawave
+) -> None:
+    """Новое меню гасит кнопки сообщения «Оплачено» — ссылка остаётся в тексте (первый
+    клиент, 2026-11-20: открыл профиль, и ссылки не осталось нигде)."""
+    account = await paid_account(remnawave)
+
+    await messages(ctx).access_granted(granted(account))
+    await messages(ctx).access_granted(granted(account, paid=Decimal("75")))
+
+    for sent in telegram.sent(SendMessage):
+        assert f'<a href="{account.subscription_url}">' in sent.text
 
 
 async def test_other_amount_comes_with_apology(

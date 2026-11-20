@@ -10,7 +10,7 @@ from enum import Enum, auto
 from aiogram.types import DisabledButton, InlineKeyboardButton, InlineKeyboardMarkup
 
 from tsproxy.bot.callbacks import DeviceCallback, MenuCallback, RevokeLinkCallback, ScreenId
-from tsproxy.bot.screens import BUTTON_STYLES, Screen
+from tsproxy.bot.screens import BUTTON_STYLES, ConnectButton, Screen, link_row
 from tsproxy.content.dates import client_time
 from tsproxy.content.loader import Texts
 from tsproxy.content.pictures import Picture
@@ -67,12 +67,23 @@ PANEL_SILENT = PanelSilent.PANEL_SILENT
 type MenuSubscription = SubscriptionStatus | PanelSilent | None
 
 
+# Доступ есть — «Подключиться» сама ссылка подписки (спека bot-buttons-unify). Доступа нет
+# (кончился срок или пробный трафик) — «Подключиться» не показываем: ссылка не работает
+LINK_STATUSES = frozenset({ProfileStatus.TRIAL, ProfileStatus.ACTIVE, ProfileStatus.GRACE})
+NO_ACCESS_STATUSES = frozenset({ProfileStatus.EXPIRED, ProfileStatus.TRIAL_TRAFFIC_USED_UP})
+# Была оплаченная подписка — «Продлить подписку», иначе «Тарифы» (спека bot-buttons-unify)
+RENEW_STATUSES = frozenset({ProfileStatus.ACTIVE, ProfileStatus.GRACE, ProfileStatus.EXPIRED})
+
+
 @dataclass(frozen=True)
 class MenuHeader:
-    """Над главным меню: строка статуса (`None` — без неё) и картинка."""
+    """Главное меню по статусу подписки: строка статуса (`None` — без неё), картинка,
+    какой будет «Подключиться» и «Продлить подписку» ли вместо «Тарифов»."""
 
     status: str | None
     picture: Picture
+    connect: ConnectButton
+    renew: bool
 
 
 # Куда ведёт кнопка под статусом: продлить, выбрать тариф или написать в поддержку
@@ -99,8 +110,9 @@ class ProfileScreens:
             style=BUTTON_STYLES.get(key),
         )
 
-    def _back(self) -> list[InlineKeyboardButton]:
-        return [self._button("buttons.back", ScreenId.MAIN)]
+    def _step_back(self, screen: ScreenId) -> list[InlineKeyboardButton]:
+        """«Назад» — на шаг выше (спека bot-buttons-unify)."""
+        return [self._button("buttons.step_back", screen)]
 
     def _count(self, unit: str, number: int) -> str:
         return self._texts.get(f"units.{unit}_{plural_form(number).value}", n=number)
@@ -146,12 +158,16 @@ class ProfileScreens:
             ]
         )
         action_key, action_screen = STATUS_ACTIONS[profile.status]
-        rows = [
+        rows = (
+            [link_row(self._texts, profile.subscription_url)]
+            if (profile.status in LINK_STATUSES)
+            else []
+        )
+        rows += [
             [self._button("buttons.devices", ScreenId.DEVICES)],
             [self._button(action_key, action_screen)],
-            [self._button("buttons.connect", ScreenId.CONNECT)],
             self._revoke_row(revoke_available_at),
-            self._back(),
+            self._step_back(ScreenId.MAIN),
         ]
         return Screen(text, InlineKeyboardMarkup(inline_keyboard=rows))
 
@@ -163,16 +179,29 @@ class ProfileScreens:
         «не подключено», а статуса мы не знаем.
         """
         if subscription is PANEL_SILENT:
-            return MenuHeader(status=None, picture=Picture.MENU_NEUTRAL)
+            return MenuHeader(
+                status=None, picture=Picture.MENU_NEUTRAL, connect=ConnectButton(), renew=False
+            )
         if subscription is None:
-            return MenuHeader(status=None, picture=Picture.MENU_NEW)
+            return MenuHeader(
+                status=None, picture=Picture.MENU_NEW, connect=ConnectButton(), renew=False
+            )
         key = MENU_STATUS_TEXTS.get(subscription.status)
         line = (
             None
             if key is None
             else self._texts.get(key, expire_at=client_time(subscription.expire_at))
         )
-        return MenuHeader(status=line, picture=MENU_PICTURES[subscription.status])
+        if subscription.status in LINK_STATUSES:
+            connect = ConnectButton(url=subscription.subscription_url)
+        else:
+            connect = ConnectButton(shown=subscription.status not in NO_ACCESS_STATUSES)
+        return MenuHeader(
+            status=line,
+            picture=MENU_PICTURES[subscription.status],
+            connect=connect,
+            renew=subscription.status in RENEW_STATUSES,
+        )
 
     def no_account(self, *, trial_available: bool) -> Screen:
         """Профиль, когда подписки ещё нет: предложить пробный и тарифы.
@@ -181,7 +210,10 @@ class ProfileScreens:
         без аккаунта доступа клиент не получал, даже если пробный отмечен.
         """
         rows = [[self._button("buttons.trial", ScreenId.TRIAL)]] if trial_available else []
-        rows += [[self._button("buttons.tariffs", ScreenId.TARIFFS)], self._back()]
+        rows += [
+            [self._button("buttons.tariffs", ScreenId.TARIFFS)],
+            self._step_back(ScreenId.MAIN),
+        ]
         return Screen(
             self._texts.get("profile.no_account"), InlineKeyboardMarkup(inline_keyboard=rows)
         )
@@ -219,14 +251,10 @@ class ProfileScreens:
         notice = [] if notice_key is None else [self._texts.get(notice_key)]
         revoke_note = self._revoke_note(revoke_available_at)
         # Удаление только освобождает место — выгнать чужое устройство может лишь перевыпуск
-        back_rows = [
-            self._revoke_row(revoke_available_at),
-            [self._button("buttons.profile_back", ScreenId.PROFILE)],
-            self._back(),
-        ]
+        back_rows = [self._revoke_row(revoke_available_at), self._step_back(ScreenId.PROFILE)]
         if not devices.devices:
             text = PARAGRAPH.join([self._texts.get("devices.empty"), *notice, *revoke_note])
-            rows = [[self._button("buttons.connect", ScreenId.CONNECT)], *back_rows]
+            rows = [link_row(self._texts, devices.subscription_url), *back_rows]
             return Screen(text, InlineKeyboardMarkup(inline_keyboard=rows))
         used = len(devices.devices)
         if devices.limit is None:

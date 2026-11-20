@@ -254,7 +254,7 @@ async def test_screens_use_only_required_texts(content: Content) -> None:
     screens.tariffs(offers)
     screens.tariff(content.tariffs[0], 100)  # задача 33: экран тарифа, СБП и звёзды
     screens.tariff(content.tariffs[0], None)
-    screens.stars_sent(100)
+    screens.stars_sent(content.tariffs[0].id, 100)
     screens.payment(Checkout(1, content.tariffs[0], "https://pay.example/1", NOW, reused=False))
     screens.notice("payment.too_many")
     screens.notice("payment.unavailable")

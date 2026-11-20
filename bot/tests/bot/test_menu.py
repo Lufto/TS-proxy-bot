@@ -152,7 +152,7 @@ async def test_about_has_site_documents_and_back(
         ("Сайт", "https://ts-proxy.com", None),
         ("Соглашение", "https://ts-proxy.com/terms", None),
         ("Конфиденциальность", "https://ts-proxy.com/privacy", None),
-        ("В меню", None, menu_data(ScreenId.MAIN)),
+        ("Назад", None, menu_data(ScreenId.MAIN)),
     ]
 
 

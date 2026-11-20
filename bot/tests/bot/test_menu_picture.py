@@ -322,6 +322,8 @@ def test_every_subscription_status_has_menu_picture(
     content: Content, status: ProfileStatus
 ) -> None:
     """Новый статус подписки без картинки меню ловится тестом, а не ошибкой у клиента."""
-    header = ProfileScreens(content.texts).menu_header(SubscriptionStatus(status, NOW))
+    header = ProfileScreens(content.texts).menu_header(
+        SubscriptionStatus(status, NOW, "https://sub.example/x")
+    )
 
     assert content.pictures.path(header.picture).is_file()

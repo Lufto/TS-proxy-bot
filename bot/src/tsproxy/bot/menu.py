@@ -179,6 +179,8 @@ async def _main_menu(ctx: BotContext, client: Client) -> Screen:
         trial_available=trials_enabled and trial_offered,
         status=header.status,
         picture=header.picture,
+        connect=header.connect,
+        renew=header.renew,
     )
 
 

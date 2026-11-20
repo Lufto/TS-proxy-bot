@@ -40,6 +40,7 @@ from tsproxy.services.profile import DeviceList, DeviceSlots, Profile, TrafficUs
 PROFILE = MenuCallback(screen=ScreenId.PROFILE).pack()
 DEVICES = MenuCallback(screen=ScreenId.DEVICES).pack()
 EXPIRE_AT = NOW + timedelta(days=5, hours=3)
+URL = "https://sub.example/x"
 TRIAL_TRAFFIC = 7 * BYTES_PER_GB
 HWID = "f1e2d3c4b5a69788"
 DELETES = {DeviceCallback(ref=device_ref(hwid)).pack() for hwid in ("a", "b")}
@@ -342,7 +343,7 @@ async def test_no_devices_yet(
 
 def test_device_name_from_app_is_escaped(content: Content) -> None:
     # Модель устройства присылает приложение клиента — разметку из неё не исполняем
-    devices = DeviceList((device(model="<b>x</b>"),), limit=3)
+    devices = DeviceList((device(model="<b>x</b>"),), limit=3, subscription_url=URL)
     screen = ProfileScreens(content.texts).devices(devices)
     assert "&lt;b&gt;x&lt;/b&gt;" in screen.text
 
@@ -360,7 +361,7 @@ def test_all_profile_screens_use_only_required_texts(content: Content) -> None:
             continue  # без прокси-аккаунта профиля нет — экран no_account
         for left in (TimeLeft(1, 0), TimeLeft(0, 2), TimeLeft(0, 0), TimeLeft(5, 21)):
             for limit in (3, None):
-                profile = Profile(status, EXPIRE_AT, left, DeviceSlots(1, limit), traffic)
+                profile = Profile(status, EXPIRE_AT, left, DeviceSlots(1, limit), traffic, URL)
                 screens.profile(profile)
     screens.no_account(trial_available=True)
     with_system = device()
@@ -369,5 +370,7 @@ def test_all_profile_screens_use_only_required_texts(content: Content) -> None:
     )
     for limit in (3, None):
         for notice in (None, "devices.deleted", "devices.not_found"):
-            screens.devices(DeviceList((with_system, without_system), limit), notice_key=notice)
-            screens.devices(DeviceList((), limit), notice_key=notice)
+            screens.devices(
+                DeviceList((with_system, without_system), limit, URL), notice_key=notice
+            )
+            screens.devices(DeviceList((), limit, URL), notice_key=notice)

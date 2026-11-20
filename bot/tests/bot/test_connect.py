@@ -73,7 +73,9 @@ async def test_connect_opens_own_subscription_page(
     await dispatcher.feed_update(bot, callback(user(CLIENT_ID), CONNECT))
 
     [screen] = telegram.sent(SendMessage)
-    assert screen.text == content.texts.get("connect.active", expire_at=client_time(EXPIRE_AT))
+    assert screen.text == content.texts.get(
+        "connect.active", expire_at=client_time(EXPIRE_AT), url=account.subscription_url
+    )
     # дату Telegram покажет по часам клиента; старые версии — по Москве
     assert '<tg-time unix="1795435200" format="Dt">23.11.2026, 15:00 МСК</tg-time>' in screen.text
     url_buttons = [b for b in buttons(screen) if b.url is not None]
@@ -217,7 +219,9 @@ async def test_link_is_sent_once_when_panel_answers_again(
 
     [sent] = telegram.sent(SendMessage)
     assert sent.chat_id == CLIENT_ID
-    assert sent.text == content.texts.get("connect.active", expire_at=client_time(EXPIRE_AT))
+    assert sent.text == content.texts.get(
+        "connect.active", expire_at=client_time(EXPIRE_AT), url=account.subscription_url
+    )
     assert account.subscription_url in [
         b.url
         for row in sent.reply_markup.inline_keyboard

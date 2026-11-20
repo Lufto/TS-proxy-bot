@@ -135,7 +135,7 @@ async def test_frequent_question_shows_its_answer(
     [answer] = telegram.sent(SendMessage)
     assert answer.text == content.texts.get(f"faq.{question.value}.answer")
     back = MenuCallback(screen=ScreenId.SUPPORT).pack()
-    assert (content.texts.get("buttons.faq_back"), back) in buttons(answer.reply_markup)  # type: ignore[arg-type]
+    assert (content.texts.get("buttons.step_back"), back) in buttons(answer.reply_markup)  # type: ignore[arg-type]
     assert telegram.sent(CreateForumTopic) == []  # частый вопрос — не обращение
 
 
